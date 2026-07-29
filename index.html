@@ -154,6 +154,24 @@ tr:hover td{background:#fdfbf9}
 .detail-line .k{color:var(--muted)}
 .detail-line .v{font-weight:600}
 
+/* ---------- Attendance hero (live clock + work timer) ---------- */
+.attend-hero{position:relative;overflow:hidden;background:linear-gradient(160deg,#7a2727 0%,var(--maroon) 55%,#3d1010 100%);color:#fff;border-radius:22px;padding:30px 22px 26px;text-align:center;margin-bottom:20px;box-shadow:0 12px 34px rgba(90,26,26,.28)}
+.attend-hero::after{content:'';position:absolute;top:-60px;left:-40px;width:200px;height:200px;background:radial-gradient(circle,rgba(184,148,90,.35),transparent 70%);pointer-events:none}
+.attend-hero .clock-day{font-size:16px;font-weight:700;opacity:.9}
+.attend-hero .clock-time{font-size:clamp(44px,12vw,58px);font-weight:800;letter-spacing:2px;font-variant-numeric:tabular-nums;line-height:1.05;margin:2px 0 0;text-shadow:0 2px 12px rgba(0,0,0,.25)}
+.attend-hero .clock-date{font-size:14px;opacity:.8;margin-top:2px}
+.attend-hero .shift-line{margin-top:14px;font-size:13px;background:rgba(255,255,255,.14);display:inline-block;padding:6px 16px;border-radius:20px}
+.work-timer{margin-top:16px;padding-top:16px;border-top:1px solid rgba(255,255,255,.15);display:flex;flex-direction:column;gap:3px;align-items:center;min-height:56px;justify-content:center}
+.work-timer .wt-label{font-size:14px;font-weight:700}
+.work-timer .wt-val{font-size:clamp(26px,8vw,32px);font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:1px}
+.work-timer.live{color:#8affc0}
+.work-timer.live .wt-label::before{content:'';display:inline-block;width:9px;height:9px;border-radius:50%;background:#8affc0;margin-inline-end:7px;animation:pulse 1.4s infinite}
+.work-timer.done{color:#ffd9a0}
+.work-timer .wt-idle{opacity:.75;font-size:14px}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+.att-actions{display:flex;gap:12px;flex-wrap:wrap}
+.att-actions .btn{flex:1;min-width:150px;padding:16px;font-size:16px;border-radius:14px}
+
 .filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:end}
 .filters .field{margin:0;min-width:150px}
 
@@ -285,6 +303,7 @@ let SETTINGS = { permissionReasons:[], leaveTypes:[], approvers:[] };
 let currentPage = "home";
 let unsubReqs = null;
 let unsubMe = null;
+let uiTimer = null;          // مؤقّت الساعة الحية ومؤقّت الدوام
 let CACHE_REQUESTS = [];      // للأدمن: كل الطلبات / للموظف: طلباته
 let CACHE_USERS = [];         // للأدمن فقط
 
@@ -330,6 +349,9 @@ function requestsInCycle(cycle){
 const AR_DAYS=['الأحد','الإثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
 function ymd(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function hm(ts){if(!ts)return'';const d=ts.toDate?ts.toDate():new Date(ts);return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}
+function p2(n){return String(n).padStart(2,'0');}
+function fmtDur(secs){secs=Math.max(0,secs|0);const h=Math.floor(secs/3600),m=Math.floor((secs%3600)/60),s=secs%60;return `${p2(h)}:${p2(m)}:${p2(s)}`;}
+async function safeGet(ref){try{const s=await getDoc(ref);return s.exists()?s.data():null;}catch(e){return null;}}
 function shiftLabelOf(dow){
   const s=(SETTINGS.shifts||{})[dow];
   if(!s||s.type==='off') return 'راحة';
@@ -537,7 +559,6 @@ async function saveSettings(){ await setDoc(doc(db,'settings','config'),SETTINGS
 const NAV = {
   employee:[
     {id:'home',   ic:'🏠', label:'الرئيسية'},
-    {id:'attend', ic:'🕐', label:'الحضور والانصراف'},
     {id:'new',    ic:'➕', label:'طلب جديد'},
     {id:'mine',   ic:'📋', label:'طلباتي'},
   ],
@@ -622,6 +643,7 @@ function updateBadges(){
    عرض الصفحات
    ======================================================================== */
 function render(){
+  if(uiTimer){clearInterval(uiTimer);uiTimer=null;}
   const titles={home:ME.role==='admin'?'لوحة المعلومات':'الرئيسية',attend:'الحضور والانصراف',new:'طلب جديد',mine:'طلباتي',
     inbox:'الطلبات الواردة',employees:'إدارة الموظفين',attendance:'سجل الحضور',lists:'القوائم والإعدادات',monthly:'التقارير الشهرية',reports:'إحصائيات عامة',audit:'سجل الحركات'};
   const hints={home:'',attend:'سجّل حضورك وانصرافك من موقع الشركة',new:'اختر نوع الطلب واملأ البيانات',mine:'تابع حالة طلباتك',
@@ -688,14 +710,9 @@ function requestCard(r,forAdmin){
   return c;
 }
 
-/* ---------- الموظف: الرئيسية ---------- */
-function empHome(v){
-  const pend=CACHE_REQUESTS.filter(r=>r.status==='pending').length;
-  const appr=CACHE_REQUESTS.filter(r=>r.status==='approved').length;
-  const rej =CACHE_REQUESTS.filter(r=>r.status==='rejected').length;
-  const g=el('div','grid cols-3');
-  g.append(stat(pend,'تحت المراجعة','a'),stat(appr,'تمت الموافقة','g'),stat(rej,'مرفوضة','r'));
-  v.appendChild(g);
+/* ---------- الموظف: الرئيسية (الحضور + ملخص) ---------- */
+async function empHome(v){
+  await pageAttend(v);   // الساعة الحية + مؤقّت الدوام + أزرار الحضور والانصراف
 
   // أرصدة الإجازات
   const bcard=el('div','card'); bcard.appendChild(el('h3','','🏖️ أرصدة الإجازات المتبقية'));
@@ -1376,23 +1393,34 @@ async function monthlyExport(cyc){
   toast('تم تصدير التقرير الشهري','ok');
 }
 
-/* ---------- الموظف: الحضور والانصراف ---------- */
+/* ---------- الموظف: الحضور والانصراف (الصفحة الرئيسية) ---------- */
 async function pageAttend(v){
   const company=SETTINGS.company||{};
   const now=new Date(), dow=now.getDay(), dateStr=ymd(now);
-  const info=el('div','card');
-  info.innerHTML=`<h3>🗓️ ${AR_DAYS[dow]} — ${fmtDate(now)}</h3>
-    <div class="detail-line"><span class="k">ورديتك اليوم</span><span class="v">${shiftLabelOf(dow)}</span></div>`;
-  v.appendChild(info);
+
+  // بطاقة الساعة الحية + مؤقّت الدوام
+  const hero=el('div','attend-hero');
+  hero.innerHTML=`
+    <div class="clock-day">${AR_DAYS[dow]}</div>
+    <div class="clock-time" id="liveClock">--:--:--</div>
+    <div class="clock-date">${fmtDate(now)}</div>
+    <div class="shift-line">🕗 ورديتك اليوم: ${shiftLabelOf(dow)}</div>
+    <div class="work-timer" id="workTimer"><span class="wt-idle">…</span></div>`;
+  v.appendChild(hero);
+  const clockEl=hero.querySelector('#liveClock');
+  const timerEl=hero.querySelector('#workTimer');
 
   if(!company.lat||!company.lng){
     v.appendChild(el('div','card','<div class="empty"><div class="big">📍</div>لم يُحدَّد موقع الشركة بعد. تواصل مع الموارد البشرية.</div>'));
+    const tickOnly=()=>{const t=new Date();clockEl.textContent=`${p2(t.getHours())}:${p2(t.getMinutes())}:${p2(t.getSeconds())}`;};
+    tickOnly(); if(uiTimer)clearInterval(uiTimer); uiTimer=setInterval(tickOnly,1000);
     return;
   }
+
   const card=el('div','card');
   const statusBox=el('div','','<div class="empty"><span class="spinner"></span> جارٍ تحميل حالتك…</div>');
   card.appendChild(statusBox);
-  const btnRow=el('div','');btnRow.style.cssText='display:flex;gap:12px;flex-wrap:wrap;margin-top:8px';
+  const btnRow=el('div','att-actions');
   const inBtn=el('button','btn','🟢 تسجيل حضور');
   const outBtn=el('button','btn danger','🔴 تسجيل انصراف');
   btnRow.append(inBtn,outBtn);card.appendChild(btnRow);
@@ -1400,17 +1428,40 @@ async function pageAttend(v){
   v.appendChild(card);
 
   const ref=doc(db,'attendance',ME.id+'_'+dateStr);
+  let todayDoc=null;
+
+  function updateWorkTimer(){
+    if(!todayDoc||!todayDoc.checkIn){timerEl.className='work-timer';timerEl.innerHTML='<span class="wt-idle">لم تُسجّل الحضور بعد</span>';return;}
+    const ci=todayDoc.checkIn.toDate?todayDoc.checkIn.toDate():new Date(todayDoc.checkIn);
+    if(todayDoc.checkOut){
+      const co=todayDoc.checkOut.toDate?todayDoc.checkOut.toDate():new Date(todayDoc.checkOut);
+      timerEl.className='work-timer done';
+      timerEl.innerHTML=`<span class="wt-label">✅ انتهى الدوام — مجموع اليوم</span><span class="wt-val">${fmtDur((co-ci)/1000)}</span>`;
+    }else{
+      timerEl.className='work-timer live';
+      timerEl.innerHTML=`<span class="wt-label">داخل العمل</span><span class="wt-val">${fmtDur((Date.now()-ci)/1000)}</span>`;
+    }
+  }
+  function tick(){
+    const t=new Date();
+    clockEl.textContent=`${p2(t.getHours())}:${p2(t.getMinutes())}:${p2(t.getSeconds())}`;
+    updateWorkTimer();
+  }
+
   async function refresh(){
-    let d=null; try{const s=await getDoc(ref); d=s.exists()?s.data():null;}catch(e){}
+    todayDoc=await safeGet(ref);
     statusBox.innerHTML=`
-      <div class="detail-line"><span class="k">وقت الحضور</span><span class="v" style="color:var(--green)">${d&&d.checkIn?hm(d.checkIn):'لم يُسجَّل'}</span></div>
-      <div class="detail-line"><span class="k">وقت الانصراف</span><span class="v" style="color:var(--red)">${d&&d.checkOut?hm(d.checkOut):'لم يُسجَّل'}</span></div>`;
-    inBtn.disabled=!!(d&&d.checkIn);
-    outBtn.disabled=!(d&&d.checkIn)|| !!(d&&d.checkOut);
+      <div class="detail-line"><span class="k">وقت الحضور</span><span class="v" style="color:var(--green)">${todayDoc&&todayDoc.checkIn?hm(todayDoc.checkIn):'لم يُسجَّل'}</span></div>
+      <div class="detail-line"><span class="k">وقت الانصراف</span><span class="v" style="color:var(--red)">${todayDoc&&todayDoc.checkOut?hm(todayDoc.checkOut):'لم يُسجَّل'}</span></div>`;
+    inBtn.disabled=!!(todayDoc&&todayDoc.checkIn);
+    outBtn.disabled=!(todayDoc&&todayDoc.checkIn)|| !!(todayDoc&&todayDoc.checkOut);
+    updateWorkTimer();
   }
   inBtn.onclick=()=>doAttendance('in',ref,refresh,inBtn);
   outBtn.onclick=()=>doAttendance('out',ref,refresh,outBtn);
+
   await refresh();
+  tick(); if(uiTimer)clearInterval(uiTimer); uiTimer=setInterval(tick,1000);
 }
 async function doAttendance(kind,ref,refresh,btn){
   const company=SETTINGS.company||{};
@@ -1438,7 +1489,7 @@ async function doAttendance(kind,ref,refresh,btn){
   btn.textContent='💾 جارٍ الحفظ…';
   try{
     const now=new Date(), dow=now.getDay();
-    const s=await getDoc(ref); const cur=s.exists()?s.data():null;
+    const cur=await safeGet(ref);
     if(kind==='in'){
       if(cur&&cur.checkIn) toast('سجّلت حضورك اليوم مسبقاً','err');
       else{ await setDoc(ref,{employeeUid:ME.id,employeeName:ME.name,employeeEmpId:ME.empId||'',department:ME.department||'',
