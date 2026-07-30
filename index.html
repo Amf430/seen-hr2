@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>سين العقارية — نظام الاستئذان والإجازات</title>
+<title>إدارة الموارد البشرية - سين العقارية</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
@@ -200,8 +200,8 @@ tr:hover td{background:#fdfbf9}
 <div id="loginScreen" class="hidden">
   <div class="login-card">
     <div class="brand-mark">س</div>
-    <h1>سين العقارية</h1>
-    <p class="sub">نظام الاستئذان والإجازات — الموارد البشرية</p>
+    <h1>إدارة الموارد البشرية</h1>
+    <p class="sub">سين العقارية</p>
     <div class="field">
       <label>رقم الجوال</label>
       <input id="loginEmail" type="text" placeholder="05xxxxxxxx" autocomplete="username" />
@@ -241,7 +241,7 @@ tr:hover td{background:#fdfbf9}
   <aside class="sidebar" id="sidebar">
     <div class="logo">
       <div class="brand-mark">س</div>
-      <div><b>سين العقارية</b><span>الاستئذان والإجازات</span></div>
+      <div><b>إدارة الموارد البشرية</b><span>سين العقارية</span></div>
     </div>
     <nav class="nav" id="navLinks"></nav>
     <div class="foot">
@@ -378,30 +378,95 @@ function haversine(a,b){
 function bufToB64url(buf){const b=new Uint8Array(buf);let s='';for(const x of b)s+=String.fromCharCode(x);return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
 function b64urlToBuf(b64){b64=b64.replace(/-/g,'+').replace(/_/g,'/');const pad=b64.length%4;if(pad)b64+='='.repeat(4-pad);const s=atob(b64);const b=new Uint8Array(s.length);for(let i=0;i<s.length;i++)b[i]=s.charCodeAt(i);return b.buffer;}
 function randChallenge(){const a=new Uint8Array(32);crypto.getRandomValues(a);return a.buffer;}
-function bioSupported(){return !!(window.PublicKeyCredential&&navigator.credentials);}
+async function bioSupported(){
+  if(!(window.PublicKeyCredential&&navigator.credentials)) return false;
+  try{ return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable(); }
+  catch(e){ return true; }
+}
+function localCredKey(){return 'seenBioCred_'+(ME?ME.id:'x');}
+function getLocalCred(){try{return localStorage.getItem(localCredKey());}catch(e){return null;}}
+function setLocalCred(id){try{localStorage.setItem(localCredKey(),id);}catch(e){}}
+function clearLocalCred(){try{localStorage.removeItem(localCredKey());}catch(e){}}
 
 async function enrollBiometric(){
   const cred=await navigator.credentials.create({publicKey:{
     challenge:randChallenge(),
-    rp:{name:'سين العقارية'},
-    user:{id:new TextEncoder().encode(ME.id),name:ME.email||ME.id,displayName:ME.name},
+    rp:{name:'إدارة الموارد البشرية - سين'},
+    user:{id:new TextEncoder().encode(ME.id+'_'+Date.now()),name:ME.name||ME.id,displayName:ME.name||'موظف'},
     pubKeyCredParams:[{type:'public-key',alg:-7},{type:'public-key',alg:-257}],
-    authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required'},
+    authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required',residentKey:'discouraged',requireResidentKey:false},
     timeout:60000,attestation:'none'
   }});
   const id=bufToB64url(cred.rawId);
-  await updateDoc(doc(db,'users',ME.id),{bioCredId:id});
-  ME.bioCredId=id;
+  setLocalCred(id);
   return id;
 }
+/* يرجع true عند نجاح التحقق بالبصمة على هذا الجهاز */
 async function verifyBiometric(){
-  if(!ME.bioCredId) return true; /* غير مفعّلة على هذا الجهاز → تخطٍّ */
-  const a=await navigator.credentials.get({publicKey:{
-    challenge:randChallenge(),
-    allowCredentials:[{type:'public-key',id:b64urlToBuf(ME.bioCredId)}],
-    userVerification:'required',timeout:60000
-  }});
-  return !!a;
+  let id=getLocalCred();
+  if(!id){ await enrollBiometric(); return true; } /* أول مرة على هذا الجهاز → تسجيل بالبصمة */
+  try{
+    const a=await navigator.credentials.get({publicKey:{
+      challenge:randChallenge(),
+      allowCredentials:[{type:'public-key',id:b64urlToBuf(id),transports:['internal']}],
+      userVerification:'required',timeout:60000
+    }});
+    return !!a;
+  }catch(e){
+    if(e.name==='NotAllowedError') throw e; /* المستخدم ألغى */
+    /* البصمة المخزّنة غير صالحة على هذا الجهاز → إعادة تسجيل */
+    clearLocalCred(); await enrollBiometric(); return true;
+  }
+}
+
+/* ===== التقاط صورة بالكاميرا الأمامية وضغطها ===== */
+function capturePhoto(){
+  return new Promise(async (resolve)=>{
+    let stream;
+    try{ stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:false}); }
+    catch(e){ resolve({photo:null,aborted:false}); return; } /* لا كاميرا/رُفض الإذن → إكمال بدون صورة */
+    const ov=el('div','overlay');
+    const m=el('div','modal');
+    m.innerHTML=`<h3>📸 صورة التحقق</h3>
+      <video autoplay playsinline muted style="width:100%;border-radius:12px;background:#000;transform:scaleX(-1)"></video>
+      <div class="row"><button class="btn ghost" id="capCancel">إلغاء</button><button class="btn" id="capShot">📸 التقط وتابع</button></div>`;
+    ov.appendChild(m); document.body.appendChild(ov);
+    const video=m.querySelector('video'); video.srcObject=stream;
+    const cleanup=()=>{try{stream.getTracks().forEach(t=>t.stop());}catch(e){} ov.remove();};
+    m.querySelector('#capCancel').onclick=()=>{cleanup();resolve({photo:null,aborted:true});};
+    m.querySelector('#capShot').onclick=()=>{
+      const cv=document.createElement('canvas');
+      const w=340, r=(video.videoHeight/video.videoWidth)||0.75;
+      cv.width=w; cv.height=Math.round(w*r);
+      const ctx=cv.getContext('2d');
+      ctx.translate(cv.width,0); ctx.scale(-1,1); /* عكس أفقي ليطابق العرض */
+      ctx.drawImage(video,0,0,cv.width,cv.height);
+      let data=''; try{ data=cv.toDataURL('image/jpeg',0.45); }catch(e){ data=''; }
+      cleanup(); resolve({photo:data||null,aborted:false});
+    };
+  });
+}
+function openImage(src){const ov=el('div','overlay');ov.style.cursor='zoom-out';ov.innerHTML=`<img src="${src}" style="max-width:92vw;max-height:86vh;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.4)">`;ov.onclick=()=>ov.remove();document.body.appendChild(ov);}
+
+/* ===== أدوات جلسات الحضور (دخول/خروج متعدد) ===== */
+function tsToDate(ts){return ts?(ts.toDate?ts.toDate():new Date(ts)):null;}
+function sessionsOf(d){
+  if(!d) return [];
+  if(Array.isArray(d.sessions)) return d.sessions;
+  if(d.checkIn) return [{in:d.checkIn,out:d.checkOut||null,inLoc:d.checkInLoc,outLoc:d.checkOutLoc,inPhoto:d.checkInPhoto||null,outPhoto:d.checkOutPhoto||null}];
+  return [];
+}
+function workedSecs(sessions){
+  let t=0,open=false;
+  for(const s of sessions){const i=tsToDate(s.in);if(!i)continue;const o=tsToDate(s.out);if(o)t+=(o-i)/1000;else{t+=(Date.now()-i)/1000;open=true;}}
+  return {secs:t,open};
+}
+function shiftEndPassed(){
+  const s=(SETTINGS.shifts||{})[new Date().getDay()];
+  if(!s||s.type==='off'||!s.end) return false;
+  const [h,m]=s.end.split(':').map(Number);
+  const e=new Date(); e.setHours(h,m,0,0);
+  return new Date()>e;
 }
 
 /* جلب سجلات الحضور ضمن دورة */
@@ -1377,11 +1442,10 @@ async function monthlyExport(cyc){
     'جهة الاعتماد':r.approverName||'','الحالة':STATUS_AR[r.status],'سبب الرفض':r.rejectReason||'','روجع بواسطة':r.reviewedBy||''
   }));
 
-  const attRows=att.slice().sort((a,b)=>(a.employeeName||'').localeCompare(b.employeeName||'')||(a.date>b.date?1:-1)).map(r=>{
-    let hours=''; if(r.checkIn&&r.checkOut){const ci=r.checkIn.toDate?r.checkIn.toDate():new Date(r.checkIn);const co=r.checkOut.toDate?r.checkOut.toDate():new Date(r.checkOut);hours=((co-ci)/3600000).toFixed(2);}
-    return {'الموظف':r.employeeName,'الرقم الوظيفي':r.employeeEmpId||'','القسم':r.department||'',
-      'التاريخ':r.date,'اليوم':AR_DAYS[r.dow]||'','الوردية':r.shiftLabel||'',
-      'وقت الحضور':hm(r.checkIn),'وقت الانصراف':hm(r.checkOut),'ساعات العمل':hours};
+  const attRows=flattenSessions(att).map(row=>{const s=row.s||{};let hours='';if(s.in&&s.out)hours=((tsToDate(s.out)-tsToDate(s.in))/3600000).toFixed(2);
+    return {'الموظف':row.r.employeeName,'الرقم الوظيفي':row.r.employeeEmpId||'','القسم':row.r.department||'',
+      'التاريخ':row.r.date,'اليوم':AR_DAYS[row.r.dow]||'','الوردية':row.r.shiftLabel||'','الجلسة':row.idx+1,
+      'وقت الحضور':hm(s.in),'وقت الانصراف':hm(s.out),'ساعات العمل':hours};
   });
 
   const wb=XLSX.utils.book_new();
@@ -1424,37 +1488,42 @@ async function pageAttend(v){
   const inBtn=el('button','btn','🟢 تسجيل حضور');
   const outBtn=el('button','btn danger','🔴 تسجيل انصراف');
   btnRow.append(inBtn,outBtn);card.appendChild(btnRow);
-  card.appendChild(el('p','help','سيُطلب إذن الموقع'+(bioSupported()?' والتحقق بالبصمة/Face ID':'')+`. يجب أن تكون داخل نطاق ${company.radius||500} متر من الشركة.`));
+  card.appendChild(el('p','help',`سيُطلب إذن الموقع والتحقق بالبصمة/Face ID والتقاط صورة. يجب أن تكون داخل نطاق ${company.radius||500} متر من الشركة.`));
   v.appendChild(card);
 
   const ref=doc(db,'attendance',ME.id+'_'+dateStr);
   let todayDoc=null;
 
   function updateWorkTimer(){
-    if(!todayDoc||!todayDoc.checkIn){timerEl.className='work-timer';timerEl.innerHTML='<span class="wt-idle">لم تُسجّل الحضور بعد</span>';return;}
-    const ci=todayDoc.checkIn.toDate?todayDoc.checkIn.toDate():new Date(todayDoc.checkIn);
-    if(todayDoc.checkOut){
-      const co=todayDoc.checkOut.toDate?todayDoc.checkOut.toDate():new Date(todayDoc.checkOut);
-      timerEl.className='work-timer done';
-      timerEl.innerHTML=`<span class="wt-label">✅ انتهى الدوام — مجموع اليوم</span><span class="wt-val">${fmtDur((co-ci)/1000)}</span>`;
-    }else{
-      timerEl.className='work-timer live';
-      timerEl.innerHTML=`<span class="wt-label">داخل العمل</span><span class="wt-val">${fmtDur((Date.now()-ci)/1000)}</span>`;
-    }
+    const sessions=sessionsOf(todayDoc);
+    if(!sessions.length){timerEl.className='work-timer';timerEl.innerHTML='<span class="wt-idle">لم تُسجّل الحضور بعد</span>';return;}
+    const {secs,open}=workedSecs(sessions);
+    if(open){ timerEl.className='work-timer live'; timerEl.innerHTML=`<span class="wt-label">داخل العمل</span><span class="wt-val">${fmtDur(secs)}</span>`; }
+    else{ timerEl.className='work-timer done'; timerEl.innerHTML=`<span class="wt-label">خارج العمل — مجموع اليوم</span><span class="wt-val">${fmtDur(secs)}</span>`; }
   }
   function tick(){
     const t=new Date();
     clockEl.textContent=`${p2(t.getHours())}:${p2(t.getMinutes())}:${p2(t.getSeconds())}`;
+    const sessions=sessionsOf(todayDoc);
+    const open=sessions.some(s=>!s.out);
+    if(!open){ const ended=shiftEndPassed(); inBtn.disabled=ended; inBtn.textContent=ended?'⛔ انتهى وقت الدوام':'🟢 تسجيل حضور'; }
     updateWorkTimer();
   }
 
   async function refresh(){
     todayDoc=await safeGet(ref);
+    const sessions=sessionsOf(todayDoc);
+    const open=sessions.some(s=>!s.out);
+    const first=sessions[0], last=sessions[sessions.length-1];
+    const ended=shiftEndPassed();
     statusBox.innerHTML=`
-      <div class="detail-line"><span class="k">وقت الحضور</span><span class="v" style="color:var(--green)">${todayDoc&&todayDoc.checkIn?hm(todayDoc.checkIn):'لم يُسجَّل'}</span></div>
-      <div class="detail-line"><span class="k">وقت الانصراف</span><span class="v" style="color:var(--red)">${todayDoc&&todayDoc.checkOut?hm(todayDoc.checkOut):'لم يُسجَّل'}</span></div>`;
-    inBtn.disabled=!!(todayDoc&&todayDoc.checkIn);
-    outBtn.disabled=!(todayDoc&&todayDoc.checkIn)|| !!(todayDoc&&todayDoc.checkOut);
+      <div class="detail-line"><span class="k">الحالة الآن</span><span class="v" style="color:${open?'var(--green)':'var(--muted)'}">${open?'🟢 داخل العمل':(sessions.length?'خارج العمل':'لم تُسجّل بعد')}</span></div>
+      <div class="detail-line"><span class="k">عدد جلسات اليوم</span><span class="v">${sessions.length}</span></div>
+      <div class="detail-line"><span class="k">أول حضور</span><span class="v" style="color:var(--green)">${first?hm(first.in):'—'}</span></div>
+      <div class="detail-line"><span class="k">آخر انصراف</span><span class="v" style="color:var(--red)">${(last&&last.out)?hm(last.out):'—'}</span></div>`;
+    inBtn.disabled = open || ended;
+    inBtn.textContent = (ended && !open) ? '⛔ انتهى وقت الدوام' : '🟢 تسجيل حضور';
+    outBtn.disabled = !open;
     updateWorkTimer();
   }
   inBtn.onclick=()=>doAttendance('in',ref,refresh,inBtn);
@@ -1465,7 +1534,20 @@ async function pageAttend(v){
 }
 async function doAttendance(kind,ref,refresh,btn){
   const company=SETTINGS.company||{};
-  const old=btn.textContent; btn.disabled=true; btn.textContent='📍 تحديد الموقع…';
+  const old=btn.textContent;
+
+  // منع تسجيل الحضور بعد انتهاء وقت الدوام الرسمي
+  if(kind==='in' && shiftEndPassed()){
+    toast('انتهى وقت الدوام الرسمي — لا يمكن تسجيل الحضور','err'); return;
+  }
+  // منع ازدواج الجلسة
+  const pre=await safeGet(ref);
+  const preSessions=sessionsOf(pre);
+  const preOpen=preSessions.some(s=>!s.out);
+  if(kind==='in' && preOpen){ toast('أنت مسجّل دخول بالفعل — سجّل الخروج أولاً','err'); return; }
+  if(kind==='out' && !preOpen){ toast('لست مسجّل دخول حالياً','err'); return; }
+
+  btn.disabled=true; btn.textContent='📍 تحديد الموقع…';
   let pos;
   try{ pos=await getPosition(); }
   catch(e){ toast(e.code===1?'رفضت إذن الموقع — لا يمكن التسجيل':'تعذّر تحديد موقعك','err'); btn.textContent=old; btn.disabled=false; return; }
@@ -1474,34 +1556,40 @@ async function doAttendance(kind,ref,refresh,btn){
     toast(`أنت خارج نطاق الشركة (${Math.round(dist)} م). اقترب من الموقع.`,'err');
     btn.textContent=old; btn.disabled=false; return;
   }
+
+  // التحقق بالبصمة / Face ID
   let usedBio=false;
-  if(bioSupported()){
+  if(await bioSupported()){
     btn.textContent='👆 تحقّق بالبصمة…';
     try{
-      if(!ME.bioCredId) await enrollBiometric();
-      if(!await verifyBiometric()){ toast('فشل التحقق بالبصمة','err'); btn.textContent=old; btn.disabled=false; return; }
-      usedBio=true;
+      if(await verifyBiometric()) usedBio=true;
+      else { toast('فشل التحقق بالبصمة','err'); btn.textContent=old; btn.disabled=false; return; }
     }catch(e){
       if(e.name==='NotAllowedError'){ toast('أُلغي التحقق بالبصمة','err'); btn.textContent=old; btn.disabled=false; return; }
-      usedBio=false; /* جهاز غير مدعوم → إكمال بالموقع فقط */
+      usedBio=false;
     }
   }
+
+  // التقاط صورة
+  btn.textContent='📸 التقاط صورة…';
+  const cap=await capturePhoto();
+  if(cap.aborted){ btn.textContent=old; btn.disabled=false; return; }
+  const photo=cap.photo;
+
   btn.textContent='💾 جارٍ الحفظ…';
   try{
     const now=new Date(), dow=now.getDay();
     const cur=await safeGet(ref);
+    const sessions=sessionsOf(cur).map(s=>({...s})); // نسخة قابلة للتعديل
     if(kind==='in'){
-      if(cur&&cur.checkIn) toast('سجّلت حضورك اليوم مسبقاً','err');
-      else{ await setDoc(ref,{employeeUid:ME.id,employeeName:ME.name,employeeEmpId:ME.empId||'',department:ME.department||'',
-        date:ymd(now),dow,shiftLabel:shiftLabelOf(dow),checkIn:serverTimestamp(),
-        checkInLoc:{lat:pos.lat,lng:pos.lng},checkInDist:Math.round(dist),checkInBio:usedBio},{merge:true});
-        toast('تم تسجيل الحضور','ok'); }
+      sessions.push({in:now, out:null, inLoc:{lat:pos.lat,lng:pos.lng}, inDist:Math.round(dist), inBio:usedBio, inPhoto:photo});
+      await setDoc(ref,{employeeUid:ME.id,employeeName:ME.name,employeeEmpId:ME.empId||'',department:ME.department||'',
+        date:ymd(now),dow,shiftLabel:shiftLabelOf(dow),sessions},{merge:true});
+      toast('تم تسجيل الحضور','ok');
     }else{
-      if(!cur||!cur.checkIn) toast('سجّل حضورك أولاً','err');
-      else if(cur.checkOut) toast('سجّلت انصرافك اليوم مسبقاً','err');
-      else{ await setDoc(ref,{checkOut:serverTimestamp(),checkOutLoc:{lat:pos.lat,lng:pos.lng},
-        checkOutDist:Math.round(dist),checkOutBio:usedBio},{merge:true});
-        toast('تم تسجيل الانصراف','ok'); }
+      for(let i=sessions.length-1;i>=0;i--){ if(!sessions[i].out){ sessions[i].out=now; sessions[i].outLoc={lat:pos.lat,lng:pos.lng}; sessions[i].outDist=Math.round(dist); sessions[i].outBio=usedBio; sessions[i].outPhoto=photo; break; } }
+      await setDoc(ref,{sessions},{merge:true});
+      toast('تم تسجيل الانصراف','ok');
     }
   }catch(e){ console.error(e); toast('تعذّر الحفظ','err'); }
   btn.textContent=old; await refresh();
@@ -1509,6 +1597,12 @@ async function doAttendance(kind,ref,refresh,btn){
 
 /* ---------- الأدمن: سجل الحضور ---------- */
 function recentCyclesList(n=12){const arr=[];let d=new Date();for(let i=0;i<n;i++){const c=cycleOf(d);arr.push(c);d=new Date(c.start);d.setDate(d.getDate()-1);}return arr;}
+function flattenSessions(recs){
+  const rows=[];
+  recs.forEach(r=>{const ss=sessionsOf(r); if(!ss.length){rows.push({r,idx:0,s:null});return;} ss.forEach((s,i)=>rows.push({r,idx:i,s}));});
+  rows.sort((a,b)=>(a.r.employeeName||'').localeCompare(b.r.employeeName||'')||(a.r.date>b.r.date?1:-1)||a.idx-b.idx);
+  return rows;
+}
 function pageAttendance(v){
   const cycles=recentCyclesList(12);
   const sel=el('div','card'); sel.appendChild(el('h3','','🕐 اختر الدورة الشهرية'));
@@ -1527,14 +1621,19 @@ function pageAttendance(v){
     head.appendChild(el('h3','',`سجل الحضور — ${cyc.label}`));
     const exp=el('button','btn sm','⬇️ تصدير Excel'); exp.onclick=()=>attendanceExport(cyc,recs);
     head.appendChild(exp); card.appendChild(head);
-    if(!recs.length) card.appendChild(el('div','empty','<div class="big">🕐</div>لا سجلات حضور في هذه الدورة'));
+    const rows=flattenSessions(recs);
+    if(!rows.length) card.appendChild(el('div','empty','<div class="big">🕐</div>لا سجلات حضور في هذه الدورة'));
     else{
       const wrap=el('div','table-wrap');
-      wrap.innerHTML=`<table><thead><tr><th>الموظف</th><th>الرقم الوظيفي</th><th>التاريخ</th><th>اليوم</th><th>الوردية</th><th>حضور</th><th>انصراف</th></tr></thead>
-        <tbody>${recs.map(r=>`<tr><td><b>${esc(r.employeeName)}</b></td><td>${esc(r.employeeEmpId||'—')}</td>
-          <td>${esc(r.date)}</td><td>${AR_DAYS[r.dow]||''}</td><td>${esc(r.shiftLabel||'')}</td>
-          <td style="color:var(--green);font-weight:700">${hm(r.checkIn)||'—'}</td>
-          <td style="color:var(--red);font-weight:700">${hm(r.checkOut)||'—'}</td></tr>`).join('')}</tbody></table>`;
+      wrap.innerHTML=`<table><thead><tr><th>الموظف</th><th>الرقم الوظيفي</th><th>التاريخ</th><th>اليوم</th><th>#</th><th>دخول</th><th>خروج</th><th>المدة</th><th>صورة دخول</th><th>صورة خروج</th></tr></thead>
+        <tbody>${rows.map(row=>{const s=row.s||{};const dur=(s.in&&s.out)?fmtDur((tsToDate(s.out)-tsToDate(s.in))/1000):'—';
+          const ph=(p)=>p?`<img class="att-photo" src="${p}" style="width:40px;height:40px;object-fit:cover;border-radius:6px;cursor:pointer">`:'—';
+          return `<tr><td><b>${esc(row.r.employeeName)}</b></td><td>${esc(row.r.employeeEmpId||'—')}</td>
+            <td>${esc(row.r.date)}</td><td>${AR_DAYS[row.r.dow]||''}</td><td>${row.idx+1}</td>
+            <td style="color:var(--green);font-weight:700">${s.in?hm(s.in):'—'}</td>
+            <td style="color:var(--red);font-weight:700">${s.out?hm(s.out):'—'}</td>
+            <td>${dur}</td><td>${ph(s.inPhoto)}</td><td>${ph(s.outPhoto)}</td></tr>`;}).join('')}</tbody></table>`;
+      wrap.querySelectorAll('.att-photo').forEach(img=>img.onclick=()=>openImage(img.src));
       card.appendChild(wrap);
     }
     host.appendChild(card);
@@ -1542,15 +1641,16 @@ function pageAttendance(v){
   dd.onchange=draw; draw();
 }
 function attendanceExport(cyc,recs){
-  if(!recs.length){toast('لا سجلات للتصدير','err');return;}
-  const rows=recs.slice().sort((a,b)=>(a.employeeName||'').localeCompare(b.employeeName||'')||(a.date>b.date?1:-1)).map(r=>{
-    let hours=''; if(r.checkIn&&r.checkOut){const ci=r.checkIn.toDate?r.checkIn.toDate():new Date(r.checkIn);const co=r.checkOut.toDate?r.checkOut.toDate():new Date(r.checkOut);hours=((co-ci)/3600000).toFixed(2);}
-    return {'الموظف':r.employeeName,'الرقم الوظيفي':r.employeeEmpId||'','القسم':r.department||'',
-      'التاريخ':r.date,'اليوم':AR_DAYS[r.dow]||'','الوردية':r.shiftLabel||'',
-      'وقت الحضور':hm(r.checkIn),'وقت الانصراف':hm(r.checkOut),'ساعات العمل':hours};
+  const rows=flattenSessions(recs);
+  if(!rows.length){toast('لا سجلات للتصدير','err');return;}
+  const out=rows.map(row=>{const s=row.s||{};let hours='';if(s.in&&s.out)hours=((tsToDate(s.out)-tsToDate(s.in))/3600000).toFixed(2);
+    return {'الموظف':row.r.employeeName,'الرقم الوظيفي':row.r.employeeEmpId||'','القسم':row.r.department||'',
+      'التاريخ':row.r.date,'اليوم':AR_DAYS[row.r.dow]||'','الوردية':row.r.shiftLabel||'','الجلسة':row.idx+1,
+      'وقت الحضور':hm(s.in),'وقت الانصراف':hm(s.out),'ساعات العمل':hours,
+      'صورة حضور':s.inPhoto?'متوفرة':'—','صورة انصراف':s.outPhoto?'متوفرة':'—'};
   });
   const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'الحضور والانصراف');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(out),'الحضور والانصراف');
   XLSX.writeFile(wb,`حضور_سين_${cyc.key}.xlsx`);
   toast('تم تصدير سجل الحضور','ok');
 }
