@@ -26,6 +26,8 @@
   --radius:14px;
 }
 *{box-sizing:border-box;margin:0;padding:0}
+html,body{max-width:100%;overflow-x:hidden}
+#app{overflow-x:hidden}
 body{font-family:'Tajawal',system-ui,sans-serif;background:var(--paper);color:var(--ink);line-height:1.6;-webkit-font-smoothing:antialiased}
 button{font-family:inherit;cursor:pointer;border:none}
 input,select,textarea{font-family:inherit;font-size:15px}
@@ -120,6 +122,10 @@ tr:hover td{background:#fdfbf9}
 .pill.rejected{background:var(--red-bg);color:var(--red)}.pill.rejected::before{background:var(--red)}
 .pill.pending{background:var(--amber-bg);color:var(--amber)}.pill.pending::before{background:var(--amber)}
 .pill.cancelled{background:#eeecea;color:var(--muted)}.pill.cancelled::before{background:var(--muted)}
+.pill.present{background:var(--green-bg);color:var(--green)}.pill.present::before{background:var(--green)}
+.pill.late{background:var(--amber-bg);color:var(--amber)}.pill.late::before{background:var(--amber)}
+.pill.absent{background:var(--red-bg);color:var(--red)}.pill.absent::before{background:var(--red)}
+.pill.leave{background:#e8eef7;color:#2c5aa0}.pill.leave::before{background:#2c5aa0}
 .pill.active{background:var(--green-bg);color:var(--green)}.pill.active::before{background:var(--green)}
 .pill.suspended{background:#f0eeec;color:var(--muted)}.pill.suspended::before{background:var(--muted)}
 .tag{display:inline-block;background:var(--maroon-tint);color:var(--maroon);padding:3px 10px;border-radius:8px;font-size:12px;font-weight:600}
@@ -304,6 +310,7 @@ let currentPage = "home";
 let unsubReqs = null;
 let unsubMe = null;
 let uiTimer = null;          // مؤقّت الساعة الحية ومؤقّت الدوام
+let renderSeq = 0;           // حارس ضد تكرار العرض عند التحديثات المتزامنة
 let CACHE_REQUESTS = [];      // للأدمن: كل الطلبات / للموظف: طلباته
 let CACHE_USERS = [];         // للأدمن فقط
 
@@ -709,6 +716,7 @@ function updateBadges(){
    ======================================================================== */
 function render(){
   if(uiTimer){clearInterval(uiTimer);uiTimer=null;}
+  const my=++renderSeq;
   const titles={home:ME.role==='admin'?'لوحة المعلومات':'الرئيسية',attend:'الحضور والانصراف',new:'طلب جديد',mine:'طلباتي',
     inbox:'الطلبات الواردة',employees:'إدارة الموظفين',attendance:'سجل الحضور',lists:'القوائم والإعدادات',monthly:'التقارير الشهرية',reports:'إحصائيات عامة',audit:'سجل الحركات'};
   const hints={home:'',attend:'سجّل حضورك وانصرافك من موقع الشركة',new:'اختر نوع الطلب واملأ البيانات',mine:'تابع حالة طلباتك',
@@ -719,7 +727,7 @@ function render(){
   const v=$('#view'); v.innerHTML='';
   ({home:ME.role==='admin'?adminHome:empHome, attend:pageAttend, new:pageNew, mine:pageMine,
     inbox:pageInbox, employees:pageEmployees, attendance:pageAttendance, lists:pageLists, monthly:pageMonthly, reports:pageReports, audit:pageAudit
-  }[currentPage]||empHome)(v);
+  }[currentPage]||empHome)(v,my);
 }
 
 /* ---------- بطاقة حالة الطلب ---------- */
@@ -776,8 +784,9 @@ function requestCard(r,forAdmin){
 }
 
 /* ---------- الموظف: الرئيسية (الحضور + ملخص) ---------- */
-async function empHome(v){
-  await pageAttend(v);   // الساعة الحية + مؤقّت الدوام + أزرار الحضور والانصراف
+async function empHome(v,my){
+  await pageAttend(v,my);   // الساعة الحية + مؤقّت الدوام + أزرار الحضور والانصراف
+  if(my!==undefined && my!==renderSeq) return;   // عرض قديم — أوقف الإضافة لمنع التكرار
 
   // أرصدة الإجازات
   const bcard=el('div','card'); bcard.appendChild(el('h3','','🏖️ أرصدة الإجازات المتبقية'));
@@ -1459,6 +1468,7 @@ async function monthlyExport(cyc){
 
 /* ---------- الموظف: الحضور والانصراف (الصفحة الرئيسية) ---------- */
 async function pageAttend(v){
+  const my=arguments[1];
   const company=SETTINGS.company||{};
   const now=new Date(), dow=now.getDay(), dateStr=ymd(now);
 
@@ -1530,6 +1540,7 @@ async function pageAttend(v){
   outBtn.onclick=()=>doAttendance('out',ref,refresh,outBtn);
 
   await refresh();
+  if(my!==undefined && my!==renderSeq) return;   // عرض قديم — لا تُشغّل المؤقّت
   tick(); if(uiTimer)clearInterval(uiTimer); uiTimer=setInterval(tick,1000);
 }
 async function doAttendance(kind,ref,refresh,btn){
@@ -1603,54 +1614,138 @@ function flattenSessions(recs){
   rows.sort((a,b)=>(a.r.employeeName||'').localeCompare(b.r.employeeName||'')||(a.r.date>b.r.date?1:-1)||a.idx-b.idx);
   return rows;
 }
+/* ===== التكامل: حساب الحالة اليومية (حاضر/متأخر/غائب/إجازة) مع ربط الاستئذان ===== */
+const LATE_GRACE_MIN=15;
+function hmToDate(base,hhmm){if(!hhmm)return null;const [h,m]=hhmm.split(':').map(Number);const x=new Date(base);x.setHours(h,m,0,0);return x;}
+function lastOutOf(sessions){for(let i=sessions.length-1;i>=0;i--){if(sessions[i].out)return tsToDate(sessions[i].out);}return null;}
+function buildDailyStatus(cyc,users,requests,recs){
+  const recMap={}; recs.forEach(r=>{recMap[r.employeeUid+'_'+r.date]=r;});
+  const emps=users.filter(u=>u.role!=='admin');
+  const now=new Date();
+  const end=(cyc.end<now)?cyc.end:now;
+  const rows=[];
+  emps.forEach(u=>{
+    for(let d=new Date(cyc.start); d<=end; d.setDate(d.getDate()+1)){
+      const dateStr=ymd(d), dow=d.getDay();
+      const shift=(SETTINGS.shifts||{})[dow];
+      if(!shift||shift.type==='off') continue; // تجاهل أيام الراحة
+      const leave=requests.find(r=>r.type==='leave'&&r.status==='approved'&&r.employeeUid===u.id&&r.startDate<=dateStr&&r.endDate>=dateStr);
+      const perms=requests.filter(r=>r.type==='permission'&&r.status==='approved'&&r.employeeUid===u.id&&r.date===dateStr);
+      const latePerm=perms.find(p=>(p.category||'').includes('تأخير'));
+      const earlyPerm=perms.find(p=>(p.category||'').includes('خروج'));
+      const rec=recMap[u.id+'_'+dateStr];
+      const sessions=sessionsOf(rec);
+      const firstIn=sessions.length?tsToDate(sessions[0].in):null;
+      const lastOut=lastOutOf(sessions);
+      const {secs}=workedSecs(sessions);
+      let status,cls,note='';
+      if(leave){ status='إجازة: '+(leave.categoryLabel||''); cls='leave'; }
+      else if(firstIn){
+        const allowedStr=(latePerm&&latePerm.time)?latePerm.time:(shift.start||'');
+        const allowedBase=hmToDate(d,allowedStr);
+        if(allowedBase){
+          const grace=new Date(allowedBase.getTime()+LATE_GRACE_MIN*60000);
+          if(firstIn>grace){ const lateMin=Math.round((firstIn-allowedBase)/60000); status='متأخر'; cls='late'; note=`تأخر ${lateMin} د`; }
+          else { status='حاضر'; cls='present'; }
+        } else { status='حاضر'; cls='present'; }
+        if(latePerm) note=(note?note+' · ':'')+`استئذان تأخير حتى ${latePerm.time||''}`;
+        if(earlyPerm) note=(note?note+' · ':'')+`استئذان خروج مبكر ${earlyPerm.time||''}`;
+      } else {
+        status='غائب'; cls='absent';
+        if(latePerm) note=`استئذان تأخير حتى ${latePerm.time||''}`;
+        else if(earlyPerm) note=`استئذان خروج مبكر ${earlyPerm.time||''}`;
+      }
+      rows.push({u,dateStr,dow,shift,status,cls,note,firstIn,lastOut,secs,rec});
+    }
+  });
+  rows.sort((a,b)=>(a.u.name||'').localeCompare(b.u.name||'')||(a.dateStr>b.dateStr?1:-1));
+  return rows;
+}
 function pageAttendance(v){
   const cycles=recentCyclesList(12);
-  const sel=el('div','card'); sel.appendChild(el('h3','','🕐 اختر الدورة الشهرية'));
-  const dd=el('select','');dd.style.cssText='width:100%;max-width:360px;padding:12px 14px;border:1.5px solid var(--line);border-radius:11px';
-  dd.innerHTML=cycles.map((c,i)=>`<option value="${i}">${c.label}${i===0?' (الحالية)':''}</option>`).join('');
-  sel.appendChild(dd); v.appendChild(sel);
+  const sel=el('div','card'); sel.appendChild(el('h3','','🕐 سجل الحضور والتقرير اليومي'));
+  const controls=el('div','filters');
+  controls.innerHTML=`
+    <div class="field"><label>الدورة الشهرية</label><select id="atCyc">${cycles.map((c,i)=>`<option value="${i}">${c.label}${i===0?' (الحالية)':''}</option>`).join('')}</select></div>
+    <div class="field"><label>طريقة العرض</label><select id="atMode"><option value="daily">التقرير اليومي (حاضر/متأخر/غائب/إجازة)</option><option value="sessions">سجل الدخول/الخروج التفصيلي</option></select></div>
+    <div class="field" style="flex:1;min-width:180px"><label>بحث باسم الموظف أو الرقم الوظيفي</label><input id="atSearch" placeholder="🔍 اكتب الاسم أو الرقم…"></div>`;
+  sel.appendChild(controls); v.appendChild(sel);
   const host=el('div',''); v.appendChild(host);
+
+  const ddCyc=controls.querySelector('#atCyc'), ddMode=controls.querySelector('#atMode'), search=controls.querySelector('#atSearch');
+  let recs=[], loadedCycleIdx=-1;
+
+  function matchQ(name,empId){const q=search.value.trim();if(!q)return true;return (name||'').includes(q)||String(empId||'').includes(q);}
+
+  function drawDaily(cyc,card){
+    const rows=buildDailyStatus(cyc,CACHE_USERS,CACHE_REQUESTS,recs).filter(r=>matchQ(r.u.name,r.u.empId));
+    if(!rows.length){card.appendChild(el('div','empty','<div class="big">🗓️</div>لا بيانات مطابقة في هذه الدورة'));return;}
+    const wrap=el('div','table-wrap');
+    wrap.innerHTML=`<table><thead><tr><th>الموظف</th><th>الرقم الوظيفي</th><th>التاريخ</th><th>اليوم</th><th>الحالة</th><th>دخول</th><th>خروج</th><th>الساعات</th><th>صورة</th><th>ملاحظة</th></tr></thead>
+      <tbody>${rows.map(r=>{
+        const inPhoto=(sessionsOf(r.rec)[0]||{}).inPhoto;
+        const ph=inPhoto?`<img class="att-photo" src="${inPhoto}" style="width:38px;height:38px;object-fit:cover;border-radius:6px;cursor:pointer">`:'—';
+        const hours=(r.secs>0)?fmtDur(r.secs):'—';
+        return `<tr><td><b>${esc(r.u.name)}</b></td><td>${esc(r.u.empId||'—')}</td><td>${r.dateStr}</td><td>${AR_DAYS[r.dow]}</td>
+          <td><span class="pill ${r.cls}">${esc(r.status)}</span></td>
+          <td style="color:var(--green);font-weight:700">${r.firstIn?hm(r.firstIn):'—'}</td>
+          <td style="color:var(--red);font-weight:700">${r.lastOut?hm(r.lastOut):'—'}</td>
+          <td>${hours}</td><td>${ph}</td><td style="font-size:12.5px;color:var(--muted)">${esc(r.note||'')}</td></tr>`;
+      }).join('')}</tbody></table>`;
+    wrap.querySelectorAll('.att-photo').forEach(img=>img.onclick=()=>openImage(img.src));
+    card.appendChild(wrap);
+  }
+  function drawSessions(cyc,card){
+    const rows=flattenSessions(recs).filter(row=>matchQ(row.r.employeeName,row.r.employeeEmpId));
+    if(!rows.length){card.appendChild(el('div','empty','<div class="big">🕐</div>لا سجلات مطابقة'));return;}
+    const wrap=el('div','table-wrap');
+    wrap.innerHTML=`<table><thead><tr><th>الموظف</th><th>الرقم الوظيفي</th><th>التاريخ</th><th>اليوم</th><th>#</th><th>دخول</th><th>خروج</th><th>المدة</th><th>صورة دخول</th><th>صورة خروج</th></tr></thead>
+      <tbody>${rows.map(row=>{const s=row.s||{};const dur=(s.in&&s.out)?fmtDur((tsToDate(s.out)-tsToDate(s.in))/1000):'—';
+        const ph=(p)=>p?`<img class="att-photo" src="${p}" style="width:40px;height:40px;object-fit:cover;border-radius:6px;cursor:pointer">`:'—';
+        return `<tr><td><b>${esc(row.r.employeeName)}</b></td><td>${esc(row.r.employeeEmpId||'—')}</td>
+          <td>${esc(row.r.date)}</td><td>${AR_DAYS[row.r.dow]||''}</td><td>${row.idx+1}</td>
+          <td style="color:var(--green);font-weight:700">${s.in?hm(s.in):'—'}</td>
+          <td style="color:var(--red);font-weight:700">${s.out?hm(s.out):'—'}</td>
+          <td>${dur}</td><td>${ph(s.inPhoto)}</td><td>${ph(s.outPhoto)}</td></tr>`;}).join('')}</tbody></table>`;
+    wrap.querySelectorAll('.att-photo').forEach(img=>img.onclick=()=>openImage(img.src));
+    card.appendChild(wrap);
+  }
+
   async function draw(){
+    const idx=+ddCyc.value, cyc=cycles[idx];
     host.innerHTML='<div class="card"><div class="empty"><span class="spinner"></span> جارٍ التحميل…</div></div>';
-    const cyc=cycles[+dd.value]; let recs=[];
-    try{ recs=await fetchAttendance(cyc); }
-    catch(e){ console.error(e); host.innerHTML='<div class="card"><div class="empty">تعذّر التحميل — تأكد من تحديث قواعد الأمان</div></div>'; return; }
-    recs.sort((a,b)=>(a.employeeName||'').localeCompare(b.employeeName||'')||(a.date>b.date?1:-1));
+    if(idx!==loadedCycleIdx){
+      try{ await refreshUsers(); recs=await fetchAttendance(cyc); loadedCycleIdx=idx; }
+      catch(e){ console.error(e); host.innerHTML='<div class="card"><div class="empty">تعذّر التحميل — تأكد من تحديث قواعد الأمان</div></div>'; return; }
+    }
+    host.innerHTML='';
     const card=el('div','card');
     const head=el('div','');head.style.cssText='display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px';
-    head.appendChild(el('h3','',`سجل الحضور — ${cyc.label}`));
+    head.appendChild(el('h3','',`${ddMode.value==='daily'?'التقرير اليومي':'سجل الدخول/الخروج'} — ${cyc.label}`));
     const exp=el('button','btn sm','⬇️ تصدير Excel'); exp.onclick=()=>attendanceExport(cyc,recs);
     head.appendChild(exp); card.appendChild(head);
-    const rows=flattenSessions(recs);
-    if(!rows.length) card.appendChild(el('div','empty','<div class="big">🕐</div>لا سجلات حضور في هذه الدورة'));
-    else{
-      const wrap=el('div','table-wrap');
-      wrap.innerHTML=`<table><thead><tr><th>الموظف</th><th>الرقم الوظيفي</th><th>التاريخ</th><th>اليوم</th><th>#</th><th>دخول</th><th>خروج</th><th>المدة</th><th>صورة دخول</th><th>صورة خروج</th></tr></thead>
-        <tbody>${rows.map(row=>{const s=row.s||{};const dur=(s.in&&s.out)?fmtDur((tsToDate(s.out)-tsToDate(s.in))/1000):'—';
-          const ph=(p)=>p?`<img class="att-photo" src="${p}" style="width:40px;height:40px;object-fit:cover;border-radius:6px;cursor:pointer">`:'—';
-          return `<tr><td><b>${esc(row.r.employeeName)}</b></td><td>${esc(row.r.employeeEmpId||'—')}</td>
-            <td>${esc(row.r.date)}</td><td>${AR_DAYS[row.r.dow]||''}</td><td>${row.idx+1}</td>
-            <td style="color:var(--green);font-weight:700">${s.in?hm(s.in):'—'}</td>
-            <td style="color:var(--red);font-weight:700">${s.out?hm(s.out):'—'}</td>
-            <td>${dur}</td><td>${ph(s.inPhoto)}</td><td>${ph(s.outPhoto)}</td></tr>`;}).join('')}</tbody></table>`;
-      wrap.querySelectorAll('.att-photo').forEach(img=>img.onclick=()=>openImage(img.src));
-      card.appendChild(wrap);
-    }
+    if(ddMode.value==='daily') drawDaily(cyc,card); else drawSessions(cyc,card);
     host.appendChild(card);
   }
-  dd.onchange=draw; draw();
+  ddCyc.onchange=draw; ddMode.onchange=draw; search.oninput=draw;
+  draw();
 }
 function attendanceExport(cyc,recs){
-  const rows=flattenSessions(recs);
-  if(!rows.length){toast('لا سجلات للتصدير','err');return;}
-  const out=rows.map(row=>{const s=row.s||{};let hours='';if(s.in&&s.out)hours=((tsToDate(s.out)-tsToDate(s.in))/3600000).toFixed(2);
+  const daily=buildDailyStatus(cyc,CACHE_USERS,CACHE_REQUESTS,recs).map(r=>({
+    'الموظف':r.u.name,'الرقم الوظيفي':r.u.empId||'','القسم':r.u.department||'',
+    'التاريخ':r.dateStr,'اليوم':AR_DAYS[r.dow],'الحالة':r.status,
+    'دخول':r.firstIn?hm(r.firstIn):'','خروج':r.lastOut?hm(r.lastOut):'',
+    'ساعات العمل':r.secs>0?(r.secs/3600).toFixed(2):'','ملاحظة':r.note||''
+  }));
+  const sessRows=flattenSessions(recs).map(row=>{const s=row.s||{};let hours='';if(s.in&&s.out)hours=((tsToDate(s.out)-tsToDate(s.in))/3600000).toFixed(2);
     return {'الموظف':row.r.employeeName,'الرقم الوظيفي':row.r.employeeEmpId||'','القسم':row.r.department||'',
       'التاريخ':row.r.date,'اليوم':AR_DAYS[row.r.dow]||'','الوردية':row.r.shiftLabel||'','الجلسة':row.idx+1,
       'وقت الحضور':hm(s.in),'وقت الانصراف':hm(s.out),'ساعات العمل':hours,
       'صورة حضور':s.inPhoto?'متوفرة':'—','صورة انصراف':s.outPhoto?'متوفرة':'—'};
   });
   const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(out),'الحضور والانصراف');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(daily.length?daily:[{'لا يوجد':''}]),'التقرير اليومي');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(sessRows.length?sessRows:[{'لا يوجد':''}]),'الجلسات التفصيلية');
   XLSX.writeFile(wb,`حضور_سين_${cyc.key}.xlsx`);
   toast('تم تصدير سجل الحضور','ok');
 }
