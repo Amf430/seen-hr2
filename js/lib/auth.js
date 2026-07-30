@@ -86,10 +86,11 @@ export const LOAD_ERRORS = {
 
 /* ── نقطة الدخول ──
    main.js يمرّر ما يجب فعله في كل حالة، فتبقى هذه الوحدة جاهلة بالواجهة. */
-export function initAuth({ onSignedOut, onNeedsPassword, onAuthenticated, onError }) {
+export function initAuth({ onSignedOut, onNeedsPassword, onAuthenticated, onError, onBeforeLoad }) {
   return onAuthStateChanged(auth, async (user) => {
     if (!user) { setMe(null); onSignedOut(); return; }
     try {
+      if (onBeforeLoad) onBeforeLoad();
       const res = await loadMe(user);
 
       /* الحساب المعلّق يُخرَج فوراً.

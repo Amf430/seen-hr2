@@ -37,7 +37,41 @@
 <a href="#view" class="skip-link">تخطَّ إلى المحتوى</a>
 
 <!-- ============ التحميل ============ -->
-<div id="bootLoading" class="loading"><span class="spinner"></span> جارٍ التحميل…</div>
+<div id="bootLoading" class="loading"><span class="spinner"></span> <span id="bootMsg">جارٍ التحميل…</span></div>
+
+<!-- سكربت عادي (ليس module) عمداً: يعمل حتى لو مُنعت الوحدات من التحميل.
+     بدونه تبقى شاشة «جارٍ التحميل…» معلّقة بلا أي تفسير — وهذا ما يحصل
+     تماماً لو فُتح الملف بالنقر المزدوج من القرص. -->
+<script>
+(function () {
+  window.__seenBoot = { done: false };
+
+  function fail(title, detail) {
+    var b = document.getElementById('bootLoading');
+    if (!b || b.classList.contains('hidden')) return;
+    b.className = 'boot-error';
+    b.innerHTML = '<div class="boot-error__card"><h1>' + title + '</h1><div>' + detail + '</div></div>';
+  }
+
+  /* فتح الملف من القرص مباشرة — المتصفح يمنع تحميل الوحدات عبر file:// */
+  if (location.protocol === 'file:') {
+    fail('لا يمكن تشغيل النظام بفتح الملف مباشرة',
+      'المتصفح يمنع تحميل ملفات الجافاسكربت عند فتح الصفحة من القرص (file://).' +
+      '<br><br>افتح النظام من رابطه على الإنترنت، أو شغّل خادماً محلياً:' +
+      '<br><code dir="ltr">python3 -m http.server 8000</code>' +
+      '<br>ثم افتح <code dir="ltr">http://localhost:8000</code>');
+    return;
+  }
+
+  /* لو ما اكتمل الإقلاع خلال 12 ثانية، أظهر سبباً مفهوماً بدل دوران بلا نهاية */
+  setTimeout(function () {
+    if (window.__seenBoot.done) return;
+    fail('تعذّر إكمال التحميل',
+      'ما وصلنا لخادم البيانات. تحقّق من اتصالك بالإنترنت ثم حدّث الصفحة.' +
+      '<br><br>لو تكرّرت المشكلة، أبلغ الدعم الفني أن التحميل توقّف عند مرحلة: <b id="bootStage">التهيئة</b>');
+  }, 12000);
+})();
+</script>
 
 <!-- ============ الدخول ============ -->
 <div id="loginScreen" class="hidden">

@@ -198,3 +198,26 @@
 @media (max-width:760px){
   .panel--4,.panel--5,.panel--6,.panel--7,.panel--8{grid-column:span 12}
 }
+
+/* ══════════ شاشة فشل الإقلاع ══════════
+   تُعرض من سكربت عادي في index.html، فلا تعتمد على أي وحدة جافاسكربت —
+   وهذا المقصود: هي آخر ما يبقى يعمل عندما يفشل كل شيء آخر. */
+.boot-error{
+  position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+  padding:24px; background:var(--paper); z-index:9999;
+}
+.boot-error__card{
+  background:var(--card); border:1px solid var(--line); border-radius:var(--r-lg,16px);
+  box-shadow:var(--e-2,0 8px 24px rgba(90,26,26,.08));
+  padding:28px 26px; max-width:520px; width:100%;
+  font-size:var(--fs-base,.9375rem); line-height:1.9; color:var(--ink);
+}
+.boot-error__card h1{
+  font-size:var(--fs-lg,1.125rem); color:var(--maroon);
+  margin:0 0 12px; font-weight:800; line-height:1.5;
+}
+.boot-error__card code{
+  display:inline-block; background:var(--maroon-tint); color:var(--maroon);
+  padding:4px 10px; border-radius:8px; margin-top:6px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.85em;
+}

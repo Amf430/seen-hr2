@@ -12,7 +12,7 @@ import { getMe, resetState } from './lib/state.js';
 import { loadSettings } from './lib/settings.js';
 import { go } from './lib/nav.js';
 import { cleanupPage } from './lib/lifecycle.js';
-import { buildNav, paintIdentity, showScreen, initShellChrome } from './app/shell.js';
+import { buildNav, paintIdentity, showScreen, initShellChrome, setBootStage } from './app/shell.js';
 import { subscribeData, unsubscribeAll } from './app/subscriptions.js';
 import { startRouter } from './app/router.js';
 
@@ -78,6 +78,7 @@ $('#pwConfirm').addEventListener('keydown', (e) => { if (e.key === 'Enter') pwBt
 /* ── دخول التطبيق ── */
 let routerStarted = false;
 async function enterApp() {
+  setBootStage('جارٍ تحميل إعدادات النظام…');
   await loadSettings();
   showScreen('app');
   paintIdentity();
@@ -88,7 +89,10 @@ async function enterApp() {
 }
 
 /* ── ربط المصادقة بالواجهة ── */
+setBootStage('جارٍ التحقق من الجلسة…');
+
 initAuth({
+  onBeforeLoad: () => setBootStage('جارٍ تحميل بيانات حسابك…'),
   onSignedOut: () => {
     unsubscribeAll();
     cleanupPage();

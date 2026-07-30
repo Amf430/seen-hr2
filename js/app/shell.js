@@ -106,5 +106,17 @@ export function showScreen(which) {
   for (const [k, sel] of Object.entries(map)) {
     $(sel).classList.toggle('hidden', k !== which);
   }
+  /* الإقلاع اكتمل — يوقف مؤقّت الإنقاذ في index.html */
+  if (window.__seenBoot) window.__seenBoot.done = true;
   $('#bootLoading')?.classList.add('hidden');
+}
+
+/* يحدّث نص شاشة الإقلاع ومرحلتها.
+   الشاشة تبقى ظاهرة حتى تُعرض شاشة حقيقية، لكن الموظف يرى أين وصلنا بدل
+   نص ثابت لا يتغيّر — ولو تعلّق الإقلاع تُذكر المرحلة في رسالة الخطأ. */
+export function setBootStage(msg) {
+  const m = $('#bootMsg');
+  if (m) m.textContent = msg;
+  const s = $('#bootStage');
+  if (s) s.textContent = msg;
 }
