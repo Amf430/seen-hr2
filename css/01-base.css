@@ -1,0 +1,104 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   الأساس — تصفير، خطوط، إتاحة
+   مقياس الخط مضبوط للعربية: الخط العربي يحتاج ارتفاع سطر أعلى من اللاتيني.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ══════════ base + reset + focus-visible + a11y helpers ══════════ */
+*,*::before,*::after{box-sizing:border-box}
+*{margin:0;padding:0}
+
+html{font-size:16px;-webkit-text-size-adjust:100%;overflow-x:clip}
+body{font-family:var(--font);font-size:var(--fs-base);line-height:var(--lh-base);
+  font-weight:var(--fw-regular);letter-spacing:var(--ls-flat);
+  color:var(--ink);background:var(--paper);overflow-x:clip;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+
+button,input,select,textarea{font:inherit;color:inherit;letter-spacing:inherit}
+button{background:none;border:0;cursor:pointer}
+a{color:var(--maroon);text-decoration-thickness:1px;text-underline-offset:3px}
+img,svg{max-width:100%;display:block}
+
+h1,h2,h3,h4{line-height:var(--lh-heading);font-weight:var(--fw-bold);text-wrap:balance}
+h1{font-size:var(--fs-xl)} h2{font-size:var(--fs-lg)}
+h3{font-size:var(--fs-md)} h4{font-size:var(--fs-sm)}
+
+/* ── FOCUS ────────────────────────────────────────────────────── */
+:where(a,button,input,select,textarea,summary,[tabindex]):focus{outline:none}
+:where(a,button,input,select,textarea,summary,[tabindex]):focus-visible{
+  outline:var(--focus-w) solid var(--focus);
+  outline-offset:var(--focus-offset);
+  border-radius:inherit}
+.on-dark :focus-visible,.sidebar :focus-visible,
+.attend-hero :focus-visible,#loginScreen :focus-visible,#pwScreen :focus-visible{
+  outline-color:var(--focus-on-dark)}
+
+/* ── A11Y HELPERS ─────────────────────────────────────────────── */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+  overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+.skip-link{position:fixed;inset-block-start:var(--sp-2);inset-inline-start:-999px;
+  z-index:calc(var(--z-toast) + 1);background:var(--card);color:var(--maroon);
+  padding:var(--sp-3) var(--sp-4);border-radius:var(--r-md);
+  box-shadow:var(--e-3);font-weight:var(--fw-bold)}
+.skip-link:focus-visible{inset-inline-start:var(--sp-2)}
+
+::selection{background:var(--maroon);color:#fff}
+::placeholder{color:var(--muted);opacity:1}
+
+.hidden{display:none!important}
+
+/* thin scrollbars everywhere (tables + sidebar) */
+*{scrollbar-width:thin;scrollbar-color:var(--line-strong) transparent}
+*::-webkit-scrollbar{width:10px;height:10px}
+*::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:var(--r-pill);
+  border:3px solid transparent;background-clip:content-box}
+*::-webkit-scrollbar-track{background:transparent}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;
+    transition-duration:.01ms!important;scroll-behavior:auto!important}
+}
+
+TAJAWAL / ARABIC TYPE SCALE — replaces the ad-hoc 11/12/12.5/13/13.5/14/14.5/15/15.5/16/17/18/19/20/22/30px values scattered through lines 33-204.
+
+WHY ARABIC IS DIFFERENT (the rules the sizes come from):
+• No x-height distinction and no capitals — Arabic reads ~1px smaller than Latin at the same px. Every step is set ~1px above what a Latin UI would use; body is 15px not 14px.
+• Ascenders (ا ل ك) and descenders (ج ح خ ع غ ي) both overshoot, plus optional diacritics. Body line-height is 1.75 (Latin equivalent would be 1.5-1.6). Never go below 1.6 for multi-line Arabic.
+• Cursive joining: letter-spacing MUST be 0. Tracking an Arabic run visually breaks the connections. --ls-num (.02em) is allowed ONLY on digit-only strings (clock 2063, money 2314, durations 382).
+• Tajawal ships 400/500/700/800 (line 9). 600 does not exist — asking for it triggers synthetic bolding which smears Arabic joins. Use only the four loaded weights.
+• Mixed Arabic + Latin digits: set font-variant-numeric:tabular-nums lining-nums on every numeric cell so payroll columns align. Also force Latin digits in date formatting — toLocaleDateString('ar-SA-u-ca-gregory') at lines 333/334 emits Arabic-Indic digits (٢٠٢٦/٠٧/٣٠) while ymd() at line 379 emits Latin (2026-07-30); the same table shows both today. Append -nu-latn: 'ar-SA-u-ca-gregory-nu-latn'.
+
+───────────────────────────────────────────────────────────────────────
+STEP        SIZE            LH     WEIGHT   TRACK  USED FOR
+───────────────────────────────────────────────────────────────────────
+--fs-micro  11px/0.6875rem  1.45   700      0      Nav badge count (line 71), pill--xs inside table cells (2598), dev-credit footer (43,265). Never for a sentence.
+--fs-caption 12px/0.75rem   1.55   500      0      Table header th (was 13, line 113), .help (108), .stat label, chip <small> (144), table cell metadata (1213 jobTitle, 2430 note), nav group titles. FLOOR for any Arabic UI text.
+--fs-sm     13px/0.8125rem  1.6    500/700  0      Pills (was 12.5, line 119), tags (139), .btn--sm (was 13, line 54), compact table cells, field labels (700), .topbar__hint, .detail-line key.
+--fs-base   15px/0.9375rem  1.75   400      0      DEFAULT BODY. Table cells (was 14, line 112), inputs/selects (33), .btn label (48), nav items (was 14.5, line 67), card body copy, .detail-line value, modal body.
+--fs-md     16px/1rem       1.7    500/700  0      Card title h3 (was 16, line 88 — size kept, weight now 700 + ink not maroon for non-primary cards), .btn--lg, key/value emphasis, employee name in profile rows, mobile input size (iOS zoom guard).
+--fs-lg     18px/1.125rem   1.4    700      0      Page title in topbar (was 19, line 81), modal title (was 18, line 157), section band titles, .stat value in dense 6-up grids.
+--fs-xl     21px/1.3125rem  1.4    700      0      Login h1 (was 22, line 41), profile header name (was 22, line 1264), dashboard section headline, cycle label in the period banner (was 20, line 1050).
+--fs-2xl    26px/1.625rem   1.3    800      .02em  Secondary KPI numerals — payroll totals row, profile analytics tiles (1330-1347), work timer value (was clamp 26-32, line 180).
+--fs-3xl    32px/2rem       1.2    800      .02em  PRIMARY KPI numerals — dashboard stat tiles (was 30, line 95). Tabular, lining.
+--fs-4xl    40px/2.5rem     1.15   800      .02em  Reserved: single hero figure (net payroll total, today's headcount).
+clock       clamp(2.5rem,10vw,3.5rem) 1.05 800 .02em  Live clock only (.clock-time, line 175 — was clamp(44px,12vw,58px), reduced because 58px crowds the hero on a phone once the action button moves in).
+───────────────────────────────────────────────────────────────────────
+
+WEIGHT SEMANTICS
+400 body copy, table cell values, input text.
+500 field labels, nav items, secondary metadata, pill text in dense tables.
+700 headings, table th, buttons, active nav item, .money, emphasis inside a sentence.
+800 numerals only (KPI values, clock, timer, totals row) and the brand mark. Never on a full Arabic sentence — it fills the counters.
+
+MEASURE
+Body paragraphs (.card__desc, .help, callouts): max-inline-size 68ch. Arabic words run longer than Latin, so 68ch ≈ 55 Latin ch. Table cells are exempt.
+
+PASTE-READY BASE:
+html{font-size:16px;-webkit-text-size-adjust:100%}
+body{font-family:var(--font);font-size:var(--fs-base);line-height:var(--lh-base);font-weight:var(--fw-regular);letter-spacing:var(--ls-flat);color:var(--ink);background:var(--paper);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+h1,h2,h3,h4{line-height:var(--lh-heading);font-weight:var(--fw-bold);letter-spacing:var(--ls-flat);text-wrap:balance}
+h1{font-size:var(--fs-xl)} h2{font-size:var(--fs-lg)} h3{font-size:var(--fs-md)} h4{font-size:var(--fs-sm)}
+p,li{max-inline-size:68ch}
+small{font-size:var(--fs-caption);line-height:var(--lh-snug)}
+b,strong{font-weight:var(--fw-bold)}
+.num,.money,td.num,th.num,.stat__value,.stat .n,.clock-time,.wt-val{font-variant-numeric:tabular-nums lining-nums;letter-spacing:var(--ls-num)}
+:lang(en),.ltr{direction:ltr;text-align:left}

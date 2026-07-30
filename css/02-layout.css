@@ -1,0 +1,335 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   هيكل الصفحة — الشريط الجانبي المُجمّع، الترويسة، الشبكات
+   كل نقاط الاستجابة في هذا الملف وحده، عمداً: بلا أداة بناء، تتبّع نقطة استجابة موزّعة على خمسة ملفات هو أسرع طريق لتعفّن النظام.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ══════════ sidebar nav (grouped) ══════════ */
+.sidebar{position:sticky;inset-block-start:0;z-index:var(--z-nav);
+  inline-size:var(--sidebar-w);flex:none;block-size:100dvh;
+  display:flex;flex-direction:column;
+  background:linear-gradient(180deg,var(--maroon) 0%,var(--maroon-ink) 145%);
+  color:#fff;border-inline-end:1px solid var(--a-white-08)}
+
+.sidebar__brand{display:flex;align-items:center;gap:var(--sp-3);flex:none;
+  padding:var(--sp-5) var(--sp-4);border-block-end:1px solid var(--a-white-12)}
+.sidebar__brand .brand-mark{inline-size:42px;block-size:42px;border-radius:var(--r-md);
+  background:var(--a-white-16);color:#fff;font-size:var(--fs-lg);font-weight:var(--fw-black);
+  display:grid;place-items:center;flex:none;margin:0;
+  box-shadow:inset 0 0 0 1px var(--a-white-16)}
+.sidebar__brand b{display:block;font-size:var(--fs-base);font-weight:var(--fw-bold);line-height:1.3}
+.sidebar__brand span{display:block;font-size:var(--fs-caption);color:var(--a-white-56);margin-block-start:2px}
+
+.nav{flex:1;min-block-size:0;overflow-y:auto;overscroll-behavior:contain;
+  padding:var(--sp-3) var(--sp-3) var(--sp-5);
+  scrollbar-color:var(--a-white-16) transparent}
+
+.nav-group{margin-block-start:var(--sp-4);padding-block-start:var(--sp-3);
+  border-block-start:1px solid var(--a-white-08)}
+.nav-group:first-child{margin-block-start:0;padding-block-start:0;border-block-start:0}
+.nav-group__title{padding:0 var(--sp-3) var(--sp-2);
+  font-size:var(--fs-caption);font-weight:var(--fw-bold);
+  color:var(--a-white-56);letter-spacing:var(--ls-flat)}
+
+.nav-item,.nav a{position:relative;display:flex;align-items:center;gap:var(--sp-3);
+  inline-size:100%;min-block-size:40px;
+  padding-block:var(--sp-2);padding-inline:var(--sp-4) var(--sp-3);
+  margin-block-end:2px;
+  background:transparent;border:0;border-radius:var(--r-md);
+  color:var(--a-white-80);font-size:var(--fs-base);font-weight:var(--fw-medium);
+  text-align:start;cursor:pointer;
+  transition:background var(--dur-1) var(--ease),color var(--dur-1) var(--ease)}
+.nav-item::before,.nav a::before{content:"";position:absolute;inset-block:9px;
+  inset-inline-start:0;inline-size:3px;border-radius:var(--r-pill);
+  background:transparent;transition:background var(--dur-1) var(--ease)}
+.nav-item:hover,.nav a:hover{background:var(--a-white-08);color:#fff}
+.nav-item.is-active,.nav a.active{background:var(--card);color:var(--maroon);
+  font-weight:var(--fw-bold);box-shadow:var(--e-1)}
+.nav-item.is-active::before,.nav a.active::before{background:var(--gold)}
+.nav-item:focus-visible,.nav a:focus-visible{outline-color:var(--focus-on-dark)}
+
+.nav-item .ic,.nav a .ic{flex:none;inline-size:22px;text-align:center;
+  font-size:var(--fs-md);line-height:1}
+.nav-item .nav-label{flex:1;min-inline-size:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nav-item .badge,.nav a .badge{margin-inline-start:auto}
+.nav-item.is-active .badge,.nav a.active .badge{background:var(--maroon);color:#fff}
+
+/* footer user card — replaces .foot at lines 73-77 */
+.sidebar__foot{flex:none;padding:var(--sp-3) var(--sp-4) var(--sp-4);
+  border-block-start:1px solid var(--a-white-12)}
+.side-user{display:flex;align-items:center;gap:var(--sp-3);
+  padding:var(--sp-2) var(--sp-3);border-radius:var(--r-md);
+  background:var(--a-white-08);margin-block-end:var(--sp-3)}
+.side-user__avatar{inline-size:36px;block-size:36px;border-radius:var(--r-pill);flex:none;
+  background:var(--gold);color:var(--maroon-ink);
+  font-size:var(--fs-base);font-weight:var(--fw-black);display:grid;place-items:center}
+.side-user__meta{min-inline-size:0}
+.side-user__name,.sidebar .foot .who{display:block;color:#fff;font-weight:var(--fw-bold);
+  font-size:var(--fs-sm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.side-user__role,.sidebar .foot .role{display:block;color:var(--a-white-56);font-size:var(--fs-caption)}
+.sidebar__foot .btn{inline-size:100%}
+.dev-credit{font-size:var(--fs-micro);color:var(--muted);text-align:center;
+  margin-block-start:var(--sp-3);line-height:var(--lh-snug)}
+.sidebar__foot .dev-credit{color:var(--a-white-40)}
+
+/* mobile scrim — does not exist today */
+.nav-scrim{position:fixed;inset:0;z-index:var(--z-scrim);
+  background:var(--scrim);opacity:0;visibility:hidden;
+  transition:opacity var(--dur-2) var(--ease),visibility var(--dur-2)}
+body.nav-open .nav-scrim{opacity:1;visibility:visible}
+body.nav-open{overflow:hidden}
+
+/* ══════════ topbar + page header ══════════ */
+#app{display:flex;min-block-size:100dvh;overflow-x:clip}
+.main{flex:1;min-inline-size:0;display:flex;flex-direction:column}
+
+.topbar{position:sticky;inset-block-start:0;z-index:var(--z-topbar);
+  display:flex;align-items:center;gap:var(--sp-4);
+  min-block-size:var(--topbar-h);
+  padding-block:var(--sp-3);padding-inline:var(--content-pad);
+  background:rgba(255,255,255,.88);
+  -webkit-backdrop-filter:saturate(180%) blur(10px);
+  backdrop-filter:saturate(180%) blur(10px);
+  border-block-end:1px solid var(--line)}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  .topbar{background:var(--card)}
+}
+.topbar__titles{min-inline-size:0}
+.topbar__title,.topbar h2{font-size:var(--fs-lg);font-weight:var(--fw-bold);
+  color:var(--maroon);line-height:var(--lh-heading);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.topbar__hint,.topbar .hint{font-size:var(--fs-sm);color:var(--muted-strong);
+  line-height:var(--lh-snug);margin-block-start:2px}
+.topbar__actions{display:flex;align-items:center;gap:var(--sp-2);
+  margin-inline-start:auto;flex-wrap:wrap;justify-content:flex-end}
+
+.menu-toggle{display:none;flex:none;
+  inline-size:var(--control-h);block-size:var(--control-h);
+  border-radius:var(--r-md);background:var(--maroon-tint);color:var(--maroon);
+  font-size:var(--fs-lg);align-items:center;justify-content:center}
+.menu-toggle:hover{background:var(--a-maroon-16)}
+
+.content{inline-size:100%;max-inline-size:var(--content-max);
+  padding:var(--sp-6) var(--content-pad) var(--sp-12);
+  display:flex;flex-direction:column;gap:var(--sp-4)}
+.content--wide{max-inline-size:none}
+.content>*{margin-block-end:0}
+
+/* in-page header for drill-down views (employee profile, 1276-1279) */
+.page-head{display:flex;align-items:flex-start;gap:var(--sp-4);flex-wrap:wrap;
+  margin-block-end:var(--sp-2)}
+.page-head__title{font-size:var(--fs-xl);font-weight:var(--fw-bold);color:var(--ink)}
+.page-head__sub{font-size:var(--fs-sm);color:var(--muted-strong);margin-block-start:2px}
+.page-head__actions{margin-inline-start:auto;display:flex;gap:var(--sp-2);flex-wrap:wrap}
+
+/* back link */
+.back-link{display:inline-flex;align-items:center;gap:var(--sp-2);
+  font-size:var(--fs-sm);font-weight:var(--fw-bold);color:var(--maroon);
+  background:none;padding:var(--sp-2) 0}
+.back-link::before{content:"←";font-size:1.1em}
+.back-link:hover{text-decoration:underline;text-underline-offset:3px}
+
+GROUPED SIDEBAR — replaces the flat 10-item list (NAV object, index.html:696-720) and buildNav() (734-741).
+
+═══ VISUAL SPEC ═══
+Width 264px (was 250). Gradient maroon → maroon-ink top-to-bottom, hairline rgba(255,255,255,.08) on the inline-end edge (= physical left in RTL). Three fixed zones:
+
+1. BRAND · 42px rounded square (white 16% fill, white 'س', 18px/800) + two lines: 'إدارة الموارد البشرية' 15px/700 white, 'سين العقارية' 12px white-56%. Padding 20px 16px, hairline below.
+2. NAV · flex:1, own overflow-y, 12px padding. Groups separated by a 1px white-08 rule with 16px space above and a 12px/700 white-56% heading.
+3. FOOTER · user card (36px gold avatar with the first letter of ME.name, maroon-ink text; name 13px/700 white; role 12px white-56%) over a full-width secondary logout button, then the 11px dev-credit at white-40%.
+
+ITEM · 40px min-height, 8px radius, 16px inline-start / 12px inline-end padding, 12px gap, 22px icon slot, 15px/500 label at white-80%, 2px between items.
+  hover   → background white-08, label #fff
+  active  → background #fff, text --maroon, weight 700, --e-1, plus a 3px --gold rail pinned to the inline-start edge (inset-block 9px) — the rail is the only decorative use of gold in the app.
+  focus   → 2px white outline, 2px offset (items are <button>, so this is now reachable at all).
+  badge   → margin-inline-start:auto, gold fill + --ink text (white-on-gold was 2.2:1 at line 71), 22x20 pill, tabular. On the active white pill it inverts to maroon fill + white text.
+
+GROUP HEADING · 12px/700, rgba(255,255,255,.56), padding 0 12px 8px. No uppercase transform and no letter-spacing — Arabic has neither.
+
+═══ GROUPS ═══
+
+ADMIN (10 items → 1 pinned + 4 groups):
+  [pinned, no heading]
+    📊  لوحة المعلومات                → home
+  ── شؤون الموظفين ──
+    👥  الموظفون                      → employees
+    📥  الطلبات الواردة        [badge] → inbox
+  ── الوقت والحضور ──
+    🕐  حضور الموقع                   → attendance
+    🖐️  بصمات الجهاز                  → zklog
+  ── الرواتب والتقارير ──
+    💰  مسير الرواتب                  → payroll
+    📅  التقارير الشهرية              → monthly
+    📈  إحصائيات عامة                 → reports
+  ── النظام ──
+    ⚙️  الإعدادات                     → lists   (renamed from «القوائم والإعدادات»)
+    🗂️  سجل الحركات                   → audit
+
+MANAGER:
+  [pinned]  🏠  الرئيسية              → home
+  ── فريقي ──
+    📥  طلبات قسمي            [badge] → inbox
+  ── طلباتي ──
+    ➕  طلب جديد                      → new
+    📋  طلباتي                        → mine
+
+EMPLOYEE:
+  [pinned]  🏠  الرئيسية              → home
+  ── طلباتي ──
+    ➕  طلب جديد                      → new
+    📋  طلباتي                        → mine
+
+RULE: new features do NOT get new nav items. Branches and per-employee geofence radius live as tabs inside الإعدادات; the employee profile (currentPage 'profile') stays a drill-down from الموظفون and is never a nav entry.
+
+═══ SETTINGS TABS ═══
+pageLists (1536-1785) is 250 lines of eight stacked cards. Split with .subnav into five panels, in this order:
+  1. الأقسام والفروع      — departments (1637-1685) + NEW branches list (name, lat/lng, radius, active)
+  2. الدوام والورديات     — weekly shifts (1607-1634) + date exceptions/holidays (1688-1748)
+  3. الطلبات والإجازات    — permission reasons (1538), leave types (1542-1568), approvers (1571)
+  4. الحضور والنطاق       — default radius, per-employee overrides, 'يسجّل من أي مكان' list, biometric policy
+  5. الرواتب              — payroll config (1751-1781)
+Each panel gets its own `<div class="tabpanel" role="tabpanel" hidden>`; only the visible panel renders its cards, which also fixes the current behaviour where all eight cards build (and refreshUsers fires) on every visit.
+
+═══ JS REPLACEMENT — drop-in for lines 696-741 ═══
+const NAV = {
+  employee:[
+    {items:[{id:'home',ic:'🏠',label:'الرئيسية'}]},
+    {title:'طلباتي',items:[
+      {id:'new', ic:'➕',label:'طلب جديد'},
+      {id:'mine',ic:'📋',label:'طلباتي'}]}
+  ],
+  manager:[
+    {items:[{id:'home',ic:'🏠',label:'الرئيسية'}]},
+    {title:'فريقي',items:[{id:'inbox',ic:'📥',label:'طلبات قسمي'}]},
+    {title:'طلباتي',items:[
+      {id:'new', ic:'➕',label:'طلب جديد'},
+      {id:'mine',ic:'📋',label:'طلباتي'}]}
+  ],
+  admin:[
+    {items:[{id:'home',ic:'📊',label:'لوحة المعلومات'}]},
+    {title:'شؤون الموظفين',items:[
+      {id:'employees',ic:'👥',label:'الموظفون'},
+      {id:'inbox',    ic:'📥',label:'الطلبات الواردة'}]},
+    {title:'الوقت والحضور',items:[
+      {id:'attendance',ic:'🕐',label:'حضور الموقع'},
+      {id:'zklog',     ic:'🖐️',label:'بصمات الجهاز'}]},
+    {title:'الرواتب والتقارير',items:[
+      {id:'payroll',ic:'💰',label:'مسير الرواتب'},
+      {id:'monthly',ic:'📅',label:'التقارير الشهرية'},
+      {id:'reports',ic:'📈',label:'إحصائيات عامة'}]},
+    {title:'النظام',items:[
+      {id:'lists',ic:'⚙️',label:'الإعدادات'},
+      {id:'audit',ic:'🗂️',label:'سجل الحركات'}]}
+  ]
+};
+
+function buildNav(){
+  const box=$('#navLinks'); box.innerHTML='';
+  (NAV[ME.role]||NAV.employee).forEach(group=>{
+    const g=el('div','nav-group');
+    if(group.title) g.appendChild(el('div','nav-group__title',esc(group.title)));
+    group.items.forEach(l=>{
+      const b=el('button','nav-item',
+        `<span class="ic" aria-hidden="true">${l.ic}</span><span class="nav-label">${esc(l.label)}</span>`);
+      b.type='button';
+      b.dataset.page=l.id;
+      b.setAttribute('aria-current','false');
+      b.onclick=()=>go(l.id);
+      g.appendChild(b);
+    });
+    box.appendChild(g);
+  });
+  setActiveNav();
+}
+
+function setActiveNav(){
+  document.querySelectorAll('#navLinks .nav-item').forEach(a=>{
+    const on=a.dataset.page===currentPage;
+    a.classList.toggle('is-active',on);
+    a.setAttribute('aria-current',on?'page':'false');
+  });
+}
+
+// updateBadges (786-793) only needs its selector widened:
+//   const a=box.querySelector('[data-page="inbox"]');
+
+Also required: wrap the nav in <nav aria-label="التنقل الرئيسي">, add <a class="skip-link" href="#view">تخطَّ إلى المحتوى</a> as the first child of <body>, and give #view tabindex="-1".
+
+BREAKPOINTS (max-width, mobile-last since the tool is desktop-first by usage — admins live on laptops, employees check in on phones):
+  560px  phone
+  760px  small tablet / dashboard panels collapse
+  1024px SIDEBAR GOES OFF-CANVAS  ← moved up from 860px (line 196)
+  1100px dashboard 12-col → 6-col pairs
+  1440px sidebar widens, content max grows
+
+WHY 1024 AND NOT 860: at 900px viewport the current layout leaves 650px of content beside a 250px sidebar, and the payroll table needs 1400px. You get a sidebar plus a table that is 55% horizontal scrollbar. Below 1024 the sidebar becomes off-canvas and the content gets the full width.
+
+═══ SIDEBAR / OFF-CANVAS ═══
+Today (lines 200-201) the panel slides in from the inline-end with transform:translateX(100%) and nothing else: no scrim, no body scroll lock, no Esc, no focus containment, and tapping the page does not close it. Full replacement:
+
+@media (max-width:1024px){
+  .sidebar{position:fixed;inset-block:0;inset-inline-end:0;
+    transform:translateX(100%);            /* RTL: off-screen to the right */
+    transition:transform var(--dur-3) var(--ease);
+    box-shadow:-6px 0 30px rgba(0,0,0,.25);
+    inline-size:min(300px,86vw)}
+  .sidebar.open{transform:translateX(0)}
+  .menu-toggle{display:flex}
+  .toolbar--sticky{inset-block-start:calc(var(--topbar-h) - 8px)}
+}
+[dir="ltr"] .sidebar{transform:translateX(-100%)}   /* if the shell is ever mirrored */
+
+JS to add alongside the existing toggle (line 732):
+  const scrim=document.createElement('div'); scrim.className='nav-scrim'; document.body.appendChild(scrim);
+  const closeNav=()=>{$('#sidebar').classList.remove('open');document.body.classList.remove('nav-open');$('#menuToggle').setAttribute('aria-expanded','false');};
+  $('#menuToggle').onclick=()=>{const on=$('#sidebar').classList.toggle('open');document.body.classList.toggle('nav-open',on);$('#menuToggle').setAttribute('aria-expanded',String(on));};
+  scrim.onclick=closeNav;
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')closeNav();});
+  // go() already calls sidebar.classList.remove('open') at line 746 — add document.body.classList.remove('nav-open') there too.
+
+═══ 1440px AND UP ═══
+@media (min-width:1440px){
+  :root{--sidebar-w:280px;--content-max:1440px;--content-pad:32px}
+}
+
+═══ 760px — DASHBOARD / GRIDS ═══
+.panel--* all collapse to span 12 (see the dashboard component). .kpi-row keeps auto-fit minmax(190px,1fr) so four tiles become two, then one. .grid.cols-2/3/4 are already auto-fit so they degrade without breakpoint help — this replaces the hard 1fr 1fr at lines 197-198 which squeezes four 30px numerals into 180px columns at 870px.
+
+═══ 560px — PHONE ═══
+@media (max-width:560px){
+  :root{--content-pad:16px;--card-pad:16px;--cell-px:12px;--sp-6:20px}
+  /* iOS Safari zooms any focused input under 16px — the check-in screen and the
+     login screen are phone-first, so bump the control font size here only */
+  .field input,.field select,.field textarea,.input,.select,.textarea{font-size:var(--fs-md)}
+  .topbar{min-block-size:60px;padding-inline:var(--sp-4)}
+  .topbar__hint{display:none}          /* the hint is redundant once the title wraps */
+  .topbar__actions{gap:var(--sp-1)}
+  .content{padding-block:var(--sp-4) var(--sp-10)}
+  .toolbar .field,.filters .field{min-inline-size:100%}
+  .modal{max-block-size:94dvh;border-radius:var(--r-lg) var(--r-lg) 0 0;
+    align-self:flex-end;max-inline-size:none}   /* sheet-style */
+  .overlay{padding:0;align-items:flex-end}
+  .detail-line{grid-template-columns:1fr}
+  .btn{padding-inline:var(--sp-4)}
+  .att-actions .btn,.hero__actions .btn{min-inline-size:100%}
+}
+
+═══ TABLES ON SMALL SCREENS ═══
+No card-stacking transform — an 8-column attendance row stacked vertically is 8 rows of noise and destroys comparison, which is the entire point of these tables. Instead:
+  • .table-wrap keeps its own overflow-x:auto with the edge fades so the affordance is visible;
+  • .table--pin keeps the employee-name column stuck to the right while the numbers scroll;
+  • font drops to --fs-caption and cell padding to the compact values via the 560px block;
+  • add `--table-min:1180px` inline on the payroll table so it never compresses into unreadable columns.
+The page body still never scrolls sideways: html/body use overflow-x:clip and every wide element is inside a .table-wrap.
+
+═══ VIEWPORT UNITS ═══
+Every 100vh becomes 100dvh: #loginScreen/#pwScreen (line 37), .sidebar height (61), #app min-height (60), .loading (192). On mobile Safari 100vh is taller than the visible area, so today the login button sits under the browser chrome on first paint.
+
+═══ TOUCH ═══
+@media (pointer:coarse) all .btn--sm rise to 38px and chip close buttons to 28px (see utilities). Row action cells (line 1219-1228 puts up to five buttons in one cell) get flex-wrap:nowrap plus horizontal scroll inside the cell rather than wrapping into a 3-line row.
+
+═══ ORIENTATION ═══
+@media (max-height:520px) and (orientation:landscape){
+  .attend-hero{padding-block:var(--sp-4)}
+  .clock-time{font-size:2.25rem}
+  .work-timer{margin-block-start:var(--sp-3);padding-block-start:var(--sp-3)}
+}

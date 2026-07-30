@@ -1,0 +1,227 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /* ───────────── identity ─────────────
+       hasP() replaces sIn() on every write.
+       A stranger who self-signs-up has request.auth != null but NO users/ doc,
+       so hasP() is false and they can do nothing at all.
+       isActive() additionally blocks suspended employees at the database,
+       not just in the UI.                                                  */
+    function sIn()     { return request.auth != null; }
+    function myD()     { return /databases/$(database)/documents/users/$(request.auth.uid); }
+    function hasP()    { return sIn() && exists(myD()); }
+    function me()      { return get(myD()).data; }
+    function isActive(){ return hasP() && me().get('status','active') == 'active'; }
+    function isAdmin() { return isActive() && me().role == 'admin'; }
+    function isMgr()   { return isActive() && me().role == 'manager'; }
+    function myDept()  { return me().get('department',''); }
+
+    function d()       { return request.resource.data; }
+    function p()       { return resource.data; }
+    function only(k)   { return d().diff(p()).affectedKeys().hasOnly(k); }
+
+    /* a manager may only act inside their own, non-empty department */
+    function sameDept() {
+      return isMgr() && resource != null && myDept() != ''
+             && p().get('department','') == myDept();
+    }
+
+    /* ───────────── time ─────────────
+       request.time is UTC; the company runs on Riyadh time (UTC+3), so the
+       calendar date is computed after shifting. Used to stop an employee
+       fabricating an attendance record for a past date.                    */
+    function fresh(t) {
+      return t is timestamp
+             && t > request.time - duration.value(5,'m')
+             && t < request.time + duration.value(2,'m');
+    }
+    function pad(n)    { return n < 10 ? '0' + string(n) : string(n); }
+    function ymd(t)    { return string(t.year()) + '-' + pad(t.month()) + '-' + pad(t.day()); }
+    function ksa()     { return request.time + duration.value(3,'h'); }
+    function todayKsa(){ return ymd(ksa()); }
+    function yesterKsa(){ return ymd(ksa() - duration.value(24,'h')); }
+
+    /* ───────────── attendance sessions ─────────────
+       Rules cannot loop, and sessions is capped at 12, so the prefix check is
+       unrolled. `n <= i` short-circuits before the index is ever evaluated.  */
+    function oldN()    { return p().sessions.size(); }
+    function newN()    { return d().sessions.size(); }
+    function oldLast() { return p().sessions[oldN()-1]; }
+    function newLast() { return d().sessions[newN()-1]; }
+    function sameAt(i) { return d().sessions[i] == p().sessions[i]; }
+    function frozenBelow(n) {
+      return (n <=  0 || sameAt(0))  && (n <=  1 || sameAt(1))
+          && (n <=  2 || sameAt(2))  && (n <=  3 || sameAt(3))
+          && (n <=  4 || sameAt(4))  && (n <=  5 || sameAt(5))
+          && (n <=  6 || sameAt(6))  && (n <=  7 || sameAt(7))
+          && (n <=  8 || sameAt(8))  && (n <=  9 || sameAt(9))
+          && (n <= 10 || sameAt(10)) && (n <= 11 || sameAt(11));
+    }
+    function isOpen(s) { return !('out' in s) || s.out == null; }
+
+    /* ═════════════════════════ users ═════════════════════════ */
+    match /users/{uid} {
+      allow read: if isAdmin() || (sIn() && request.auth.uid == uid) || sameDept();
+
+      allow create: if isAdmin();
+
+      /* Self-update is pinned to two harmless fields. Role, salary, status,
+         balances, department and every other field stay admin-only.
+
+         bioCredentials is the index of WebAuthn credential ids enrolled on this
+         employee's devices. It is deliberately writable by the employee: it is a
+         convenience index that stops duplicate enrollment across browsers, NOT
+         evidence of anything. Nothing in the app trusts its contents — the real
+         controls are the geofence and the fresh() timestamp rule below. Capped
+         at 5 so it cannot be used as free storage. */
+      allow update: if isAdmin()
+        || (isActive() && request.auth.uid == uid
+            && only(['mustChangePassword', 'bioCredentials'])
+            && (!('mustChangePassword' in d().diff(p()).affectedKeys())
+                || d().mustChangePassword == false)
+            && (!('bioCredentials' in d().diff(p()).affectedKeys())
+                || (d().bioCredentials is list && d().bioCredentials.size() <= 5)));
+
+      allow delete: if isAdmin();
+    }
+
+    /* ═════════════════════════ settings ═════════════════════════ */
+    match /settings/{doc} {
+      /* was sIn(): a signed-up stranger could read company GPS, payroll rules,
+         department list and every manager's uid. Now requires a real profile. */
+      allow read:  if hasP();
+      allow write: if isAdmin();
+    }
+
+    /* ═════════════════════════ requests ═════════════════════════ */
+    match /requests/{id} {
+      allow read: if isAdmin()
+        || (sIn() && p().employeeUid == request.auth.uid)
+        || sameDept();
+
+      allow create: if isActive()
+        && d().employeeUid   == request.auth.uid
+        /* identity fields must match the profile — no impersonation in the
+           admin inbox, and no picking a friendlier department to be judged by */
+        && d().employeeName  == me().name
+        && d().get('department','')     == myDept()
+        && d().get('employeeEmpId','')  == me().get('empId','')
+        && d().type in ['permission','leave']
+        && d().status == 'pending'
+        && d().reviewedBy == '' && d().reviewedAt == null && d().rejectReason == ''
+        && d().createdAt == request.time
+        /* days feeds adjustBalance(); a negative value would ADD leave on approval */
+        && (d().type == 'permission'
+            || (d().days is int && d().days > 0 && d().days <= 365))
+        /* kills the stored-XSS vector: javascript: / data: links can't be stored */
+        && (!('attachmentLink' in d()) || d().attachmentLink == ''
+            || d().attachmentLink.matches('^https?://[^\\s]+$'));
+
+      allow update: if isAdmin()
+        /* manager: permissions only, not their own, and ONLY the review fields.
+           Previously date/time were writable, which feeds the payroll exemption. */
+        || (sameDept()
+            && p().type == 'permission'
+            && p().employeeUid != request.auth.uid
+            && d().status in ['approved','rejected']
+            && d().reviewedBy == me().name
+            && only(['status','reviewedBy','reviewedAt','rejectReason']))
+        /* employee withdrawing their own pending request */
+        || (isActive() && p().employeeUid == request.auth.uid
+            && p().status == 'pending'
+            && d().status == 'cancelled'
+            && only(['status','reviewedAt']));
+
+      allow delete: if isAdmin();
+    }
+
+    /* ═════════════════════════ attendance (web self check-in) ═════════════════════════ */
+    match /attendance/{id} {
+      allow read: if isAdmin()
+        || (sIn() && (resource == null || p().employeeUid == request.auth.uid))
+        || sameDept();
+
+      allow create: if isActive()
+        && id == request.auth.uid + '_' + d().date
+        && d().employeeUid  == request.auth.uid
+        && d().employeeName == me().name
+        && d().get('department','') == myDept()
+        /* the claimed calendar date must be today (or yesterday, for a shift
+           that crosses midnight) in Riyadh time — no writing into the past */
+        && (d().date == todayKsa() || d().date == yesterKsa())
+        && d().source == 'web'
+        && d().sessions is list
+        && newN() == 1
+        && fresh(d().sessions[0].in)
+        && isOpen(d().sessions[0]);
+
+      allow update: if isActive()
+        && id == request.auth.uid + '_' + p().date
+        && p().employeeUid == request.auth.uid
+        && d().date == p().date
+        && d().employeeUid == p().employeeUid
+        && d().sessions is list
+        && newN() <= 12
+        && (
+          /* check IN: append exactly one open session, every prior one frozen,
+             and no earlier session may still be hanging open */
+          (newN() == oldN() + 1
+            && frozenBelow(oldN())
+            && (oldN() == 0 || !isOpen(oldLast()))
+            && fresh(newLast().in)
+            && isOpen(newLast()))
+          ||
+          /* check OUT: close the last session only. Previously any session
+             except sessions[0] could be silently rewritten. */
+          (newN() == oldN()
+            && oldN() > 0
+            && frozenBelow(oldN() - 1)
+            && isOpen(oldLast())
+            && newLast().in == oldLast().in
+            && newLast().out != null
+            && fresh(newLast().out)
+            && newLast().out > newLast().in)
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    /* ═════════════════════════ ZKTeco device log ═════════════════════════
+       Written only by zk_bridge.py through the Admin SDK, which bypasses
+       these rules. Payroll reads this collection and nothing else.          */
+    match /zkAttendance/{id} {
+      allow read: if isAdmin()
+        || (sIn() && (resource == null || p().employeeUid == request.auth.uid))
+        || sameDept();
+      allow write: if false;
+    }
+
+    match /bridge/{doc} {
+      allow read:  if isAdmin();
+      allow write: if false;
+    }
+
+    /* ═════════════════════════ audit log ═════════════════════════
+       Append-only, and now only staff can append. Every logAction() call in
+       the app sits behind an admin/manager action, so employees never need
+       write access — which removes the flood vector entirely. byName is
+       pinned to the caller's real name, so entries can't be attributed to
+       someone else.                                                         */
+    match /auditLog/{id} {
+      allow read: if isAdmin();
+
+      allow create: if (isAdmin() || isMgr())
+        && d().byUid  == request.auth.uid
+        && d().byName == me().name
+        && d().at == request.time
+        && d().keys().hasOnly(['action','detail','byName','byUid','at'])
+        && d().action is string && d().action.size() <= 100
+        && d().detail is string && d().detail.size() <= 500;
+
+      allow update, delete: if false;
+    }
+
+    /* anything not matched above is denied */
+  }
+}

@@ -1,0 +1,64 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   مساعدات وطباعة
+   يُحمَّل أخيراً حتى تتغلّب المساعدات على المكوّنات بلا !important.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ══════════ utilities + print ══════════ */
+/* layout utilities */
+.row-between{display:flex;align-items:center;justify-content:space-between;
+  gap:var(--sp-3);flex-wrap:wrap}
+.cluster{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap}
+.cluster--end{justify-content:flex-end}
+.stack{display:flex;flex-direction:column;gap:var(--sp-4)}
+.stack--sm{gap:var(--sp-2)}
+.stack--lg{gap:var(--sp-6)}
+.grow{flex:1;min-inline-size:0}
+.w-auto{inline-size:auto}
+.w-full{inline-size:100%}
+.ms-auto{margin-inline-start:auto}
+.me-auto{margin-inline-end:auto}
+
+/* spacing */
+.mt-0{margin-block-start:0}.mt-1{margin-block-start:var(--sp-1)}
+.mt-2{margin-block-start:var(--sp-2)}.mt-3{margin-block-start:var(--sp-3)}
+.mt-4{margin-block-start:var(--sp-4)}.mt-6{margin-block-start:var(--sp-6)}
+.mb-0{margin-block-end:0}.mb-2{margin-block-end:var(--sp-2)}
+.mb-3{margin-block-end:var(--sp-3)}.mb-4{margin-block-end:var(--sp-4)}
+.mb-6{margin-block-end:var(--sp-6)}
+
+/* text */
+.text-muted{color:var(--muted-strong)}
+.text-brand{color:var(--maroon)}
+.text-danger{color:var(--red)}
+.text-success{color:var(--green)}
+.text-warn{color:var(--amber)}
+.text-sm{font-size:var(--fs-sm)}
+.text-caption{font-size:var(--fs-caption)}
+.text-bold{font-weight:var(--fw-bold)}
+.text-start{text-align:start}.text-end{text-align:end}.text-center{text-align:center}
+.num{font-variant-numeric:tabular-nums lining-nums;letter-spacing:var(--ls-num)}
+.truncate{min-inline-size:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.divider{block-size:1px;background:var(--line);border:0;margin-block:var(--sp-4)}
+
+/* touch targets on coarse pointers */
+@media (pointer:coarse){
+  .btn--sm,.btn.sm{min-block-size:38px}
+  .chip button,.filter-chip button{inline-size:28px;block-size:28px}
+}
+
+/* print — payroll + monthly reports */
+@media print{
+  .sidebar,.topbar,.nav-scrim,#toast,.toolbar,.filters,.quick-row,
+  .btn,.card__actions,.page-head__actions{display:none!important}
+  #app{display:block}
+  .content{max-inline-size:none;padding:0}
+  .card{break-inside:avoid;box-shadow:none;border-color:#ccc;margin-block-end:12px}
+  .table-wrap{overflow:visible;border:0;background:none}
+  table{min-inline-size:0;font-size:10px}
+  thead th{position:static;background:#f0f0f0!important;color:#000!important;
+    -webkit-print-color-adjust:exact;print-color-adjust:exact}
+  tr.is-total td,tfoot td{position:static}
+  .pill{border:1px solid currentColor;background:none!important}
+  body{background:#fff}
+  @page{margin:12mm}
+}
