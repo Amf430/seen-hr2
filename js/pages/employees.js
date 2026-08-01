@@ -1,5 +1,5 @@
 import { el, esc, toast, openModal } from '../lib/dom.js';
-import { getMe, getUsers, setProfileUid } from '../lib/state.js';
+import { getMe, getUsers } from '../lib/state.js';
 import { refreshUsers, toggleSuspend, deleteEmployee, restoreAccess } from '../lib/users.js';
 import { requestsOfUser } from '../lib/requests.js';
 import { db, doc, updateDoc } from '../lib/firebase.js';
@@ -9,16 +9,17 @@ import { go, rerender, isStale } from '../lib/nav.js';
 import { money } from '../lib/format.js';
 import { roleLabel } from '../lib/perms.js';
 import { describeRule } from '../lib/geo.js';
-import { card, tableWrap, empty, contractCell, button } from '../lib/ui.js';
+import { card, tableWrap, empty, contractCell, button, rowMenu } from '../lib/ui.js';
+import { docsOf, worstDocState, kindLabel } from '../lib/documents.js';
 
 export async function render(view, token) {
   const me = getMe();
   const isAdmin = me.role === 'admin';
 
   const bar = el('div', 'toolbar');
-  bar.innerHTML = `<input id="empSearch" class="search-input" placeholder="🔍 بحث بالاسم أو القسم أو الرقم الوظيفي…">`;
+  bar.innerHTML = `<input id="empSearch" class="search-input" placeholder="بحث بالاسم أو القسم أو الرقم الوظيفي…">`;
   /* مدير القسم لا يقدر ينشئ أو يعدّل — القاعدة ترفضه، فلا نعرض أزراراً تفشل */
-  if (isAdmin) bar.appendChild(button('➕ إضافة موظف', 'btn sm', () => openEmpForm(null, afterChange)));
+  if (isAdmin) bar.appendChild(button('إضافة موظف', 'btn sm', () => openEmpForm(null, afterChange, 'plus')));
   view.appendChild(bar);
 
   const c = card('');
@@ -43,7 +44,7 @@ export async function render(view, token) {
         <thead><tr>
           <th>الاسم</th><th>الرقم الوظيفي</th><th>القسم</th>
           ${isAdmin ? '<th>الراتب</th>' : ''}
-          <th>الحضور</th><th>انتهاء العقد</th><th>الحالة</th><th>الصلاحية</th><th></th>
+          <th>الحضور</th><th>انتهاء العقد</th><th>المستندات</th><th>الحالة</th><th>الصلاحية</th><th></th>
         </tr></thead>
         <tbody></tbody>
       </table>`);
@@ -58,25 +59,34 @@ export async function render(view, token) {
         ${isAdmin ? `<td class="money">${u.salary ? money(u.salary) : '<span class="text-red">—</span>'}</td>` : ''}
         <td><span class="cell-sub">${esc(describeRule(u))}</span></td>
         <td>${contractCell(u.contractEnd)}</td>
-        <td><span class="pill ${u.status === 'active' ? 'active' : 'suspended'}">${u.status === 'active' ? 'نشط' : 'معلّق'}</span></td>
+        <td>${docCell(u)}</td>
+        <td><span class="pill pill--dot ${u.status === 'active' ? 'active' : 'suspended'}">${u.status === 'active' ? 'نشط' : 'معلّق'}</span></td>
         <td>${u.role === 'employee' ? 'موظف' : `<span class="tag">${esc(roleLabel(u))}</span>`}</td>`;
 
+      /* ⚠️ إجراء أساسي ظاهر، والبقية خلف قائمة واحدة.
+         كان الصف يحمل خمسة أزرار: ٤٠ موظفاً = ٢٠٠ هدف لمس في شاشة واحدة،
+         و«حذف» بجوار «بروفايل» بفارق ٤ بكسل على الجوال. */
       const act = el('td', '');
       const cell = el('div', 'actions-cell');
-      cell.appendChild(button('👤 بروفايل', 'btn sm', () => { setProfileUid(u.id); go('profile'); }));
+      cell.appendChild(button('بروفايل', 'btn sm', () => go('profile', u.id), 'people'));
       if (isAdmin) {
-        cell.appendChild(button('تعديل', 'btn sm ghost', () => openEmpForm(u, afterChange)));
-        cell.appendChild(button('استعادة الوصول', 'btn sm ghost', () => openRestore(u, afterChange)));
-        cell.appendChild(button(u.status === 'active' ? 'تعليق' : 'تفعيل', 'btn sm ghost', async () => {
-          try {
-            const ns = await toggleSuspend(u);
-            toast(ns === 'suspended' ? 'تم تعليق الحساب' : 'تم تفعيل الحساب');
-            await afterChange();
-          } catch (e) { console.error(e); toast('تعذّر التنفيذ', 'err'); }
-        }));
-        if (u.id !== me.id) {
-          cell.appendChild(button('حذف', 'btn sm danger', () => openDelete(u, afterChange)));
-        }
+        cell.appendChild(rowMenu([
+          { label: 'تعديل البيانات', ico: 'gear', onClick: () => openEmpForm(u, afterChange) },
+          { label: u.status === 'active' ? 'تعليق الحساب' : 'تفعيل الحساب',
+            ico: u.status === 'active' ? 'x' : 'check',
+            onClick: async () => {
+              try {
+                const ns = await toggleSuspend(u);
+                toast(ns === 'suspended' ? 'تم تعليق الحساب' : 'تم تفعيل الحساب');
+                await afterChange();
+              } catch (e) { console.error(e); toast('تعذّر التنفيذ', 'err'); }
+            } },
+          { label: 'استعادة الوصول', ico: 'login', onClick: () => openRestore(u, afterChange) },
+          u.id !== me.id ? null : undefined,
+          u.id !== me.id
+            ? { label: 'حذف الملف', ico: 'trash', danger: true, onClick: () => openDelete(u, afterChange) }
+            : undefined
+        ].filter((x) => x !== undefined)));
       }
       act.appendChild(cell);
       tr.appendChild(act);
@@ -90,6 +100,18 @@ export async function render(view, token) {
   draw();
   const search = view.querySelector('#empSearch');
   if (search) search.oninput = draw;
+}
+
+/* أسوأ مستند فقط في خلية واحدة — الجدول عريض أصلاً، وما يهمّ هو وجود
+   مشكلة لا تعدادها. التفصيل في البروفايل. */
+function docCell(u) {
+  const n = docsOf(u).length;
+  if (!n) return '<span class="muted">—</span>';
+  const w = worstDocState(u);
+  if (!w) return `<span class="muted">${n} مستند</span>`;
+  return w.state === 'expired'
+    ? `<span class="pill pill--dot rejected">${esc(kindLabel(w.d.kind))} منتهٍ</span>`
+    : `<span class="pill pill--dot pending">${esc(kindLabel(w.d.kind))} · ${w.left} يوم</span>`;
 }
 
 /* ── حذف ── */

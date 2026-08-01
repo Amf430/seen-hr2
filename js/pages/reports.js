@@ -18,7 +18,7 @@ export function render(view) {
   view.appendChild(g);
 
   /* الطلبات حسب الموظف */
-  const c = card('👤 الطلبات حسب الموظف');
+  const c = card('الطلبات حسب الموظف', null, 'people');
   const counts = {};
   reqs.forEach((r) => { counts[r.employeeName] = (counts[r.employeeName] || 0) + 1; });
   const rows = Object.entries(counts).sort((a, b) => b[1] - a[1]);
@@ -38,7 +38,7 @@ export function render(view) {
   });
   const catRows = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
   if (catRows.length) {
-    const cc = card('🏷️ الطلبات حسب التصنيف');
+    const cc = card('الطلبات حسب التصنيف', null, 'tag');
     cc.appendChild(tableWrap(`
       <table>
         <thead><tr><th>التصنيف</th><th>العدد</th></tr></thead>
@@ -48,8 +48,8 @@ export function render(view) {
   }
 
   const exp = card('', '');
-  exp.appendChild(sectionHead('📤 تصدير البيانات',
-    button('⬇️ تصدير الطلبات (Excel)', 'btn sm', () => exportRequests(getRequests()))));
+  exp.appendChild(sectionHead({ text: 'تصدير البيانات', icon: 'download' },
+    button('تصدير الطلبات (Excel)', 'btn sm', () => exportRequests(getRequests()), 'download')));
   exp.appendChild(el('p', 'desc', 'تصدير جميع الطلبات إلى ملف Excel جاهز للطباعة أو الأرشفة.'));
   view.appendChild(exp);
 }

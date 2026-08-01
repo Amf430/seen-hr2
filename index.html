@@ -7,8 +7,28 @@
 <meta name="description" content="نظام إدارة الموارد البشرية — سين العقارية" />
 <title>إدارة الموارد البشرية — سين العقارية</title>
 
-<!-- منع تضمين الموقع داخل إطار في موقع آخر (clickjacking) -->
-<meta http-equiv="Content-Security-Policy" content="frame-ancestors 'none'">
+<!-- ⚠️ frame-ancestors لا يعمل من <meta> إطلاقاً.
+     مواصفة CSP تتجاهل frame-ancestors و report-uri و sandbox عند تسليمها في
+     وسم meta — تعمل كترويسة HTTP فقط. الوسم القديم هنا كان يعطي إحساساً
+     بالحماية بلا حماية: النظام كان قابلاً للتضمين في أي iframe، وواجهة الأدمن
+     فيها «حذف نهائي» و«موافقة» و«تعليق حساب».
+
+     GitHub Pages لا تسمح بترويسات مخصّصة، فالحل الجذري هو Firebase Hosting
+     (انظر firebase.json في جذر المستودع — الترويسات جاهزة فيه). حتى ذلك الحين
+     يقوم الكاسر أدناه بالمهمة.
+
+     ما يبقى صالحاً في meta: بقية توجيهات CSP. -->
+<meta http-equiv="Content-Security-Policy" content="object-src 'none'; base-uri 'self'">
+<script>
+/* كاسر الإطار — قبل أي شيء آخر، وبلا انتظار تحميل الوحدات */
+if (window.top !== window.self) {
+  document.documentElement.innerHTML =
+    '<body style="font-family:system-ui;padding:2rem;direction:rtl;text-align:center">' +
+    '<h1>لا يمكن فتح هذا النظام داخل إطار</h1>' +
+    '<p>افتحه من رابطه المباشر.</p></body>';
+  try { window.top.location = window.self.location; } catch (e) { /* أصل مختلف */ }
+}
+</script>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -140,6 +160,18 @@
         <h2 id="pageTitle">الرئيسية</h2>
         <div class="hint" id="pageHint"></div>
       </div>
+      <button class="topbar__search" id="globalSearch" aria-label="بحث في النظام">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+             stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+        <span>بحث…</span><kbd>⌘K</kbd>
+      </button>
+      <!-- الجرس: عدّاده يُرسم من paintBell() مع كل لقطة بيانات جديدة -->
+      <button class="topbar__bell" id="notifBell" aria-label="الإشعارات" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 9a6 6 0 1 0-12 0c0 4.5-1.5 5.8-2 6.5h16c-.5-.7-2-2-2-6.5Z"/>
+          <path d="M10.5 19a1.8 1.8 0 0 0 3 0"/></svg>
+      </button>
     </header>
     <main class="content" id="view" tabindex="-1"></main>
   </div>

@@ -1,6 +1,7 @@
 import { el, esc } from '../lib/dom.js';
 import { getMe, getRequests } from '../lib/state.js';
 import { canApprove, canApproveType } from '../lib/perms.js';
+import { hasChain, ownsCurrentStep } from '../lib/requests.js';
 import { requestCard } from '../components/request-card.js';
 import { empty, callout } from '../lib/ui.js';
 
@@ -54,13 +55,15 @@ export function render(view) {
     filterState.status = st; filterState.type = ty; filterState.search = filt.querySelector('#fSearch').value;
 
     let list = getRequests().filter((r) => (!st || r.status === st) && (!ty || r.type === ty));
-    if (me.role === 'manager') list = list.filter((r) => canApprove(r));
+    /* مدير القسم يرى ما يخصّه: طلبات قسمه، أو ما يملك فيه خطوة في السلسلة */
+    if (me.role === 'manager') list = list.filter((r) => canApprove(r) || ownsCurrentStep(r));
     if (s) list = list.filter((r) => (r.employeeName || '').includes(s));
 
-    if (!list.length) { host.appendChild(empty('لا طلبات مطابقة', '📭')); return; }
+    if (!list.length) { host.appendChild(empty('لا طلبات مطابقة', 'inbox')); return; }
 
     /* ما يستطيع اعتماده فعلاً يأتي أولاً */
-    const actionable = list.filter((r) => r.status === 'pending' && canApproveType(r));
+    const actionable = list.filter((r) => r.status === 'pending' &&
+      (hasChain(r) ? ownsCurrentStep(r) : canApproveType(r)));
     const rest = list.filter((r) => !actionable.includes(r));
 
     if (actionable.length) {

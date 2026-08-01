@@ -132,19 +132,25 @@ export function requestPulse(cyc, requests, canApproveFn) {
 }
 
 /* ═══ ما يحتاج إجراءً — يجمع كل التنبيهات في مكان واحد ═══ */
-export function actionItems({ workforceStats, contractStats, payroll, requests, attendance }) {
+export function actionItems({ workforceStats, contractStats, payroll, requests, attendance, docStats }) {
   const out = [];
   if (requests && requests.mine)
-    out.push({ kind: 'warn', icon: '📥', text: `${requests.mine} طلب ينتظر موافقتك`, page: 'inbox' });
+    out.push({ kind: 'warn', icon: 'inbox', text: `${requests.mine} طلب ينتظر موافقتك`, page: 'inbox' });
+  /* أعلى من العقود عمداً: إقامة منتهية غرامة نظامية فورية، والعقد المنتهي
+     مسألة تُسوَّى إدارياً. الترتيب هنا هو ترتيب الإلحاح. */
+  if (docStats && docStats.expired.length)
+    out.push({ kind: 'danger', icon: 'alert', text: `${docStats.expired.length} مستند منتهٍ (إقامة/رخصة)`, page: 'employees' });
+  if (docStats && docStats.soon.length)
+    out.push({ kind: 'warn', icon: 'doc', text: `${docStats.soon.length} مستند يقارب الانتهاء`, page: 'employees' });
   if (contractStats && contractStats.expired.length)
-    out.push({ kind: 'danger', icon: '📄', text: `${contractStats.expired.length} عقد منتهٍ`, page: 'employees' });
+    out.push({ kind: 'danger', icon: 'doc', text: `${contractStats.expired.length} عقد منتهٍ`, page: 'employees' });
   if (contractStats && contractStats.soon.length)
-    out.push({ kind: 'warn', icon: '⏳', text: `${contractStats.soon.length} عقد ينتهي خلال 60 يوم`, page: 'employees' });
+    out.push({ kind: 'warn', icon: 'clock', text: `${contractStats.soon.length} عقد ينتهي خلال 60 يوم`, page: 'employees' });
   if (workforceStats && workforceStats.noSalary)
-    out.push({ kind: 'danger', icon: '💵', text: `${workforceStats.noSalary} موظف بلا راتب محدّد`, page: 'employees' });
+    out.push({ kind: 'danger', icon: 'money', text: `${workforceStats.noSalary} موظف بلا راتب محدّد`, page: 'employees' });
   if (payroll && payroll.missingOut)
-    out.push({ kind: 'violet', icon: '🕳️', text: `${payroll.missingOut} يوم بلا بصمة انصراف`, page: 'zklog' });
+    out.push({ kind: 'violet', icon: 'gap', text: `${payroll.missingOut} يوم بلا بصمة انصراف`, page: 'zklog' });
   if (attendance && attendance.absent)
-    out.push({ kind: 'warn', icon: '🚫', text: `${attendance.absent} غائب اليوم`, page: 'attendance' });
+    out.push({ kind: 'warn', icon: 'alert', text: `${attendance.absent} غائب اليوم`, page: 'attendance' });
   return out;
 }

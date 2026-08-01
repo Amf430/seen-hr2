@@ -1,7 +1,6 @@
 import { el, esc, toast } from '../lib/dom.js';
-import { getSettings } from '../lib/state.js';
+import { getSettings, getMe } from '../lib/state.js';
 import { workingDaysBetween } from '../lib/shifts.js';
-import { getMe } from '../lib/state.js';
 import { submitRequest } from '../lib/requests.js';
 import { go } from '../lib/nav.js';
 import { card, empty } from '../lib/ui.js';
@@ -13,7 +12,7 @@ export function render(view) {
   const S = getSettings();
   if (!(S.approvers || []).length) {
     view.appendChild(card('', ''));
-    view.lastChild.appendChild(empty('لم تُعرَّف جهات اعتماد بعد. تواصل مع الموارد البشرية.', '⚙️'));
+    view.lastChild.appendChild(empty('لم تُعرَّف جهات اعتماد بعد. تواصل مع الموارد البشرية.', 'gear'));
     return;
   }
 
@@ -76,7 +75,7 @@ function permForm() {
     const aId = f.querySelector('#pfApprover').value;
     const note = f.querySelector('#pfNote').value.trim();
     if (!date || !time) { toast('أدخل التاريخ والوقت', 'err'); return; }
-    if (!rId) { toast('لم تُعرَّف أسباب استئذان بعد — تواصل مع الموارد البشرية', 'err'); return; }
+    if (!rId) { toast('اختر السبب', 'err'); return; }
     if (!aId) { toast('اختر جهة الاعتماد', 'err'); return; }
 
     const reason = (S.permissionReasons || []).find((x) => x.id === rId);
@@ -119,12 +118,15 @@ function leaveForm() {
     </div>
     <button class="btn w-auto" id="lfSubmit" type="button">تقديم طلب الإجازة</button>`;
 
+  /* قسم مقدّم الطلب — يحدّد ورديته، فيحدّد أي أيام تُحتسب من رصيده */
+  const myDept = () => { const m = getMe(); return m ? m.department : ''; };
+
   const upd = () => {
     const s = f.querySelector('#lfStart').value, e = f.querySelector('#lfEnd').value;
     if (!s || !e) { f.querySelector('#lfDays').textContent = ''; return; }
-    const w = workingDaysBetween(s, e, getMe().department);
+    const w = workingDaysBetween(s, e, myDept());
     f.querySelector('#lfDays').textContent =
-      `المدة: ${w.days} يوم عمل` + (w.off ? ` (تم استثناء ${w.off} يوم راحة)` : '');
+      `المدة: ${w.days} يوم عمل` + (w.off ? ` (تم استثناء ${w.off} يوم راحة وعطلة رسمية)` : '');
   };
   f.querySelector('#lfStart').onchange = upd;
   f.querySelector('#lfEnd').onchange = upd;
@@ -142,19 +144,23 @@ function leaveForm() {
     if (new Date(en) < new Date(s)) { toast('تاريخ النهاية قبل البداية', 'err'); return; }
     if (!aId) { toast('اختر جهة الاعتماد', 'err'); return; }
 
-    /* بلا أنواع إجازات معرّفة كان الطلب يُرسَل بنوع فارغ ويصل للأدمن بلا تصنيف */
-    if (!tId) { toast('لم تُعرَّف أنواع إجازات بعد — تواصل مع الموارد البشرية', 'err'); return; }
     const t = (S.leaveTypes || []).find((x) => x.id === tId);
     const appr = (S.approvers || []).find((x) => x.id === aId);
-    const wd = workingDaysBetween(s, en, getMe().department);
-    if (!wd.days) { toast('المدة المختارة كلها أيام راحة', 'err'); return; }
+    const wd = workingDaysBetween(s, en, myDept());
+    if (!wd.days) { toast('المدة المختارة كلها أيام راحة أو عطل رسمية', 'err'); return; }
 
     btn.disabled = true; btn.textContent = 'جارٍ التقديم…';
     const ok = await submitRequest({
       type: 'leave', category: tId, categoryLabel: t?.label || '',
       startDate: s, endDate: en, days: wd.days,
       approverId: aId, approverName: appr?.name || '',
-      note, attachmentLink: att, leaveTypeId: tId, deduct: t?.deduct ?? false
+      note, attachmentLink: att, leaveTypeId: tId, deduct: t?.deduct ?? false,
+      /* ⚠️ السلسلة تُنسخ من نوع الإجازة وقت التقديم وتُجمَّد على الطلب.
+         قراءتها من الإعدادات وقت الاعتماد تعني أن تعديل الإعدادات يغيّر
+         مسار طلبات قُدِّمت قبله. نوع بلا سلسلة ⇒ الطلب بلا حقل chain،
+         فيسلك المسار القديم حرفياً. */
+      ...(Array.isArray(t?.approvalChain) && t.approvalChain.length
+        ? { chain: t.approvalChain, step: 0, approvals: [] } : {})
     });
     if (ok) go('mine');
     else { btn.disabled = false; btn.textContent = 'تقديم طلب الإجازة'; }

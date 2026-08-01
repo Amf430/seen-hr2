@@ -20,7 +20,7 @@ export function render(view) {
   /* نطبع الشكل المُركَّب في الذاكرة أول مرة حتى يرى الأدمن فرعه الحالي */
   if (!Array.isArray(S.branches) || !S.branches.length) S.branches = branchesOf();
 
-  const head = card('📍 فروع الشركة',
+  const head = card('فروع الشركة', null, 'pin',
     'كل فرع له موقع ونطاق خاص. الموظف يسجّل حضوره من أقرب فرع مسموح له، ويُكتب اسم الفرع على سجله.');
   view.appendChild(head);
 
@@ -34,10 +34,10 @@ export function render(view) {
     host.innerHTML = '';
     const list = S.branches || [];
     const c = card('');
-    c.appendChild(sectionHead('الفروع', button('➕ إضافة فرع', 'btn sm', () => openBranch(null, draw))));
+    c.appendChild(sectionHead('الفروع', button('إضافة فرع', 'btn sm', () => openBranch(null, draw, 'plus'))));
 
     if (!list.length) {
-      c.appendChild(empty('لا فروع بعد — أضف أول فرع ليقدر الموظفون يسجّلون حضورهم.', '📍'));
+      c.appendChild(empty('لا فروع بعد — أضف أول فرع ليقدر الموظفون يسجّلون حضورهم.', 'pin'));
       host.appendChild(c);
       return;
     }
@@ -57,7 +57,7 @@ export function render(view) {
         <td class="num cell-sub">${Number(b.lat).toFixed(5)}, ${Number(b.lng).toFixed(5)}</td>
         <td class="num">${esc(b.radius)} م</td>
         <td class="num">${bound || '<span class="cell-sub">الكل</span>'}</td>
-        <td><span class="pill ${b.active !== false ? 'active' : 'suspended'}">${b.active !== false ? 'نشط' : 'موقوف'}</span></td>`;
+        <td><span class="pill pill--dot ${b.active !== false ? 'active' : 'suspended'}">${b.active !== false ? 'نشط' : 'موقوف'}</span></td>`;
       const td = el('td', '');
       const cell = el('div', 'actions-cell');
       cell.append(
@@ -106,7 +106,7 @@ function openBranch(b, after) {
         <input id="bRad" type="number" min="50" step="10" value="${b?.radius || 500}">
         <div class="help">أقل قيمة 50 متر. دقة GPS في الجوال نادراً ما تنزل تحت 20 متر.</div></div>
       <div class="field field--btn">
-        <button type="button" class="btn ghost w-full" id="bHere">📍 التقاط موقعي الحالي</button></div>
+        <button type="button" class="btn ghost w-full" id="bHere">التقاط موقعي الحالي</button></div>
     </div>
     <div class="help" id="bStatus"></div>
     <div class="err" id="bErr"></div>
@@ -117,7 +117,7 @@ function openBranch(b, after) {
 
   m.$('#bHere').onclick = async () => {
     const st = m.$('#bStatus');
-    st.textContent = '📍 جارٍ تحديد موقعك…';
+    st.textContent = 'جارٍ تحديد موقعك…';
     try {
       const p = await getPosition();
       m.$('#bLat').value = p.lat.toFixed(6);

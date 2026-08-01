@@ -1,19 +1,23 @@
-import { el, esc } from '../lib/dom.js';
-import { getUsers, getRequests, setProfileUid } from '../lib/state.js';
+import { el, esc, toast } from '../lib/dom.js';
+import { icon } from '../lib/icons.js';
+import { getUsers, getRequests } from '../lib/state.js';
 import { refreshUsers } from '../lib/users.js';
-import { recentCyclesList } from '../lib/dates.js';
-import { money, hhmm } from '../lib/format.js';
+import { recentCyclesList, ymd } from '../lib/dates.js';
+import { money, hhmm, fmtDT } from '../lib/format.js';
 import { fetchAttendance } from '../lib/attendance.js';
 import { computePayroll, payrollConfig } from '../lib/payroll.js';
 import { payrollExport } from '../lib/excel.js';
-import { go, isStale } from '../lib/nav.js';
+import { approveRun, getRun, diffAgainstRun } from '../lib/payroll-runs.js';
+import { adjustmentsInRange, applyAll } from '../lib/adjustments.js';
+import { openTypedConfirm } from '../components/review-modals.js';
+import { go, isStale, rerender } from '../lib/nav.js';
 import { card, empty, tableWrap, grid, stat, sectionHead, button, callout } from '../lib/ui.js';
 
 export async function render(view, token) {
   const cycles = recentCyclesList(12);
   const cfg = payrollConfig();
 
-  const head = card('💵 مسير الرواتب — الدورة من 26 إلى 25',
+  const head = card('مسير الرواتب — الدورة من 26 إلى 25', null, 'money',
     `قيمة اليوم = الراتب ÷ ${cfg.daysPerMonth} · قيمة الساعة = قيمة اليوم ÷ ${cfg.hoursPerDay}. ` +
     'الخصم بالساعات للتأخير والخروج المبكر، والغياب بخصم يوم كامل. المصدر: بصمات جهاز ZKTeco فقط.');
   const dd = el('select', 'select-lg');
@@ -33,6 +37,18 @@ export async function render(view, token) {
     catch (e) { console.error(e); host.innerHTML = '<div class="card"><div class="empty">تعذّر التحميل — تأكد من نشر قواعد الأمان</div></div>'; return; }
     if (isStale(token)) return;
 
+    /* التصحيحات اليدوية تُطبَّق فوق سجلات الجهاز قبل الحساب — الأصل في
+       zkAttendance لا يُمسّ، والقيد يُقرأ فوقه. */
+    let adjs = [];
+    try { adjs = await adjustmentsInRange(ymd(cyc.start), ymd(cyc.end)); }
+    catch (e) { console.error('adjustments', e); }
+    if (isStale(token)) return;
+    recs = applyAll(recs, adjs);
+
+    let run = null;
+    try { run = await getRun(cyc.key); } catch (e) { console.error('run', e); }
+    if (isStale(token)) return;
+
     const rowsPay = computePayroll(cyc, getUsers(), getRequests(), recs);
     const noSalary = rowsPay.filter((r) => !r.salary).length;
     const tot = rowsPay.reduce((a, r) => ({
@@ -43,9 +59,37 @@ export async function render(view, token) {
 
     host.innerHTML = '';
 
-    if (+dd.value === 0)
-      host.appendChild(callout('warn', '⚠️ الدورة الحالية لم تنتهِ بعد',
+    /* ═══ حالة الاعتماد ═══
+       ⚠️ بعد الاعتماد نقارن اللقطة بالحساب الحالي. أي فرق يعني أن بيانات
+       الدورة تغيّرت بعد الصرف — وردية عُدِّلت، عطلة أُضيفت، بصمة صُحِّحت.
+       الفرق يُعرض صراحةً بدل أن يبتلعه الرقم بصمت، وهذا هو أصل الميزة. */
+    if (run) {
+      const drift = diffAgainstRun(run, rowsPay);
+      const bn = el('div', 'run-banner' + (drift.length ? ' run-banner--drift' : ''));
+      bn.innerHTML = icon(drift.length ? 'alert' : 'shield') +
+        `<div><b>${drift.length ? 'مسير معتمَد — لكن البيانات تغيّرت بعده' : 'مسير معتمَد ومجمَّد'}</b>
+         <div class="help">اعتمده ${esc(run.approvedBy)} · ${fmtDT(run.approvedAt)} ·
+         المستحق وقت الاعتماد <b class="num">${money(run.totals.net)}</b></div></div>`;
+      host.appendChild(bn);
+      if (drift.length) {
+        const dc = card('فروق ظهرت بعد الاعتماد', 'الأرقام أدناه محسوبة الآن — المعتمَد هو ما في اللقطة.', 'alert');
+        dc.appendChild(tableWrap(`
+          <table class="tight">
+            <thead><tr><th>الموظف</th><th>المعتمَد</th><th>المحسوب الآن</th><th>الفرق</th></tr></thead>
+            <tbody>${drift.map((d) => `<tr>
+              <td><b>${esc(d.name)}</b></td>
+              <td class="money">${d.was != null ? money(d.was) : '—'}</td>
+              <td class="money">${d.now != null ? money(d.now) : '—'}</td>
+              <td class="money ${d.delta > 0 ? 'text-green' : 'text-red'}">${
+                d.delta != null ? (d.delta > 0 ? '+ ' : '− ') + money(Math.abs(d.delta)) : (d.kind === 'new' ? 'موظف جديد' : 'حُذف')}</td>
+            </tr>`).join('')}</tbody>
+          </table>`));
+        host.appendChild(dc);
+      }
+    } else if (+dd.value === 0) {
+      host.appendChild(callout('warn', 'الدورة الحالية لم تنتهِ بعد',
         'الأرقام تُحسب حتى اليوم فقط، وستتغيّر حتى تاريخ 25.'));
+    }
     if (noSalary)
       host.appendChild(callout('danger', `${noSalary} موظف بلا راتب محدّد`,
         'افتح بروفايل الموظف وأضف الراتب، وإلا سيظهر مستحقّه صفراً.'));
@@ -72,7 +116,11 @@ export async function render(view, token) {
 
     const c = card('');
     c.appendChild(sectionHead(`مسير ${cyc.label}`,
-      button('⬇️ تصدير المسير (Excel)', 'btn sm', () => payrollExport(cyc, rowsPay))));
+      button('تصدير المسير (Excel)', 'btn sm', () => payrollExport(cyc, rowsPay), 'download'),
+      /* الاعتماد يُخفى للدورة الجارية: تجميد أرقام ما زالت تتغيّر حتى ٢٥
+         يُنتج لقطة لا تطابق ما سيُصرف فعلاً. */
+      (run || +dd.value === 0) ? null
+        : button('اعتماد المسير وتجميده', 'btn sm', () => confirmApprove(cyc, rowsPay), 'shield')));
 
     if (!rowsPay.length) { c.appendChild(empty('لا يوجد موظفون')); host.appendChild(c); return; }
 
@@ -90,7 +138,7 @@ export async function render(view, token) {
     rowsPay.forEach((r) => {
       const tr = el('tr', 'row-clickable');
       tr.innerHTML = `
-        <td><b>${esc(r.u.name)}</b>${r.missingOut ? ` <span class="pill missing">${r.missingOut} بلا انصراف</span>` : ''}</td>
+        <td><b>${esc(r.u.name)}</b>${r.missingOut ? ` <span class="pill pill--dot missing">${r.missingOut} بلا انصراف</span>` : ''}</td>
         <td>${esc(r.u.department || '—')}</td>
         <td class="money">${r.salary ? money(r.salary) : '<span class="text-red">—</span>'}</td>
         <td class="money">${money(r.hourRate)}</td>
@@ -105,7 +153,7 @@ export async function render(view, token) {
         <td class="money neg">${(r.dedAbsent + r.dedUnpaid) ? '− ' + money(r.dedAbsent + r.dedUnpaid) : '—'}</td>
         <td class="money neg">${r.total ? '− ' + money(r.total) : '—'}</td>
         <td class="money net">${money(r.net)}</td>`;
-      tr.onclick = () => { setProfileUid(r.u.id); go('profile'); };
+      tr.onclick = () => go('profile', r.u.id);
       tb.appendChild(tr);
     });
 
@@ -125,4 +173,34 @@ export async function render(view, token) {
 
   dd.onchange = draw;
   await draw();
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   اعتماد المسير.
+
+   ⚠️ تأكيد بكتابة كلمة لا بضغطة: العملية لا رجعة فيها إطلاقاً — القاعدة
+   تمنع التعديل والحذف حتى على الأدمن. مسير مصروف لا يُمحى، والخطأ فيه يُصحَّح
+   بقيد تسوية في الدورة التالية.
+   ═══════════════════════════════════════════════════════════════════════════ */
+function confirmApprove(cyc, rowsPay) {
+  const net = rowsPay.reduce((a, r) => a + r.net, 0);
+  const noSalary = rowsPay.filter((r) => !r.salary).length;
+  const missing = rowsPay.reduce((a, r) => a + r.missingOut, 0);
+
+  openTypedConfirm({
+    title: `اعتماد مسير ${cyc.label}`,
+    body: `تُحفظ الأرقام الحالية لقطةً مجمّدة لا تتغيّر بعدها مهما عُدِّلت الورديات أو الإعدادات.
+           <br><br>عدد الموظفين <b>${rowsPay.length}</b> · إجمالي المستحق <b>${esc(money(net))}</b> ريال
+           ${noSalary ? `<br><br><b>تنبيه:</b> ${noSalary} موظف بلا راتب محدّد — سيُعتمدون بصفر.` : ''}
+           ${missing ? `<br><b>تنبيه:</b> ${missing} يوم بلا بصمة انصراف — صحّحها أولاً إن أردت.` : ''}
+           <br><br><b>لا يمكن التعديل ولا الحذف بعد الاعتماد.</b>`,
+    phrase: 'اعتماد',
+    confirmLabel: 'اعتماد وتجميد',
+    run: async () => {
+      await approveRun(cyc, rowsPay);
+      toast('اعتُمد المسير وجُمِّد', 'ok');
+      rerender();
+    }
+  });
 }

@@ -5,8 +5,23 @@ import { attendPanel } from '../components/attend-panel.js';
 import { cycleOf, ymd, AR_DAYS } from '../lib/dates.js';
 import { fmtDur, hm } from '../lib/format.js';
 import { sessionsOf, workedSecs, fetchMyAttendance } from '../lib/attendance.js';
+import { resolveShift, shiftWindowFor } from '../lib/shifts.js';
 import { isStale } from '../lib/nav.js';
 import { card, tableWrap, empty, grid, stat } from '../lib/ui.js';
+
+/* ⚠️ ساعات يوم واحد، مع قصّ الجلسة المفتوحة عند نهاية ورديتها.
+   بلا `until` كانت الجلسة التي نسي صاحبها بصمة الانصراف تعدّ حتى اللحظة —
+   فيظهر يوم 27 يوليو بـ«114:23:44» ساعة. هذا هو نفس الخطأ الذي أُصلح في
+   buildDailyStatus، وكان ما زال قائماً في هذه الصفحة وحدها.
+   الوردية تُحلّ بنفس ترتيب الأولوية المعتمد: استثناء التاريخ ← وردية القسم
+   ← الوردية العامة. */
+function daySecs(rec, deptName) {
+  const d  = new Date(rec.date + 'T00:00:00');
+  if (isNaN(d)) return workedSecs(sessionsOf(rec)).secs;
+  const sh = resolveShift(rec.date, d.getDay(), deptName);
+  const w  = shiftWindowFor(d, sh);
+  return workedSecs(sessionsOf(rec), w ? w.end.getTime() : null).secs;
+}
 
 export async function render(view, token) {
   attendPanel(view);
@@ -14,7 +29,7 @@ export async function render(view, token) {
   const me = getMe();
   const cyc = cycleOf(new Date());
 
-  const c = card('🗓️ سجلّي في هذه الدورة', cyc.label);
+  const c = card('سجلّي في هذه الدورة', cyc.label, 'calendar');
   const host = el('div', '', '<div class="empty"><span class="spinner"></span> جارٍ التحميل…</div>');
   c.appendChild(host);
   view.appendChild(c);
@@ -34,9 +49,9 @@ export async function render(view, token) {
   mine.sort((a, b) => (a.date < b.date ? 1 : -1));
 
   host.innerHTML = '';
-  if (!mine.length) { host.appendChild(empty('ما سجّلت حضوراً في هذه الدورة بعد', '🗓️')); return; }
+  if (!mine.length) { host.appendChild(empty('ما سجّلت حضوراً في هذه الدورة بعد', 'calendar')); return; }
 
-  const totalSecs = mine.reduce((s, r) => s + workedSecs(sessionsOf(r)).secs, 0);
+  const totalSecs = mine.reduce((s, r) => s + daySecs(r, me.department), 0);
   const g = grid(3);
   g.append(
     stat(mine.length, 'أيام حضور'),
@@ -51,14 +66,14 @@ export async function render(view, token) {
       <tbody>${mine.map((r) => {
         const ss = sessionsOf(r);
         const last = ss[ss.length - 1];
-        const { secs } = workedSecs(ss);
+        const secs = daySecs(r, me.department);
         const d = new Date(r.date + 'T00:00:00');
         return `<tr>
           <td class="num">${esc(r.date)}</td>
           <td>${AR_DAYS[isNaN(d) ? 0 : d.getDay()]}</td>
           <td>${esc(r.branchName || '—')}</td>
           <td class="num text-green">${ss.length ? hm(ss[0].in) : '—'}</td>
-          <td class="num text-red">${(last && last.out) ? hm(last.out) : '<span class="pill missing">مفتوحة</span>'}</td>
+          <td class="num text-red">${(last && last.out) ? hm(last.out) : '<span class="pill pill--dot missing">مفتوحة</span>'}</td>
           <td class="num">${ss.length}</td>
           <td class="num">${secs > 0 ? fmtDur(secs) : '—'}</td>
         </tr>`;

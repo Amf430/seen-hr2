@@ -10,7 +10,7 @@
 
 import { $ } from '../lib/dom.js';
 import { getMe } from '../lib/state.js';
-import { beginRender, onNavigate, getPage } from '../lib/nav.js';
+import { beginRender, onNavigate, getPage, initFromHash, go } from '../lib/nav.js';
 import { cleanupPage } from '../lib/lifecycle.js';
 import { setPageHeader, setActiveNav } from './shell.js';
 import { canOpen } from '../config/pages.js';
@@ -23,6 +23,7 @@ import * as requestsMine   from '../pages/requests-mine.js';
 import * as inbox          from '../pages/inbox.js';
 import * as employees      from '../pages/employees.js';
 import * as employeeProfile from '../pages/employee-profile.js';
+import * as orgChart       from '../pages/org-chart.js';
 import * as attendanceLog  from '../pages/attendance-log.js';
 import * as payroll        from '../pages/payroll.js';
 import * as monthly        from '../pages/monthly.js';
@@ -41,6 +42,7 @@ const RENDERERS = {
   inbox:          inbox.render,
   employees:      employees.render,
   profile:        employeeProfile.render,
+  org:            orgChart.render,
   attendance:     (v, t) => attendanceLog.render(v, t, { coll: 'attendance',   isDevice: false }),
   zklog:          (v, t) => attendanceLog.render(v, t, { coll: 'zkAttendance', isDevice: true  }),
   payroll:        payroll.render,
@@ -76,10 +78,15 @@ async function render() {
     ? (me.role === 'admin' ? dashboard.render : homeEmployee.render)
     : RENDERERS[page];
 
-  /* صفحة لا يملكها هذا الدور — نرجعه للرئيسية بدل شاشة فارغة.
-     للترتيب فقط؛ المنع الحقيقي في firestore.rules. */
+  /* صفحة لا يملكها هذا الدور، أو معرّف مكتوب يدوياً في العنوان — نرجعه
+     للرئيسية بدل شاشة فارغة. للترتيب فقط؛ المنع الحقيقي في firestore.rules.
+
+     ⚠️ go() لا مجرّد استبدال الدالة: بعد أن صارت الصفحة في العنوان، ترك
+     الـ hash على صفحة ممنوعة يعني أن التحديث التالي يعيد المحاولة نفسها،
+     وأن الترويسة والقائمة الجانبية تشيران لصفحة غير المعروضة. */
   if (!fn || (page !== 'home' && !canOpen(page, me.role))) {
-    fn = me.role === 'admin' ? dashboard.render : homeEmployee.render;
+    go('home');
+    return;
   }
 
   try {
@@ -92,5 +99,6 @@ async function render() {
 
 export function startRouter() {
   onNavigate(render);
+  initFromHash('home');   /* يُكمل من حيث وقف المستخدم قبل التحديث */
   render();
 }

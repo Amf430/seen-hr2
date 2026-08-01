@@ -16,7 +16,7 @@ export function render(view) {
   all.forEach((r) => { const c = cycleOf(reqEventDate(r)); map.set(c.key, c); });
   const cycles = [...map.values()].sort((a, b) => b.start - a.start);
 
-  const sel = card('📅 اختر الدورة الشهرية',
+  const sel = card('اختر الدورة الشهرية', null, 'calendar',
     'كل دورة تبدأ يوم 26 وتنتهي يوم 25 من الشهر التالي. تُصنَّف الطلبات حسب تاريخ الاستئذان أو بداية الإجازة.');
   const dd = el('select', 'select-lg');
   dd.innerHTML = cycles.map((c) =>
@@ -54,10 +54,10 @@ export function render(view) {
 
     const c = card('');
     c.appendChild(sectionHead(`تفاصيل الدورة — ${cyc.label}`,
-      button('⬇️ تصدير Excel', 'btn sm', () => monthlyExport(cyc, all)),
-      button('🗑️ مسح بيانات الدورة', 'btn sm danger', () => clearCycle(cyc, list))));
+      button('تصدير Excel', 'btn sm', () => monthlyExport(cyc, all, 'download')),
+      button('مسح بيانات الدورة', 'btn sm danger', () => clearCycle(cyc, list, 'trash'))));
 
-    if (!list.length) c.appendChild(empty('لا توجد طلبات في هذه الدورة', '📭'));
+    if (!list.length) c.appendChild(empty('لا توجد طلبات في هذه الدورة', 'inbox'));
     else c.appendChild(tableWrap(`
       <table>
         <thead><tr><th>الموظف</th><th>النوع</th><th>التصنيف</th><th>التاريخ</th><th>الأيام</th><th>الحالة</th></tr></thead>
@@ -67,7 +67,7 @@ export function render(view) {
           <td>${esc(r.categoryLabel)}</td>
           <td class="num">${r.type === 'permission' ? fmtDate(r.date) : fmtDate(r.startDate) + ' ← ' + fmtDate(r.endDate)}</td>
           <td class="num">${r.type === 'leave' ? r.days : '—'}</td>
-          <td><span class="pill ${esc(r.status)}">${esc(STATUS_AR[r.status])}</span></td></tr>`).join('')}</tbody>
+          <td><span class="pill pill--dot ${esc(r.status)}">${esc(STATUS_AR[r.status])}</span></td></tr>`).join('')}</tbody>
       </table>`));
     host.appendChild(c);
   };
