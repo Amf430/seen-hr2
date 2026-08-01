@@ -34,7 +34,14 @@ setCredentialPersister(saveBioCredentials);
 export function attendPanel(view) {
   const me = getMe();
   /* ⚠️ تاريخ الرياض لا التاريخ المحلي — معرّف الوثيقة لازم يطابق todayKsa()
-     في firestore.rules، وإلا رُفضت كل كتابة من جهاز على منطقة زمنية أخرى. */
+     في firestore.rules، وإلا رُفضت كل كتابة من جهاز على منطقة زمنية أخرى.
+
+     ⚠️⚠️ كل مقارنة بـ dateStr في هذا الملف لازم تستعمل ymdKsa() لا ymd().
+     الدمج أنتج ثلاث مقارنات بـ ymd() — وهي غير مستورَدة هنا أصلاً، فكانت
+     ترمي ReferenceError داخل attendPanel، فتُظهر «تعذّر عرض هذه الصفحة» في
+     رئيسية كل موظف. ولو استُوردت ymd بدل تصحيحها لعاد خطأ المنطقة الزمنية:
+     موظف خارج UTC+3 يرى «تغيّر التاريخ» في منتصف نهاره وتُعاد الصفحة بلا
+     نهاية. */
   const now = new Date(), dow = now.getDay(), dateStr = ymdKsa(now);
   const rule = geoRuleFor(me);
 
@@ -151,7 +158,7 @@ export function attendPanel(view) {
     /* ⚠️ لو تغيّر اليوم والتبويب مفتوح، الوثيقة المربوطة صارت لأمس. الكتابة
        تُرفض من القاعدة برسالة مضلّلة عن ساعة الجهاز، أو — أسوأ — تُغلق جلسة
        أمس بطابع اليوم فتظهر وردية 24 ساعة. نُعيد البناء بدل ذلك. */
-    if (ymd(new Date()) !== dateStr) { toast('تغيّر التاريخ — جارٍ التحديث'); rerender(); return; }
+    if (ymdKsa() !== dateStr) { toast('تغيّر التاريخ — جارٍ التحديث'); rerender(); return; }
     await doAttendance(isOpen() ? 'out' : 'in', ref, actBtn, bioNote, rule,
       (b) => { busy = b; if (!b) paintAll(); });
   };
@@ -184,7 +191,7 @@ export function attendPanel(view) {
   const tick = () => {
     const t = new Date();
     /* عبور منتصف الليل — أعد بناء اللوحة كاملة على اليوم الجديد */
-    if (ymd(t) !== dateStr) { rerender(); return; }
+    if (ymdKsa(t) !== dateStr) { rerender(); return; }
     clockEl.textContent = `${p2(t.getHours())}:${p2(t.getMinutes())}:${p2(t.getSeconds())}`;
     paintTimer(); paintBtn();
     /* الفحص كل ثانية رخيص: يخرج فوراً ما لم تكن هناك جلسة مفتوحة، ولا يُطلق
@@ -196,7 +203,7 @@ export function attendPanel(view) {
 
   /* الجوال يُجمّد التبويبات في الخلفية، فالمؤقّت لا يعمل ليلاً. عند العودة
      للتبويب نتحقق من التاريخ فوراً بدل انتظار النبضة التالية. */
-  const onVisible = () => { if (!document.hidden && ymd(new Date()) !== dateStr) rerender(); };
+  const onVisible = () => { if (!document.hidden && ymdKsa() !== dateStr) rerender(); };
   document.addEventListener('visibilitychange', onVisible);
   onCleanup(() => document.removeEventListener('visibilitychange', onVisible));
 }
