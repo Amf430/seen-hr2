@@ -199,7 +199,11 @@ export async function render(view, token) {
         ${pay.exemptMin ? `<p class="help">أُعفي ${hhmm(pay.exemptMin)} بسبب استئذانات معتمدة.</p>` : ''}
         ${pay.missingOut ? `<p class="help text-violet">${pay.missingOut} يوم بلا بصمة انصراف — راجعها قبل اعتماد المسير.</p>` : ''}`;
       host.appendChild(pc);
-    } else if (showMoney) {
+    } else {
+      /* ⚠️ كان `else if (showMoney)` — بقيّة من حلّ تعارض الدمج، والاسم غير
+         معرَّف في هذا الملف. يُرمى ReferenceError عند فتح الأدمن لبروفايل
+         موظف بلا راتب محدَّد، وهي حالة كل موظف جديد. والفرع داخل isAdmin
+         أصلاً، فالشرط كان زائداً حتى لو كان الاسم صحيحاً. */
       const w = card('');
       w.appendChild(empty('لم يُحدَّد راتب لهذا الموظف — اضغط «تعديل البيانات والراتب» لإضافته.'));
       host.appendChild(w);
