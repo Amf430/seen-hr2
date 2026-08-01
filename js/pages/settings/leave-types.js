@@ -1,4 +1,4 @@
-import { el, esc, uid, toast } from '../../lib/dom.js';
+import { el, esc, uid, toast, openModal } from '../../lib/dom.js';
 import { getSettings } from '../../lib/state.js';
 import { saveSettings } from '../../lib/settings.js';
 import { chipCard } from '../../components/chip-card.js';
