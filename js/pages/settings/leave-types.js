@@ -1,4 +1,7 @@
-import { el, esc, uid, toast } from '../../lib/dom.js';
+import { el, esc, uid, toast, openModal } from '../../lib/dom.js';
+/* ⚠️ chainRoleAr و openModal سقطتا في الدمج، وكلتاهما تُستدعى في مسار العرض
+   نفسه (chainRoleAr في السطر 31 داخل draw) — فكانت الصفحة ترمي عند فتحها. */
+import { chainRoleAr } from '../../lib/requests.js';
 import { getSettings } from '../../lib/state.js';
 import { saveSettings } from '../../lib/settings.js';
 import { chipCard } from '../../components/chip-card.js';
