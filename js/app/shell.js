@@ -104,18 +104,27 @@ export function initShellChrome() {
   const toggle  = $('#menuToggle');
   const scrim   = $('#navScrim');
 
+  const MOBILE = () => window.matchMedia('(max-width: 860px)').matches;
+  /* ⚠️ الدرج المغلق مخفي بـ transform فقط، فيبقى في ترتيب التنقّل وفي شجرة
+     الوصول: مستخدم لوحة المفاتيح أو قارئ الشاشة يدخل قائمة غير مرئية. */
+  const syncInert = () => { sidebar.inert = MOBILE() && !sidebar.classList.contains('open'); };
+
   const close = () => {
-    if (!sidebar.classList.contains('open')) return;
+    if (!sidebar.classList.contains('open')) { syncInert(); return; }
     sidebar.classList.remove('open');
     if (scrim) scrim.classList.remove('show');
     toggle.setAttribute('aria-expanded', 'false');
+    syncInert();
     unlockScroll();
+    toggle.focus();
   };
   const open = () => {
     sidebar.classList.add('open');
     if (scrim) scrim.classList.add('show');
     toggle.setAttribute('aria-expanded', 'true');
+    syncInert();
     lockScroll();
+    sidebar.querySelector('a')?.focus();
   };
 
   toggle.onclick = () => (sidebar.classList.contains('open') ? close() : open());
@@ -134,6 +143,8 @@ export function initShellChrome() {
      (السطر 746)، وضاع في التقسيم — فكان الموظف يضغط صفحة على الجوال
      فتبقى القائمة مفتوحة فوق الصفحة التي طلبها. */
   onNavigate(close);
+  window.addEventListener('resize', syncInert);
+  syncInert();
 
   return { closeSidebar: close };
 }

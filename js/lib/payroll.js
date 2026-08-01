@@ -44,7 +44,14 @@ export function computePayroll(cyc, users, requests, recs) {
     let absentDays = 0, unpaidDays = 0, paidLeaveDays = 0, missingOut = 0, presentDays = 0, lateDays = 0, workDays = 0;
     const details = [];
 
-    for (let d = new Date(cyc.start); d <= end; d.setDate(d.getDate() + 1)) {
+    /* ⚠️ لا يُحاسَب الموظف على أيام قبل مباشرته.
+       الدورة تبدأ يوم 26، فمن باشر في 10 أغسطس كان قبله ~11 يوم عمل في نفس
+       الدورة — وكانت تُحسب كلها غياباً ويُخصم عنها يوم كامل لكل يوم. راتب
+       6,000 كان ينزل إلى 3,800 في أول مسير له. */
+    const hire = u.hireDate ? new Date(u.hireDate + 'T00:00:00') : null;
+    const startsAt = (hire && !isNaN(hire) && hire > cyc.start) ? hire : cyc.start;
+
+    for (let d = new Date(startsAt); d <= end; d.setDate(d.getDate() + 1)) {
       const dateStr = ymd(d), dow = d.getDay();
       const sh = resolveShift(dateStr, dow, u.department);
       if (!sh || sh.type === 'off') continue;

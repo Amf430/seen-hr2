@@ -107,7 +107,10 @@ export function buildDailyStatus(cyc, users, requests, recs) {
   const end = (cyc.end < now) ? cyc.end : now;
   const rows = [];
   emps.forEach((u) => {
-    for (let d = new Date(cyc.start); d <= end; d.setDate(d.getDate() + 1)) {
+    /* لا غياب قبل تاريخ المباشرة — نفس علّة المسير */
+    const hire = u.hireDate ? new Date(u.hireDate + 'T00:00:00') : null;
+    const startsAt = (hire && !isNaN(hire) && hire > cyc.start) ? hire : cyc.start;
+    for (let d = new Date(startsAt); d <= end; d.setDate(d.getDate() + 1)) {
       const dateStr = ymd(d), dow = d.getDay();
       const shift = resolveShift(dateStr, dow, u.department);
       if (!shift || shift.type === 'off') continue;   /* راحة أو عطلة رسمية → لا يُحاسب عليها */

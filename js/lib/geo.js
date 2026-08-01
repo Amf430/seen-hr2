@@ -91,11 +91,13 @@ export function geoRuleFor(u) {
   const ids = Array.isArray(u && u.branchIds) ? u.branchIds.filter(Boolean) : [];
 
   let allowed = ids.length ? all.filter((b) => ids.includes(b.id)) : all;
-  /* فروعه المسندة اتحذفت من الإعدادات → نرجّعه لكل الفروع بدل ما نقفل عليه */
-  if (!allowed.length) allowed = all;
+  /* ⚠️ لو كان مقيَّداً بفروع وكلها موقوفة/محذوفة، لا نوسّع له الصلاحية لكل
+     الفروع — كان إيقاف فرع يمنح موظفيه فجأة حق التسجيل من كل فرع آخر، وهو
+     عكس المقصود تماماً. نتركها فارغة ليُقال له بوضوح أن فرعه غير متاح. */
+  const orphaned = ids.length > 0 && allowed.length === 0;
 
   const ov = Number(u && u.geoRadius);
-  return { mode, allowed, radiusOverride: (ov >= 50) ? Math.round(ov) : null };
+  return { mode, allowed, orphaned, radiusOverride: (ov >= 50) ? Math.round(ov) : null };
 }
 
 /* أقرب فرع = الأقل تجاوزاً لنطاقه، لا الأقل متراً.
@@ -118,6 +120,7 @@ export function nearestBranch(pos, list, radiusOverride) {
 export function describeRule(u) {
   const r = geoRuleFor(u);
   if (r.mode === 'remote') return 'يسجّل من أي مكان';
+  if (r.orphaned) return '⚠️ فرعه المسند موقوف — لا يقدر يسجّل';
   const all = activeBranches();
   const scope = (r.allowed.length === all.length)
     ? 'كل الفروع'

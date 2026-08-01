@@ -24,8 +24,9 @@ import { getPosition, geoRuleFor, nearestBranch, activeBranches, REMOTE_BRANCH_I
 import { verifyBiometric, bioReasonAr, setCredentialPersister } from '../lib/biometric.js';
 import { capturePhoto, savePhoto } from '../lib/photo.js';
 import { saveBioCredentials } from '../lib/users.js';
-import { setPageInterval, trackSubscription } from '../lib/lifecycle.js';
+import { setPageInterval, trackSubscription, onCleanup } from '../lib/lifecycle.js';
 import { notifyState, askPermission, checkCheckoutReminder } from '../lib/reminders.js';
+import { rerender } from '../lib/nav.js';
 
 /* الفهرس البعيد لمفاتيح البصمة يُحفظ على وثيقة الموظف */
 setCredentialPersister(saveBioCredentials);
@@ -58,8 +59,14 @@ export function attendPanel(view) {
 
   /* لا فرع ولا وضع «عن بُعد» → ما يقدر يسجّل */
   if (rule.mode !== 'remote' && !rule.allowed.length) {
+    /* حالتان مختلفتان: لا فروع أصلاً، أو له فرع لكنه موقوف. الرسالة الواحدة
+       كانت تُرسل الموظف للموارد البشرية بشكوى خاطئة. */
     view.appendChild(el('div', 'card',
-      `<div class="empty"><div class="big">${icon('pin', 'ic--empty')}</div>لم يُضَف أي فرع للشركة بعد. تواصل مع الموارد البشرية.</div>`));
+      `<div class="empty"><div class="big">${icon('pin', 'ic--empty')}</div>${
+        rule.orphaned
+          ? 'الفرع المسند لك موقوف حالياً. تواصل مع الموارد البشرية.'
+          : 'لم يُضَف أي فرع للشركة بعد. تواصل مع الموارد البشرية.'
+      }</div>`));
     const tickOnly = () => {
       const t = new Date();
       clockEl.textContent = `${p2(t.getHours())}:${p2(t.getMinutes())}:${p2(t.getSeconds())}`;
@@ -141,6 +148,10 @@ export function attendPanel(view) {
 
   actBtn.onclick = async () => {
     if (!loaded || loadErr || busy) return;
+    /* ⚠️ لو تغيّر اليوم والتبويب مفتوح، الوثيقة المربوطة صارت لأمس. الكتابة
+       تُرفض من القاعدة برسالة مضلّلة عن ساعة الجهاز، أو — أسوأ — تُغلق جلسة
+       أمس بطابع اليوم فتظهر وردية 24 ساعة. نُعيد البناء بدل ذلك. */
+    if (ymd(new Date()) !== dateStr) { toast('تغيّر التاريخ — جارٍ التحديث'); rerender(); return; }
     await doAttendance(isOpen() ? 'out' : 'in', ref, actBtn, bioNote, rule,
       (b) => { busy = b; if (!b) paintAll(); });
   };
@@ -172,6 +183,8 @@ export function attendPanel(view) {
 
   const tick = () => {
     const t = new Date();
+    /* عبور منتصف الليل — أعد بناء اللوحة كاملة على اليوم الجديد */
+    if (ymd(t) !== dateStr) { rerender(); return; }
     clockEl.textContent = `${p2(t.getHours())}:${p2(t.getMinutes())}:${p2(t.getSeconds())}`;
     paintTimer(); paintBtn();
     /* الفحص كل ثانية رخيص: يخرج فوراً ما لم تكن هناك جلسة مفتوحة، ولا يُطلق
@@ -180,6 +193,12 @@ export function attendPanel(view) {
   };
   tick();
   setPageInterval(tick, 1000);
+
+  /* الجوال يُجمّد التبويبات في الخلفية، فالمؤقّت لا يعمل ليلاً. عند العودة
+     للتبويب نتحقق من التاريخ فوراً بدل انتظار النبضة التالية. */
+  const onVisible = () => { if (!document.hidden && ymd(new Date()) !== dateStr) rerender(); };
+  document.addEventListener('visibilitychange', onVisible);
+  onCleanup(() => document.removeEventListener('visibilitychange', onVisible));
 }
 
 /* ═══════════════════ تنفيذ التسجيل ═══════════════════ */
@@ -264,7 +283,11 @@ async function doAttendance(kind, ref, btn, bioNote, rule, setBusy) {
      NotAllowedError فيوقف الحفظ كلياً، فيقف داخل الفرع عاجزاً عن التسجيل. */
   btn.textContent = 'تحقّق بالبصمة…';
   const bio = await verifyBiometric();
-  bioNote.textContent = bio.ok ? '' : (bioReasonAr(bio.reason) + ' — سيُسجَّل حضورك بدونها');
+  /* «تم الربط» نجاح لا فشل — إلحاق «سيُسجَّل حضورك بدونها» به يخبر الموظف
+     أن الربط فشل وهو قد نجح للتو. */
+  bioNote.textContent = bio.ok ? ''
+    : bio.reason === 'enrolled-now' ? bioReasonAr(bio.reason)
+    : (bioReasonAr(bio.reason) + ' — سيُسجَّل حضورك بدونها');
 
   /* ⑤ الكتابة */
   btn.textContent = 'جارٍ الحفظ…';

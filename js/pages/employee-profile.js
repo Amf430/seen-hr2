@@ -3,7 +3,7 @@ import { getUsers, getRequests, getProfileUid, setProfileUid, getMe } from '../l
 import { refreshUsers } from '../lib/users.js';
 import { recentCyclesList, reqEventDate, contractDaysLeft, AR_DAYS } from '../lib/dates.js';
 import { money, hhmm, hm, fmtDur, p2 } from '../lib/format.js';
-import { fetchAttendance, buildDailyStatus } from '../lib/attendance.js';
+import { fetchMyAttendance, buildDailyStatus } from '../lib/attendance.js';
 import { computePayroll, payrollConfig } from '../lib/payroll.js';
 import { shiftText } from '../lib/shifts.js';
 import { describeRule } from '../lib/geo.js';
@@ -50,21 +50,35 @@ export async function render(view, token) {
     </div>`;
   view.appendChild(hd);
 
+  /* الأدمن وحده يرى الرواتب ويحرّر — تُستعمل في عدة مواضع أدناه */
+  const isAdmin = getMe().role === 'admin';
+
   const bar2 = el('div', 'btn-bar');
-  bar2.append(
-    button('كل الموظفين', 'btn sm ghost', () => go('employees')),
-    button('تعديل البيانات والراتب', 'btn sm', () => openEmpForm(u, async () => { await refreshUsers(); rerender(); }, 'gear'))
-  );
+  bar2.appendChild(button('كل الموظفين', 'btn sm ghost', () => go('employees')));
+  /* ⚠️ قاعدة users تسمح بالتعديل للأدمن وحده، فالزر عند مدير القسم كان يفشل
+     دائماً برسالة «ما عندك صلاحية». صفحة الموظفين تتجنّب هذا أصلاً — لا
+     تُعرض أزرار محكوم عليها بالفشل. */
+  if (isAdmin) {
+    bar2.appendChild(button('تعديل البيانات والراتب', 'btn sm',
+      () => openEmpForm(u, async () => { await refreshUsers(); rerender(); }, 'gear')));
+  }
   view.appendChild(bar2);
 
   /* التعاقد */
   const cfg = payrollConfig();
   const dl = contractDaysLeft(u.contractEnd);
-  const cd = card('التعاقد والراتب', null, 'money');
-  const cg = grid(4);
+  /* ⚠️ الراتب لمدير النظام فقط. صفحة «ملفات الموظفين» تخفي عمود الراتب عن
+     مدير القسم، وكانت هذه الصفحة تعرضه له كاملاً مع تفصيل الخصومات —
+     تسريب رواتب كل مرؤوسيه بخطوتين. */
+  const cd = card(isAdmin ? 'التعاقد والراتب' : 'التعاقد', null, 'money');
+  const cg = grid(isAdmin ? 4 : 2);
+  if (isAdmin) {
+    cg.append(
+      stat(u.salary ? money(u.salary) : '—', 'الراتب الشهري (ريال)'),
+      stat(u.salary ? money(u.salary / (cfg.daysPerMonth || 30) / (cfg.hoursPerDay || 8)) : '—', 'قيمة الساعة (ريال)')
+    );
+  }
   cg.append(
-    stat(u.salary ? money(u.salary) : '—', 'الراتب الشهري (ريال)'),
-    stat(u.salary ? money(u.salary / (cfg.daysPerMonth || 30) / (cfg.hoursPerDay || 8)) : '—', 'قيمة الساعة (ريال)'),
     stat(u.contractEnd || '—', 'انتهاء العقد' + (dl !== null ? ` · ${dl < 0 ? 'منتهٍ' : dl + ' يوم متبقّي'}` : ''),
       dl !== null && dl < 0 ? 'r' : (dl !== null && dl <= 60 ? 'a' : '')),
     stat(u.hireDate || '—', 'تاريخ المباشرة')
@@ -75,7 +89,6 @@ export async function render(view, token) {
 
   /* ── المستندات ──
      الأدمن وحده يحرّر (القاعدة تفرضه)؛ مدير القسم يرى ولا يعدّل. */
-  const isAdmin = getMe().role === 'admin';
   const dc = card('');
   dc.appendChild(sectionHead({ text: 'المستندات وتواريخ الانتهاء', icon: 'doc' },
     isAdmin ? button('إدارة المستندات', 'btn sm', () => openDocsModal(u, async () => {
@@ -100,11 +113,13 @@ export async function render(view, token) {
     const cyc = cycles[+dd.value];
     host.innerHTML = '<div class="card"><div class="empty"><span class="spinner"></span> جارٍ الحساب…</div></div>';
     let recs = [];
-    try { recs = await fetchAttendance(cyc, 'zkAttendance'); }
+    /* قراءة مباشرة بمعرّف الوثيقة — الاستعلام بالمدى مرفوض لغير الأدمن،
+       وهذه الصفحة تحتاج موظفاً واحداً فقط فلا تحتاج استعلاماً ولا فهرساً. */
+    try { recs = await fetchMyAttendance(cyc, u.id, 'zkAttendance'); }
     catch (e) { console.error(e); host.innerHTML = '<div class="card"><div class="empty">تعذّر تحميل سجل البصمة</div></div>'; return; }
     if (isStale(token)) return;
 
-    const mine = recs.filter((r) => r.employeeUid === u.id);
+    const mine = recs;
     const reqs = getRequests().filter((r) => r.employeeUid === u.id);
     const rows = buildDailyStatus(cyc, [u], reqs, mine);
     /* ⚠️ computePayroll تُسقط دور admin عمداً (لا مسير للأدمن)، فتُرجع مصفوفة
@@ -162,8 +177,10 @@ export async function render(view, token) {
                     seg(miss, 'نسيان بصمة', 'var(--violet)');
     host.appendChild(bc);
 
-    /* أثر الخصم */
-    if (!pay) {
+    /* أثر الخصم — للأدمن وحده، فهو تفصيل رواتب */
+    if (!isAdmin) {
+      /* مدير القسم لا يرى أرقام الراتب إطلاقاً */
+    } else if (!pay) {
       const w = card('');
       w.appendChild(empty('لا يُحتسب مسير رواتب لحساب مدير النظام.', 'money'));
       w.appendChild(el('p', 'help',
@@ -182,7 +199,7 @@ export async function render(view, token) {
         ${pay.exemptMin ? `<p class="help">أُعفي ${hhmm(pay.exemptMin)} بسبب استئذانات معتمدة.</p>` : ''}
         ${pay.missingOut ? `<p class="help text-violet">${pay.missingOut} يوم بلا بصمة انصراف — راجعها قبل اعتماد المسير.</p>` : ''}`;
       host.appendChild(pc);
-    } else {
+    } else if (showMoney) {
       const w = card('');
       w.appendChild(empty('لم يُحدَّد راتب لهذا الموظف — اضغط «تعديل البيانات والراتب» لإضافته.'));
       host.appendChild(w);

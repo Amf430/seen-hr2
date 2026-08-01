@@ -71,18 +71,23 @@ export function requestCard(r, forAdmin) {
   const mayApprove = forAdmin && (hasChain(r) ? ownsCurrentStep(r) : canApproveType(r));
 
   if (mayApprove && r.status === 'pending') {
+    const no = el('button', 'btn sm danger', 'رفض');
+    no.onclick = () => { if (!no.disabled) openReject(r); };
     const ok = el('button', 'btn sm', 'موافقة');
     /* ⚠️ التعطيل أثناء التنفيذ ليس تجميلاً: approve() تخصم من رصيد الإجازة،
        والنقرتان السريعتان كانتا تخصمان مرتين. المعاملة في requests.js تمنع
-       الخصم المزدوج حتماً، وهذا يمنع المحاولة من الأساس ويشرح للمستخدم
-       أن شيئاً يجري. */
+       الخصم المزدوج حتماً، وهذا يمنع المحاولة من الأساس ويشرح للمستخدم أن
+       شيئاً يجري. ويُعطَّل زر الرفض معه: القائمة تُعاد بناؤها بعد الموافقة،
+       فالضغطة التالية قد تقع على طلب موظف آخر صعد مكانه.
+       الاستعادة في catch لا في finally — عند النجاح تختفي البطاقة أو تتغيّر،
+       فإرجاع الزر صالحاً يفتح نافذة لنقرة ثانية على عملية تمّت. */
     ok.onclick = async () => {
-      ok.disabled = true; ok.textContent = '… جارٍ التنفيذ';
+      if (ok.disabled) return;
+      ok.disabled = true; no.disabled = true;
+      ok.textContent = '… جارٍ التنفيذ';
       try { await approve(r); }
-      catch (e) { ok.disabled = false; ok.textContent = 'موافقة'; }
+      catch (e) { ok.disabled = false; no.disabled = false; ok.textContent = 'موافقة'; }
     };
-    const no = el('button', 'btn sm danger', 'رفض');
-    no.onclick = () => openReject(r);
     bar.append(ok, no);
     c.appendChild(bar);
   } else if (mayApprove && r.status === 'approved') {
