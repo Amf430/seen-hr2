@@ -17,6 +17,7 @@ export const PAGES = {
   inbox:         { title: 'بانتظار موافقتك',       hint: 'راجع الطلبات ووافق أو ارفض' },
   employees:     { title: 'ملفات الموظفين',        hint: 'البيانات والعقود والرواتب والصلاحيات' },
   profile:       { title: 'بروفايل الموظف',        hint: 'الراتب والعقد وتحليلات الالتزام' },
+  org:           { title: 'الهيكل التنظيمي',        hint: 'من يتبع من — الشجرة الإدارية كاملة' },
   attendance:    { title: 'الحضور من الجوال',      hint: 'تسجيل ذاتي بالموقع الجغرافي — فرز باليوم أو بالموظف' },
   zklog:         { title: 'سجل جهاز البصمة',       hint: 'سجل مستقل قادم من جهاز ZKTeco — لا يعدّله أحد' },
   payroll:       { title: 'مسير الرواتب — دورة 26 ← 25', hint: 'المستحق لكل موظف حسب بصمة الجهاز' },
@@ -33,6 +34,9 @@ export const PAGES = {
 /* عنوان لوحة الأدمن يختلف عن عنوان الموظف لنفس المعرّف */
 export const HOME_ADMIN = { title: 'لوحة القيادة', hint: 'نبض الشركة اليوم: القوى العاملة، الحضور، تكلفة الرواتب والطلبات' };
 
+/* نفس صفحة الهيكل، لكن المدير يرى فرعه منها لا الشجرة كاملة */
+export const ORG_MANAGER = { title: 'فريقي', hint: 'من يتبعك مباشرةً ومن تحتهم' };
+
 /* ── التنقّل المُجمّع ──
    المجموعة بلا عنوان (group:'') تظهر في الأعلى بلا ترويسة.
 
@@ -48,42 +52,44 @@ export const HOME_ADMIN = { title: 'لوحة القيادة', hint: 'نبض ال
    ستظهر له الصفحة فارغة مع خطأ صلاحيات. */
 export const NAV_GROUPS = [
   { group: '', items: [
-    { id: 'home', icon: '📊', label: 'لوحة القيادة', roles: ['admin'] },
-    { id: 'home', icon: '🏠', label: 'الرئيسية',     roles: ['employee', 'manager'] }
+    { id: 'home', icon: 'dashboard', label: 'لوحة القيادة', roles: ['admin'] },
+    { id: 'home', icon: 'home', label: 'الرئيسية',     roles: ['employee', 'manager'] }
   ]},
 
   { group: 'الحضور والدوام', items: [
-    { id: 'attend',     icon: '🟢',  label: 'تسجيل حضوري',      roles: ['employee', 'manager'] },
-    { id: 'attendance', icon: '🌐',  label: 'الحضور من الجوال', roles: ['admin'] },
-    { id: 'zklog',      icon: '🖐️', label: 'سجل جهاز البصمة',  roles: ['admin'] }
+    { id: 'attend',     icon: 'clock',  label: 'تسجيل حضوري',      roles: ['employee', 'manager'] },
+    { id: 'attendance', icon: 'globe',  label: 'الحضور من الجوال', roles: ['admin'] },
+    { id: 'zklog',      icon: 'finger', label: 'سجل جهاز البصمة',  roles: ['admin'] }
   ]},
 
   { group: 'الطلبات', items: [
-    { id: 'inbox',   icon: '📥', label: 'بانتظار موافقتك', roles: ['admin', 'manager'], badge: true },
-    { id: 'new',     icon: '➕', label: 'تقديم طلب',       roles: ['employee', 'manager'] },
-    { id: 'mine',    icon: '📋', label: 'طلباتي',          roles: ['employee', 'manager'] },
-    { id: 'reports', icon: '📈', label: 'تحليلات الطلبات', roles: ['admin'] }
+    { id: 'inbox',   icon: 'inbox', label: 'بانتظار موافقتك', roles: ['admin', 'manager'], badge: true },
+    { id: 'new',     icon: 'plus', label: 'تقديم طلب',       roles: ['employee', 'manager'] },
+    { id: 'mine',    icon: 'list', label: 'طلباتي',          roles: ['employee', 'manager'] },
+    { id: 'reports', icon: 'chart', label: 'تحليلات الطلبات', roles: ['admin'] }
   ]},
 
   { group: 'شؤون الموظفين', items: [
-    { id: 'employees', icon: '👤', label: 'ملفات الموظفين',  roles: ['admin', 'manager'] },
-    { id: 'set-org',   icon: '🏢', label: 'الأقسام والهيكل', roles: ['admin'] }
+    { id: 'employees', icon: 'people', label: 'ملفات الموظفين',  roles: ['admin', 'manager'] },
+    { id: 'org',       icon: 'network', label: 'الهيكل التنظيمي', roles: ['admin'] },
+    { id: 'org',       icon: 'network', label: 'فريقي',           roles: ['manager'] },
+    { id: 'set-org',   icon: 'building', label: 'الأقسام والهيكل', roles: ['admin'] }
   ]},
 
   { group: 'الرواتب', items: [
-    { id: 'payroll',     icon: '💵', label: 'مسير الرواتب',   roles: ['admin'] },
-    { id: 'set-payroll', icon: '⚖️', label: 'احتساب الرواتب', roles: ['admin'] }
+    { id: 'payroll',     icon: 'money', label: 'مسير الرواتب',   roles: ['admin'] },
+    { id: 'set-payroll', icon: 'scale', label: 'احتساب الرواتب', roles: ['admin'] }
   ]},
 
   { group: 'التقارير والسجلات', items: [
-    { id: 'monthly', icon: '📅',  label: 'تقارير الدورات', roles: ['admin'] },
-    { id: 'audit',   icon: '🗂️', label: 'سجل الحركات',    roles: ['admin'] }
+    { id: 'monthly', icon: 'calendar',  label: 'تقارير الدورات', roles: ['admin'] },
+    { id: 'audit',   icon: 'archive', label: 'سجل الحركات',    roles: ['admin'] }
   ]},
 
   { group: 'الإعدادات', items: [
-    { id: 'set-branches', icon: '📍', label: 'الفروع ونطاق الحضور',        roles: ['admin'] },
-    { id: 'set-shifts',   icon: '🕗', label: 'الورديات والعطل',            roles: ['admin'] },
-    { id: 'set-requests', icon: '🧾', label: 'أنواع الطلبات والاعتمادات',  roles: ['admin'] }
+    { id: 'set-branches', icon: 'pin', label: 'الفروع ونطاق الحضور',        roles: ['admin'] },
+    { id: 'set-shifts',   icon: 'clock', label: 'الورديات والعطل',            roles: ['admin'] },
+    { id: 'set-requests', icon: 'tag', label: 'أنواع الطلبات والاعتمادات',  roles: ['admin'] }
   ]}
 ];
 

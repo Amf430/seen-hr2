@@ -14,22 +14,27 @@
 
 import { db, doc, getDoc, setDoc, onSnapshot } from '../lib/firebase.js';
 import { el, esc, toast } from '../lib/dom.js';
+import { icon } from '../lib/icons.js';
 import { getMe } from '../lib/state.js';
-import { ymd, AR_DAYS } from '../lib/dates.js';
+import { ymdKsa, AR_DAYS } from '../lib/dates.js';
 import { fmtDate, fmtDur, hm, p2, fmtDist } from '../lib/format.js';
 import { sessionsOf, workedSecs } from '../lib/attendance.js';
 import { shiftLabelOf, shiftEndPassed } from '../lib/shifts.js';
 import { getPosition, geoRuleFor, nearestBranch, activeBranches, REMOTE_BRANCH_ID, REMOTE_LABEL } from '../lib/geo.js';
 import { verifyBiometric, bioReasonAr, setCredentialPersister } from '../lib/biometric.js';
+import { capturePhoto, savePhoto } from '../lib/photo.js';
 import { saveBioCredentials } from '../lib/users.js';
 import { setPageInterval, trackSubscription } from '../lib/lifecycle.js';
+import { notifyState, askPermission, checkCheckoutReminder } from '../lib/reminders.js';
 
 /* الفهرس البعيد لمفاتيح البصمة يُحفظ على وثيقة الموظف */
 setCredentialPersister(saveBioCredentials);
 
 export function attendPanel(view) {
   const me = getMe();
-  const now = new Date(), dow = now.getDay(), dateStr = ymd(now);
+  /* ⚠️ تاريخ الرياض لا التاريخ المحلي — معرّف الوثيقة لازم يطابق todayKsa()
+     في firestore.rules، وإلا رُفضت كل كتابة من جهاز على منطقة زمنية أخرى. */
+  const now = new Date(), dow = now.getDay(), dateStr = ymdKsa(now);
   const rule = geoRuleFor(me);
 
   /* ── بطاقة الساعة ── */
@@ -38,11 +43,11 @@ export function attendPanel(view) {
     <div class="clock-day">${AR_DAYS[dow]}</div>
     <div class="clock-time num" id="liveClock">--:--:--</div>
     <div class="clock-date">${fmtDate(now)}</div>
-    <div class="shift-line">🕗 ورديتك اليوم: ${esc(shiftLabelOf(dow))}</div>
+    <div class="shift-line">${icon('clock')} ورديتك اليوم: ${esc(shiftLabelOf(dow))}</div>
     <div class="hero__geo ${rule.mode === 'remote' ? 'is-anywhere' : ''}" id="heroGeo">${
       rule.mode === 'remote'
-        ? '🌍 مسموح لك التسجيل من أي مكان'
-        : '📍 ' + esc(rule.allowed.length === 1 ? rule.allowed[0].name
+        ? icon('globe') + ' مسموح لك التسجيل من أي مكان'
+        : icon('pin') + ' ' + esc(rule.allowed.length === 1 ? rule.allowed[0].name
             : rule.allowed.length ? `${rule.allowed.length} فروع مسموحة` : 'لا يوجد فرع')
     }</div>
     <div class="work-timer" id="workTimer"><span class="wt-idle">…</span></div>`;
@@ -54,7 +59,7 @@ export function attendPanel(view) {
   /* لا فرع ولا وضع «عن بُعد» → ما يقدر يسجّل */
   if (rule.mode !== 'remote' && !rule.allowed.length) {
     view.appendChild(el('div', 'card',
-      '<div class="empty"><div class="big">📍</div>لم يُضَف أي فرع للشركة بعد. تواصل مع الموارد البشرية.</div>'));
+      `<div class="empty"><div class="big">${icon('pin', 'ic--empty')}</div>لم يُضَف أي فرع للشركة بعد. تواصل مع الموارد البشرية.</div>`));
     const tickOnly = () => {
       const t = new Date();
       clockEl.textContent = `${p2(t.getHours())}:${p2(t.getMinutes())}:${p2(t.getSeconds())}`;
@@ -75,10 +80,10 @@ export function attendPanel(view) {
   card.appendChild(bioNote);
   card.appendChild(el('p', 'help',
     rule.mode === 'remote'
-      ? '🌍 حسابك مسموح له التسجيل من أي مكان. يُسجَّل موقعك على السجل للتوثيق فقط.'
+      ? 'حسابك مسموح له التسجيل من أي مكان. يُسجَّل موقعك على السجل للتوثيق فقط.'
       : `سيُطلب إذن الموقع. لازم تكون داخل نطاق الفرع${rule.radiusOverride != null ? ` (نطاقك الخاص ${rule.radiusOverride} م)` : ''}.`));
   card.appendChild(el('p', 'help',
-    '🔒 جلستك تبقى مفتوحة حتى تضغط «تسجيل انصراف» بنفسك — إغلاق الصفحة أو قفل الجوال لا يسجّل انصراف.'));
+    'جلستك تبقى مفتوحة حتى تضغط «تسجيل انصراف» بنفسك — إغلاق الصفحة أو قفل الجوال لا يسجّل انصراف.'));
   view.appendChild(card);
 
   const ref = doc(db, 'attendance', me.id + '_' + dateStr);
@@ -103,15 +108,15 @@ export function attendPanel(view) {
   function paintBtn() {
     if (busy) return;
     if (!loaded)  { actBtn.disabled = true;  actBtn.className = 'btn btn--xl'; actBtn.textContent = '… جارٍ التحميل'; return; }
-    if (loadErr)  { actBtn.disabled = true;  actBtn.className = 'btn btn--xl'; actBtn.textContent = '⚠️ تعذّر قراءة حالتك — حدّث الصفحة'; return; }
-    if (isOpen()) { actBtn.disabled = false; actBtn.className = 'btn btn--xl danger'; actBtn.textContent = '🔴 تسجيل انصراف'; return; }
-    if (shiftEndPassed()) { actBtn.disabled = true; actBtn.className = 'btn btn--xl'; actBtn.textContent = '⛔ انتهى وقت الدوام'; return; }
-    actBtn.disabled = false; actBtn.className = 'btn btn--xl'; actBtn.textContent = '🟢 تسجيل حضور';
+    if (loadErr)  { actBtn.disabled = true;  actBtn.className = 'btn btn--xl'; actBtn.textContent = 'تعذّر قراءة حالتك — حدّث الصفحة'; return; }
+    if (isOpen()) { actBtn.disabled = false; actBtn.className = 'btn btn--xl danger'; actBtn.textContent = 'تسجيل انصراف'; return; }
+    if (shiftEndPassed()) { actBtn.disabled = true; actBtn.className = 'btn btn--xl'; actBtn.textContent = 'انتهى وقت الدوام'; return; }
+    actBtn.disabled = false; actBtn.className = 'btn btn--xl'; actBtn.textContent = 'تسجيل حضور';
   }
 
   function paintStatus() {
     if (loadErr) {
-      statusBox.innerHTML = '<div class="empty text-red">⚠️ تعذّر قراءة سجل اليوم. لم يتغيّر شيء — حدّث الصفحة وحاول مرة ثانية.</div>';
+      statusBox.innerHTML = '<div class="empty text-red">تعذّر قراءة سجل اليوم. لم يتغيّر شيء — حدّث الصفحة وحاول مرة ثانية.</div>';
       return;
     }
     const ss = sessionsOf(todayDoc);
@@ -120,7 +125,7 @@ export function attendPanel(view) {
     const where = todayDoc && todayDoc.branchName ? esc(todayDoc.branchName) : '—';
     statusBox.innerHTML = `
       <div class="detail-line"><span class="k">الحالة الآن</span><span class="v ${open ? 'text-green' : 'text-muted'}">${
-        open ? '🟢 داخل العمل' : (ss.length ? 'خارج العمل' : 'لم تُسجّل بعد')}</span></div>
+        open ? 'داخل العمل' : (ss.length ? 'خارج العمل' : 'لم تُسجّل بعد')}</span></div>
       <div class="detail-line"><span class="k">المكان</span><span class="v">${where}</span></div>
       <div class="detail-line"><span class="k">عدد جلسات اليوم</span><span class="v num">${ss.length}</span></div>
       <div class="detail-line"><span class="k">أول حضور</span><span class="v num text-green">${first ? hm(first.in) : '—'}</span></div>
@@ -140,10 +145,38 @@ export function attendPanel(view) {
       (b) => { busy = b; if (!b) paintAll(); });
   };
 
+  /* ── تذكير الانصراف ──
+     ⚠️ الإذن يُطلب بضغطة الموظف لا تلقائياً: طلبه بلا سياق يرفضه المستخدم
+     غالباً، والرفض في كثير من المتصفحات نهائي لا يُستعاد إلا من الإعدادات. */
+  const remindRow = el('p', 'help', '');
+  card.appendChild(remindRow);
+  const paintRemind = () => {
+    const st = notifyState();
+    if (st === 'granted') {
+      remindRow.textContent = 'تذكير الانصراف مُفعَّل — سيصلك تنبيه لو انتهت وردية اليوم وجلستك مفتوحة.';
+      return;
+    }
+    if (st === 'unsupported' || st === 'denied') {
+      remindRow.textContent = st === 'denied'
+        ? 'تذكير الانصراف موقوف — فعّل الإشعارات لهذا الموقع من إعدادات متصفحك.'
+        : '';
+      return;
+    }
+    remindRow.textContent = '';
+    remindRow.appendChild(document.createTextNode('يمكن تنبيهك لو نسيت تسجيل الانصراف. '));
+    const b = el('button', 'btn ghost sm', 'فعّل التذكير');
+    b.onclick = async () => { await askPermission(); paintRemind(); };
+    remindRow.appendChild(b);
+  };
+  paintRemind();
+
   const tick = () => {
     const t = new Date();
     clockEl.textContent = `${p2(t.getHours())}:${p2(t.getMinutes())}:${p2(t.getSeconds())}`;
     paintTimer(); paintBtn();
+    /* الفحص كل ثانية رخيص: يخرج فوراً ما لم تكن هناك جلسة مفتوحة، ولا يُطلق
+       التنبيه إلا مرة واحدة في اليوم بفضل الحارس في reminders.js. */
+    checkCheckoutReminder(isOpen());
   };
   tick();
   setPageInterval(tick, 1000);
@@ -160,7 +193,7 @@ async function doAttendance(kind, ref, btn, bioNote, rule, setBusy) {
 
   /* ① الحالة الحقيقية من السيرفر قبل أي كتابة — بلا تخمين.
      القاعدة تشترط أن تبقى الجلسات السابقة كما هي، فالقراءة الطازجة ضرورية. */
-  btn.textContent = '🔄 تحقّق من حالتك…';
+  btn.textContent = 'تحقّق من حالتك…';
   let pre;
   try { const snap = await getDoc(ref); pre = snap.exists() ? snap.data() : null; }
   catch (e) { console.error(e); return fail('تعذّر قراءة سجل اليوم — تحقّق من الإنترنت'); }
@@ -175,7 +208,7 @@ async function doAttendance(kind, ref, btn, bioNote, rule, setBusy) {
   if (kind === 'in'  && preSessions.length >= 12) return fail('وصلت الحد الأقصى لجلسات اليوم');
 
   /* ② الموقع — فشله قاتل للموظف داخل الفرع فقط */
-  btn.textContent = '📍 تحديد الموقع…';
+  btn.textContent = 'تحديد الموقع…';
   let pos = null;
   try { pos = await getPosition(); }
   catch (e) {
@@ -202,15 +235,39 @@ async function doAttendance(kind, ref, btn, bioNote, rule, setBusy) {
     branchId = near.b.id; branchName = near.b.name;
   }
 
+  /* ═══ ③ب صورة إثبات الموقع ═══
+
+     مطلوبة فقط ممن يسجّل من خارج نطاق المبنى: وضع «من أي مكان»، أو من كان
+     داخل الوضع الميداني لكنه فعلياً خارج حدود أي فرع.
+     من يسجّل داخل الفرع لا يُطلب منه شيء — لا يُثقَل الطريق الطبيعي بخطوة.
+
+     ⚠️ تُلتقط قبل الحفظ لا بعده: صورة تفشل بعد كتابة الجلسة تترك سجلاً بلا
+     دليل، ولا وسيلة لإجبار الموظف على إعادتها. */
+  const needsPhoto = rule.mode === 'remote' || !(near && near.inside);
+  let photo = null;
+  if (needsPhoto) {
+    btn.textContent = 'التقاط صورة الموقع…';
+    try {
+      photo = await capturePhoto();
+    } catch (e) {
+      console.error(e);
+      return fail(e.message === 'photo-too-large'
+        ? 'الصورة كبيرة جداً — أعد التقاطها بإضاءة أقل تفصيلاً'
+        : 'تعذّرت قراءة الصورة — أعد المحاولة');
+    }
+    if (!photo)
+      return fail('تسجيلك من خارج نطاق الفرع يحتاج صورة للموقع — اضغط الزر وصوّر مكانك');
+  }
+
   /* ④ البصمة — لا تمنع التسجيل أبداً.
      في النسخة القديمة كان إلغاء الموظف لشاشة المفتاح على أندرويد يرمي
      NotAllowedError فيوقف الحفظ كلياً، فيقف داخل الفرع عاجزاً عن التسجيل. */
-  btn.textContent = '👆 تحقّق بالبصمة…';
+  btn.textContent = 'تحقّق بالبصمة…';
   const bio = await verifyBiometric();
-  bioNote.textContent = bio.ok ? '' : ('ℹ️ ' + bioReasonAr(bio.reason) + ' — سيُسجَّل حضورك بدونها');
+  bioNote.textContent = bio.ok ? '' : (bioReasonAr(bio.reason) + ' — سيُسجَّل حضورك بدونها');
 
   /* ⑤ الكتابة */
-  btn.textContent = '💾 جارٍ الحفظ…';
+  btn.textContent = 'جارٍ الحفظ…';
   try {
     const now = new Date(), dow = now.getDay();
     const loc = pos ? { lat: pos.lat, lng: pos.lng } : null;
@@ -224,15 +281,24 @@ async function doAttendance(kind, ref, btn, bioNote, rule, setBusy) {
         inBranchId: branchId, inBranchName: branchName,
         inMode: rule.mode, inGeoDenied: !pos,
         inBio: bio.ok, inBioReason: bio.ok ? '' : (bio.reason || ''),
+        /* علامة على السجل أن لهذه الجلسة صورة إثبات — الأدمن يعرف أين يبحث
+           بلا استعلام إضافي على كل صف. */
+        inPhoto: !!photo,
         source: 'web'
       }]);
       await setDoc(ref, {
         employeeUid: me.id, employeeName: me.name, employeeEmpId: me.empId || '',
-        department: me.department || '', date: ymd(now), dow,
+        department: me.department || '', date: ymdKsa(now), dow,
         shiftLabel: shiftLabelOf(dow), source: 'web',
         branchId, branchName, workMode: rule.mode,
         sessions
       }, { merge: true });
+      /* ⚠️ الصورة تُحفظ بعد نجاح الجلسة. لو فشل حفظها لا نُبطل الحضور — الموظف
+         سجّل فعلاً، وموقعه محفوظ على الجلسة. نُبلغه فقط ليعيد المحاولة. */
+      if (photo) {
+        try { await savePhoto({ dateStr: ymdKsa(now), sessionIdx: sessions.length - 1, kind: 'in', photo, pos }); }
+        catch (e) { console.error('photo', e); toast('سُجّل حضورك، لكن تعذّر رفع الصورة', 'err'); }
+      }
       toast(`تم تسجيل الحضور — ${branchName}`, 'ok');
     } else {
       const sessions = preSessions;
@@ -244,9 +310,14 @@ async function doAttendance(kind, ref, btn, bioNote, rule, setBusy) {
         outDist: near ? near.dist : null,
         outBranchId: branchId, outBranchName: branchName,
         outMode: rule.mode, outGeoDenied: !pos,
-        outBio: bio.ok, outBioReason: bio.ok ? '' : (bio.reason || '')
+        outBio: bio.ok, outBioReason: bio.ok ? '' : (bio.reason || ''),
+        outPhoto: !!photo
       };
       await setDoc(ref, { sessions }, { merge: true });
+      if (photo) {
+        try { await savePhoto({ dateStr: ymdKsa(now), sessionIdx: openIdx, kind: 'out', photo, pos }); }
+        catch (e) { console.error('photo', e); toast('سُجّل انصرافك، لكن تعذّر رفع الصورة', 'err'); }
+      }
       toast('تم تسجيل الانصراف', 'ok');
     }
   } catch (e) {

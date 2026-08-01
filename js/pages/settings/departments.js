@@ -9,7 +9,7 @@ import { card, empty, tableWrap, sectionHead, button } from '../../lib/ui.js';
 export async function render(view, token) {
   const S = getSettings();
 
-  const head = card('🏢 الأقسام والهيكل',
+  const head = card('الأقسام والهيكل', null, 'building',
     'كل قسم يمكن أن يكون له ورديات خاصة ومدير يوافق على استئذانات موظفيه. الموظف يُربَط بالقسم من ملفه.');
   view.appendChild(head);
 
@@ -23,10 +23,10 @@ export async function render(view, token) {
     host.innerHTML = '';
     const list = S.departments || [];
     const c = card('');
-    c.appendChild(sectionHead('الأقسام', button('➕ إضافة قسم', 'btn sm', () => openDept(null, draw))));
+    c.appendChild(sectionHead('الأقسام', button('إضافة قسم', 'btn sm', () => openDept(null, draw, 'plus'))));
 
     if (!list.length) {
-      c.appendChild(empty('لا أقسام بعد — أضف قسماً ليقدر مديره يوافق على استئذانات موظفيه.', '🏢'));
+      c.appendChild(empty('لا أقسام بعد — أضف قسماً ليقدر مديره يوافق على استئذانات موظفيه.', 'building'));
       host.appendChild(c);
       return;
     }
@@ -46,7 +46,7 @@ export async function render(view, token) {
         <td><b>${esc(d.name)}</b></td>
         <td>${mgr
           ? esc(mgr.name) + (mgr.role !== 'manager' && mgr.role !== 'admin'
-              ? ' <span class="pill pending">صلاحيته ليست «مدير قسم»</span>' : '')
+              ? ' <span class="pill pill--dot pending">صلاحيته ليست «مدير قسم»</span>' : '')
           : '<span class="text-muted">—</span>'}</td>
         <td>${d.shifts ? '<span class="tag">ورديات خاصة</span>' : '<span class="text-muted">ورديات الشركة</span>'}</td>
         <td class="num">${cnt}</td>`;

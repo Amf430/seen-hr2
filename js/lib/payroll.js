@@ -96,8 +96,15 @@ export function computePayroll(cyc, users, requests, recs) {
       }
       if (lm > 0) lateDays++;
       lateMin += lm; earlyMin += em; exemptMin += ex;
-      /* الساعات المحتسبة: الفعلية، وعند نسيان الانصراف نحسب المطلوب ناقص التأخير */
-      workH += lastOut ? (workedSecs(ss).secs / 3600) : Math.max(0, need - (lm / 60));
+      /* الساعات المحتسبة: الفعلية، وعند نسيان الانصراف نحسب المطلوب ناقص التأخير.
+         ⚠️ `until` أُضيف هنا: لو بقيت جلسة في منتصف اليوم مفتوحة بينما أُغلقت
+         جلسة بعدها (وارد في zkAttendance — يكتبه الجسر عبر Admin SDK متجاوزاً
+         القواعد التي تفرض الترتيب)، كانت المفتوحة تُحتسب حتى اللحظة فتنفخ
+         «ساعات فعلية». الخصم لا يتأثر — total يُبنى على الدقائق والأيام لا على
+         workH — لكن الرقم المعروض في المسير كان خاطئاً. */
+      workH += lastOut
+        ? (workedSecs(ss, win ? win.end.getTime() : null).secs / 3600)
+        : Math.max(0, need - (lm / 60));
       details.push({ dateStr, dow, status: flag || (lm > 0 ? 'متأخر' : 'حاضر'), lm, em, ex,
                      ded: ((lm + em) / 60) * hourRate, need, in: firstIn, out: lastOut });
     }

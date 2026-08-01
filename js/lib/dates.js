@@ -6,8 +6,6 @@
    تعديل هنا يغيّر رواتب الناس بصمت. لا تُعاد صياغتها.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { getSettings } from './state.js';
-
 export const AR_MONTHS = ['يناير','فبراير','مارس','أبريل','مايو','يونيو',
                           'يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
 export const AR_DAYS = ['الأحد','الإثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
@@ -24,6 +22,24 @@ export function ymd(d) {
   return d.getFullYear() + '-' +
          String(d.getMonth() + 1).padStart(2, '0') + '-' +
          String(d.getDate()).padStart(2, '0');
+}
+
+/* ═══ تاريخ الرياض (UTC+3) صراحةً ═══
+
+   ⚠️ لماذا لا تكفي ymd() لسجلات الحضور:
+   معرّف وثيقة الحضور هو `uid_YYYY-MM-DD`، وقاعدة firestore.rules تتحقق منه
+   بـ todayKsa() المحسوبة من request.time (وقت الخادم) + ٣ ساعات. بينما ymd()
+   تقرأ المنطقة الزمنية المضبوطة على جهاز الموظف.
+
+   موظف جواله على منطقة زمنية أخرى — مسافر، أو إعداد خاطئ — يبني معرّفاً
+   بتاريخ مختلف، فتُرفض كتابته دائماً برسالة «تأكد أن ساعة جهازك مضبوطة»
+   التي تشير للساعة بينما السبب هو المنطقة الزمنية.
+
+   getTimezoneOffset() يرجع الدقائق التي تُضاف للوقت المحلي لبلوغ UTC
+   (الرياض = ‎-180). فـ (offset + 180) يساوي صفراً داخل السعودية — أي أن
+   السلوك لا يتغيّر إطلاقاً لمن هو في المنطقة الصحيحة. */
+export function ymdKsa(d = new Date()) {
+  return ymd(new Date(d.getTime() + (d.getTimezoneOffset() + 180) * 60000));
 }
 
 /* ═══ الدورة الشهرية: من 26 إلى 25 — منقولة حرفياً ═══ */
@@ -76,18 +92,14 @@ export function hmToDate(base, hhmmStr) {
   return x;
 }
 
-/* أيام الإجازة الفعلية = أيام العمل فقط، باستثناء أيام الراحة من إعدادات الشفتات */
-export function workingDaysBetween(a, b) {
-  const sh = getSettings().shifts || {};
-  const start = new Date(a + 'T00:00:00'), end = new Date(b + 'T00:00:00');
-  if (isNaN(start) || isNaN(end) || end < start) return { days: 0, off: 0 };
-  let n = 0, off = 0;
-  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    const s = sh[d.getDay()];
-    if (s && s.type === 'off') off++; else n++;
-  }
-  return { days: Math.max(0, n), off };
-}
+/* ⚠️ workingDaysBetween انتقلت إلى lib/shifts.js.
+   كانت هنا تقرأ SETTINGS.shifts وحدها — أي الورديات الأسبوعية العامة فقط —
+   بينما resolveShift() التي يبني عليها المسير والتقارير تحترم ثلاث طبقات:
+   استثناءات التواريخ (العطل الرسمية) ← ورديات القسم ← الورديات العامة.
+   النتيجة كانت أن إجازة تمرّ على عيد رسمي يُخصم العيد من رصيد الموظف، وأن
+   عدد الأيام المخصوم لا يطابق عدد الأيام التي يعفيها المسير.
+   نُقلت إلى shifts.js لأنها صارت تحتاج resolveShift، وهذا الملف وحدة طرفية
+   لا يجوز أن تستورد من طبقة أعلى منها. */
 
 /* عدد الأيام المتبقية على انتهاء العقد (سالب = منتهٍ) */
 export function contractDaysLeft(dateStr) {

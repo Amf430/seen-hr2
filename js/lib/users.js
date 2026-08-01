@@ -6,10 +6,11 @@ import {
   db, doc, setDoc, updateDoc, deleteDoc, collection, getDocs, query, where,
   serverTimestamp, createAuthAccount
 } from './firebase.js';
-import { getMe, getSettings, getUsers, setUsers } from './state.js';
+import { getMe, getSettings, getUsers, setUsers, patchMe } from './state.js';
 import { normPhone } from './phone.js';
 import { LOGIN_EMAIL_DOMAIN } from '../config/firebase.config.js';
 import { logAction } from './audit.js';
+import { normalizeDocs } from './documents.js';
 
 /* الأدمن يقرأ الكل، ومدير القسم يقرأ قسمه فقط — مطابق لقاعدة users */
 export async function refreshUsers() {
@@ -44,17 +45,27 @@ const emailFor = (phone) => normPhone(phone) + LOGIN_EMAIL_DOMAIN;
 export async function createEmployee(base, password) {
   const phoneDigits = normPhone(base.phone);
   const email = phoneDigits + LOGIN_EMAIL_DOMAIN;
-  const newUid = await createAuthAccount(email, password);
+  const acct = await createAuthAccount(email, password);
 
   const balances = {};
   (getSettings().leaveTypes || []).forEach((t) => { if (t.deduct) balances[t.id] = t.balance; });
 
-  await setDoc(doc(db, 'users', newUid), {
-    ...base, email, status: 'active', balances,
-    mustChangePassword: true, createdAt: serverTimestamp()
-  });
+  /* ⚠️ فشل كتابة الملف يُتبَع بحذف حساب Auth فوراً. بدون هذا التراجع كان
+     رقم الجوال يُقفل نهائياً: الحساب موجود في Auth بلا ملف، وكل إعادة محاولة
+     ترجع auth/email-already-in-use، ولا مخرج إلا الحذف اليدوي من Console. */
+  try {
+    await setDoc(doc(db, 'users', acct.uid), {
+      ...base, email, status: 'active', balances,
+      mustChangePassword: true, createdAt: serverTimestamp()
+    });
+  } catch (e) {
+    await acct.rollback();
+    throw e;
+  }
+  await acct.done();
+
   await logAction('إضافة موظف', `${base.name} (${base.phone})`);
-  return newUid;
+  return acct.uid;
 }
 
 export async function updateEmployee(id, fields) {
@@ -88,10 +99,19 @@ export async function restoreAccess(u, requestsOfUser, updateRequestOwner) {
   const oldUid = u.id;
   const tempPassword = generateTempPassword();
 
-  const newUid = await createAuthAccount(email, tempPassword);
+  const acct = await createAuthAccount(email, tempPassword);
+  const newUid = acct.uid;
 
   const { id, ...data } = u;
-  await setDoc(doc(db, 'users', newUid), { ...data, email, mustChangePassword: true });
+  /* نفس التراجع: لو فشلت كتابة الملف الجديد نحذف الحساب بدل أن يُقفل الرقم
+     ويصير الموظف بلا حساب قديم ولا جديد. */
+  try {
+    await setDoc(doc(db, 'users', newUid), { ...data, email, mustChangePassword: true });
+  } catch (e) {
+    await acct.rollback();
+    throw e;
+  }
+  await acct.done();
 
   const olds = await requestsOfUser(oldUid);
   for (const r of olds) await updateRequestOwner(r.id, newUid);
@@ -108,6 +128,47 @@ export async function saveBioCredentials(list) {
   const me = getMe();
   if (!me) return;
   await updateDoc(doc(db, 'users', me.id), { bioCredentials: list.slice(0, 5) });
+}
+
+/* ═══ بيانات الاتصال — يحدّثها الموظف بنفسه ═══
+
+   الحقول الأربعة هي كل ما تسمح به القاعدة للموظف على وثيقته (مع
+   mustChangePassword و bioCredentials). القصّ هنا ليس تجميلاً: القاعدة ترفض
+   الكتابة كاملةً لو تجاوز أي حقل سقفه، فالقصّ يمنع رفضاً محيّراً بعد أن
+   لصق الموظف عنواناً طويلاً.
+
+   ⚠️ `phone` ليس منها ولن يكون: هو هوية الدخول، وتغييره يحتاج تغييراً
+   مقابلاً في Firebase Auth لا تقدر عليه الواجهة. يبقى بيد الأدمن. */
+export const CONTACT_LIMITS = {
+  personalEmail: 120, address: 200, emergencyName: 80, emergencyPhone: 20
+};
+
+export async function saveMyContact(fields) {
+  const me = getMe();
+  if (!me) return;
+  const clean = {};
+  for (const [k, max] of Object.entries(CONTACT_LIMITS)) {
+    if (k in fields) clean[k] = String(fields[k] ?? '').trim().slice(0, max);
+  }
+  if (!Object.keys(clean).length) return;
+  await updateDoc(doc(db, 'users', me.id), clean);
+  /* الحالة المحلية تُحدَّث فوراً: لا اشتراك حيّ على وثيقة الموظف نفسه،
+     فبدون هذا يبقى ما يراه قديماً حتى يعيد تحميل الصفحة. */
+  patchMe(clean);
+  await logAction('تحديث بيانات الاتصال', me.name || '');
+}
+
+/* ═══ مستندات الموظف ═══
+   الكتابة تعيش هنا مع بقية الكتابات على وثيقة الموظف، حتى تبقى
+   documents.js وحدة طرفية قابلة للاختبار بـ node وحده.
+
+   القاعدة تسمح للأدمن وحده — الموظف الذي يقدر يعدّل تاريخ انتهاء إقامته
+   يقدر يخفي انتهاءها، والغرامة على الشركة لا عليه. */
+export async function saveDocuments(user, list) {
+  const docs = normalizeDocs(list);
+  await updateDoc(doc(db, 'users', user.id), { documents: docs });
+  await logAction('تحديث مستندات موظف', `${user.name || ''} — ${docs.length} مستند`);
+  return docs;
 }
 
 export { emailFor };

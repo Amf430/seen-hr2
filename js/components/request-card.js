@@ -7,7 +7,7 @@ import { fmtDate, fmtDT } from '../lib/format.js';
 import { STATUS_AR } from '../lib/dates.js';
 import { canApproveType } from '../lib/perms.js';
 import { openReject, openRevoke, openWithdraw } from './review-modals.js';
-import { approve } from '../lib/requests.js';
+import { approve, hasChain, chainStep, ownsCurrentStep, chainRoleAr } from '../lib/requests.js';
 
 export function requestCard(r, forAdmin) {
   const c = el('div', 'card request-card');
@@ -22,13 +22,13 @@ export function requestCard(r, forAdmin) {
         ${forAdmin ? esc(r.employeeName) + ' · ' : ''}${esc(r.department || '')}
       </div>
     </div>
-    <span class="pill ${esc(r.status)}">${esc(STATUS_AR[r.status] || r.status)}</span>`));
+    <span class="pill pill--dot ${esc(r.status)}">${esc(STATUS_AR[r.status] || r.status)}</span>`));
 
   /* ⚠️ المرفق يمرّ عبر extLink، الذي يسمح بـ http/https فقط ويضيف
      rel="noopener noreferrer". النسخة القديمة (السطر 859) كانت تمرّره عبر
      esc() وحدها — وesc لا يمنع البروتوكول، فكان رابط "javascript:" يُنفَّذ
      في جلسة الأدمن بمجرد ضغطه. لو كان الرابط غير صالح لا يُعرض إطلاقاً. */
-  const attachment = r.attachmentLink ? extLink(r.attachmentLink, 'فتح الرابط ↗') : '';
+  const attachment = r.attachmentLink ? extLink(r.attachmentLink, 'فتح الرابط') : '';
 
   c.appendChild(el('div', 'detail-list', `
     ${isPerm ? `
@@ -50,18 +50,43 @@ export function requestCard(r, forAdmin) {
       ? `<div class="detail-line"><span class="k">روجِع بواسطة</span><span class="v">${esc(r.reviewedBy || '—')} · ${fmtDT(r.reviewedAt)}</span></div>` : ''}
   `));
 
+  /* ── مسار السلسلة ── */
+  if (hasChain(r)) {
+    const steps = r.chain.map((role, i) => {
+      const done = i < chainStep(r);
+      const now  = i === chainStep(r) && r.status === 'pending';
+      const sig  = (r.approvals || []).find((a) => a.step === i);
+      return `<div class="step ${done ? 'step--done' : now ? 'step--busy' : ''}">
+        <span class="step__n">${done ? '✓' : i + 1}</span>
+        <span class="step__t">${esc(chainRoleAr(role))}
+          <span>${done && sig ? 'وقّعها ' + esc(sig.byName)
+                 : now ? 'بانتظار التوقيع الآن' : 'لم تصل بعد'}</span></span></div>`;
+    }).join('');
+    c.appendChild(el('div', 'steps', steps));
+  }
+
   const bar = el('div', 'btn-bar');
-  const mayApprove = forAdmin && canApproveType(r);
+  /* ⚠️ في السلسلة، من يملك الخطوة الحالية هو من يقرّر — لا canApproveType.
+     مدير القسم قد يملك خطوة في سلسلة إجازة، وهو ما يمنعه المسار القديم. */
+  const mayApprove = forAdmin && (hasChain(r) ? ownsCurrentStep(r) : canApproveType(r));
 
   if (mayApprove && r.status === 'pending') {
-    const ok = el('button', 'btn sm', '✔ موافقة');
-    ok.onclick = () => approve(r);
-    const no = el('button', 'btn sm danger', '✖ رفض');
+    const ok = el('button', 'btn sm', 'موافقة');
+    /* ⚠️ التعطيل أثناء التنفيذ ليس تجميلاً: approve() تخصم من رصيد الإجازة،
+       والنقرتان السريعتان كانتا تخصمان مرتين. المعاملة في requests.js تمنع
+       الخصم المزدوج حتماً، وهذا يمنع المحاولة من الأساس ويشرح للمستخدم
+       أن شيئاً يجري. */
+    ok.onclick = async () => {
+      ok.disabled = true; ok.textContent = '… جارٍ التنفيذ';
+      try { await approve(r); }
+      catch (e) { ok.disabled = false; ok.textContent = 'موافقة'; }
+    };
+    const no = el('button', 'btn sm danger', 'رفض');
     no.onclick = () => openReject(r);
     bar.append(ok, no);
     c.appendChild(bar);
   } else if (mayApprove && r.status === 'approved') {
-    const revoke = el('button', 'btn sm danger', '↩ إلغاء الموافقة');
+    const revoke = el('button', 'btn sm danger', 'إلغاء الموافقة');
     revoke.onclick = () => openRevoke(r);
     bar.append(revoke);
     c.appendChild(bar);
@@ -85,6 +110,6 @@ export function miniRow(r) {
         ? fmtDate(r.date)
         : fmtDate(r.startDate) + ' ← ' + fmtDate(r.endDate)}</div>
     </div>
-    <span class="pill ${esc(r.status)}">${esc(STATUS_AR[r.status] || r.status)}</span>`;
+    <span class="pill pill--dot ${esc(r.status)}">${esc(STATUS_AR[r.status] || r.status)}</span>`;
   return row;
 }

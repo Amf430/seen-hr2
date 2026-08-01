@@ -5,7 +5,7 @@ import { isStale } from '../lib/nav.js';
 import { card, tableWrap, empty } from '../lib/ui.js';
 
 export async function render(view, token) {
-  const c = card('🗂️ آخر الحركات', 'السجل «إضافة فقط» — لا يُعدَّل ولا يُحذف، حتى من مدير النظام.');
+  const c = card('آخر الحركات', 'السجل «إضافة فقط» — لا يُعدَّل ولا يُحذف، حتى من مدير النظام.', 'archive');
   const host = el('div', '', '<div class="empty"><span class="spinner"></span> جارٍ التحميل…</div>');
   c.appendChild(host);
   view.appendChild(c);

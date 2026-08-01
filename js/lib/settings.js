@@ -2,11 +2,16 @@
    إعدادات النظام — وثيقة واحدة settings/config يقرأها الجميع ويكتبها الأدمن.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { db, doc, getDoc, setDoc } from './firebase.js';
+import { db, doc, getDoc, setDoc, runTransaction } from './firebase.js';
 import { getSettings, setSettings, getMe } from './state.js';
 import { uid } from './dom.js';
 
 const REF = () => doc(db, 'settings', 'config');
+
+/* المفاتيح المستقلة داخل وثيقة الإعدادات — كل شاشة إعدادات تملك واحداً أو
+   اثنين منها ولا تمسّ البقية. */
+const KEYS = ['permissionReasons', 'leaveTypes', 'approvers', 'departments',
+              'dateExceptions', 'branches', 'payroll', 'company', 'shifts'];
 
 /* القيم الافتراضية تُدمج تحت المحفوظ، فأي مفتاح جديد نضيفه لاحقاً لا يحتاج
    ترحيل بيانات — يظهر بقيمته الافتراضية حتى يحفظ الأدمن. */
@@ -33,8 +38,31 @@ export async function loadSettings() {
   else setSettings({ ...DEFAULTS });
 }
 
-export async function saveSettings() {
-  await setDoc(REF(), getSettings());
+/* ═══ الحفظ ═══
+
+   ⚠️ كان setDoc(REF(), getSettings()) — استبدال للوثيقة كاملة. أدمنان يعملان
+   في نفس اللحظة، أحدهما على الفروع والآخر على أنواع الإجازات، فيمحو الحفظ
+   الثاني عمل الأول بصمت. وهذا وارد فعلياً: chip-card.js يحفظ عند كل إضافة
+   وحذف عنصر.
+
+   الآن: معاملة تقرأ الوثيقة الحيّة أولاً، ولا تكتب فوقها إلا المفاتيح التي
+   تغيّرت فعلاً في هذه الجلسة. تعديل أدمن آخر على مفتاح لم نلمسه يبقى كما هو.
+
+   `keys` اختياري — بلا تمريره تُقارَن كل المفاتيح، وهو سلوك آمن لكل الشاشات
+   القائمة بلا تعديل نداءاتها. */
+export async function saveSettings(keys) {
+  const local = getSettings();
+  const touched = Array.isArray(keys) && keys.length ? keys : KEYS;
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(REF());
+    const remote = snap.exists() ? snap.data() : {};
+    const merged = { ...DEFAULTS, ...remote };
+    for (const k of touched) {
+      if (local[k] !== undefined) merged[k] = local[k];
+    }
+    tx.set(REF(), merged);
+  });
 }
 
 /* حفظ الفروع.

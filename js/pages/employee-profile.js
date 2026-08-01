@@ -1,5 +1,5 @@
 import { el, esc } from '../lib/dom.js';
-import { getUsers, getRequests, getProfileUid } from '../lib/state.js';
+import { getUsers, getRequests, getProfileUid, setProfileUid, getMe } from '../lib/state.js';
 import { refreshUsers } from '../lib/users.js';
 import { recentCyclesList, reqEventDate, contractDaysLeft, AR_DAYS } from '../lib/dates.js';
 import { money, hhmm, hm, fmtDur, p2 } from '../lib/format.js';
@@ -8,19 +8,28 @@ import { computePayroll, payrollConfig } from '../lib/payroll.js';
 import { shiftText } from '../lib/shifts.js';
 import { describeRule } from '../lib/geo.js';
 import { openEmpForm } from '../components/employee-form.js';
-import { go, isStale, rerender } from '../lib/nav.js';
+import { go, isStale, rerender, getPageArg } from '../lib/nav.js';
 import { roleLabel } from '../lib/perms.js';
-import { card, grid, stat, empty, tableWrap, button, bar } from '../lib/ui.js';
+import { card, grid, stat, empty, tableWrap, button, bar, sectionHead } from '../lib/ui.js';
+import { salaryCertificate, leaveStatement } from '../lib/certificates.js';
+import { directReports, managerOf, managerChain } from '../lib/org.js';
+import { openDocsModal, docsList } from '../components/documents-modal.js';
 
 export async function render(view, token) {
   if (!getUsers().length) { try { await refreshUsers(); } catch (e) { console.error(e); } }
   if (isStale(token)) return;
 
-  const u = getUsers().find((x) => x.id === getProfileUid());
+  /* ── مصدر معرّف الموظف ──
+     العنوان أولاً (#profile/UID) فيصمد أمام التحديث ومشاركة الرابط؛
+     والحالة في الذاكرة احتياطٌ للتنقّل الداخلي. ونزامنهما حتى تبقى
+     setProfileUid صحيحة لمن يقرؤها. */
+  const uid = getPageArg() || getProfileUid();
+  if (uid && uid !== getProfileUid()) setProfileUid(uid);
+  const u = getUsers().find((x) => x.id === uid);
   if (!u) {
     const c = card('');
-    c.appendChild(empty('لم يُحدَّد موظف. ارجع لصفحة «ملفات الموظفين» واختر بروفايل.', '👤'));
-    c.appendChild(button('← ملفات الموظفين', 'btn sm ghost', () => go('employees')));
+    c.appendChild(empty('لم يُحدَّد موظف. ارجع لصفحة «ملفات الموظفين» واختر بروفايل.', 'people'));
+    c.appendChild(button('ملفات الموظفين', 'btn sm ghost', () => go('employees')));
     view.appendChild(c);
     return;
   }
@@ -35,7 +44,7 @@ export async function render(view, token) {
         <div class="hero-card__sub num">${esc(u.phone || '')}</div>
       </div>
       <div class="text-start">
-        <span class="pill ${u.status === 'active' ? 'active' : 'suspended'}">${u.status === 'active' ? 'نشط' : 'معلّق'}</span>
+        <span class="pill pill--dot ${u.status === 'active' ? 'active' : 'suspended'}">${u.status === 'active' ? 'نشط' : 'معلّق'}</span>
         <div class="hero-card__sub">${esc(roleLabel(u))}</div>
       </div>
     </div>`;
@@ -43,15 +52,15 @@ export async function render(view, token) {
 
   const bar2 = el('div', 'btn-bar');
   bar2.append(
-    button('← كل الموظفين', 'btn sm ghost', () => go('employees')),
-    button('✏️ تعديل البيانات والراتب', 'btn sm', () => openEmpForm(u, async () => { await refreshUsers(); rerender(); }))
+    button('كل الموظفين', 'btn sm ghost', () => go('employees')),
+    button('تعديل البيانات والراتب', 'btn sm', () => openEmpForm(u, async () => { await refreshUsers(); rerender(); }, 'gear'))
   );
   view.appendChild(bar2);
 
   /* التعاقد */
   const cfg = payrollConfig();
   const dl = contractDaysLeft(u.contractEnd);
-  const cd = card('💼 التعاقد والراتب');
+  const cd = card('التعاقد والراتب', null, 'money');
   const cg = grid(4);
   cg.append(
     stat(u.salary ? money(u.salary) : '—', 'الراتب الشهري (ريال)'),
@@ -64,9 +73,20 @@ export async function render(view, token) {
   cd.appendChild(el('p', 'help', 'تسجيل الحضور: ' + describeRule(u)));
   view.appendChild(cd);
 
+  /* ── المستندات ──
+     الأدمن وحده يحرّر (القاعدة تفرضه)؛ مدير القسم يرى ولا يعدّل. */
+  const isAdmin = getMe().role === 'admin';
+  const dc = card('');
+  dc.appendChild(sectionHead({ text: 'المستندات وتواريخ الانتهاء', icon: 'doc' },
+    isAdmin ? button('إدارة المستندات', 'btn sm', () => openDocsModal(u, async () => {
+      await refreshUsers(); rerender();
+    }), 'gear') : null));
+  dc.appendChild(docsList(u));
+  view.appendChild(dc);
+
   /* اختيار الدورة */
   const cycles = recentCyclesList(12);
-  const pick = card('📈 تحليلات الالتزام',
+  const pick = card('تحليلات الالتزام', null, 'chart',
     'المصدر: بصمات جهاز ZKTeco. أيام الراحة والعطل الرسمية مستثناة من الحساب.');
   const dd = el('select', 'select-lg');
   dd.innerHTML = cycles.map((c, i) => `<option value="${i}">${esc(c.label)}${i === 0 ? ' (الحالية)' : ''}</option>`).join('');
@@ -87,7 +107,13 @@ export async function render(view, token) {
     const mine = recs.filter((r) => r.employeeUid === u.id);
     const reqs = getRequests().filter((r) => r.employeeUid === u.id);
     const rows = buildDailyStatus(cyc, [u], reqs, mine);
-    const pay = computePayroll(cyc, [u], reqs, mine)[0];
+    /* ⚠️ computePayroll تُسقط دور admin عمداً (لا مسير للأدمن)، فتُرجع مصفوفة
+       فارغة حين يكون هذا البروفايل لأدمن — و [0] عندها undefined. كان الوصول
+       إلى pay.lateMin بعدها يرمي فتنهار الصفحة كلها إلى «تعذّر عرض هذه
+       الصفحة»: أي بروفايل أدمن كان مكسوراً بالكامل، لا بطاقة الراتب وحدها.
+       الآن الغياب حالة معلَنة: إحصاءات الحضور تُعرض كاملة، وما يعتمد على
+       المسير يُستبدل بسطر يشرح السبب. */
+    const pay = computePayroll(cyc, [u], reqs, mine)[0] || null;
 
     const cnt = (k) => rows.filter((r) => r.cls === k).length;
     const pres = cnt('present'), late = cnt('late'), abs = cnt('absent'),
@@ -110,8 +136,8 @@ export async function render(view, token) {
 
     const g2 = grid(4);
     g2.append(
-      stat(hhmm(pay.lateMin), 'إجمالي التأخير', 'a'),
-      stat(hhmm(pay.earlyMin), 'خروج مبكر', 'a'),
+      stat(pay ? hhmm(pay.lateMin) : '—', 'إجمالي التأخير', pay ? 'a' : ''),
+      stat(pay ? hhmm(pay.earlyMin) : '—', 'خروج مبكر', pay ? 'a' : ''),
       stat(miss, 'نسيان بصمة خروج'),
       stat(avgIn !== null ? `${p2(Math.floor(avgIn / 60))}:${p2(avgIn % 60)}` : '—', 'متوسط وقت الحضور')
     );
@@ -119,8 +145,8 @@ export async function render(view, token) {
 
     const g3 = grid(4);
     g3.append(
-      stat(pay.workH.toFixed(1), 'ساعات عمل فعلية'),
-      stat(pay.reqH.toFixed(1), 'ساعات مطلوبة'),
+      stat(pay ? pay.workH.toFixed(1) : '—', 'ساعات عمل فعلية'),
+      stat(pay ? pay.reqH.toFixed(1) : '—', 'ساعات مطلوبة'),
       stat(lv, 'أيام إجازة'),
       stat(reqs.filter((r) => { const d = reqEventDate(r); return d >= cyc.start && d <= cyc.end; }).length, 'طلبات في الدورة')
     );
@@ -137,8 +163,14 @@ export async function render(view, token) {
     host.appendChild(bc);
 
     /* أثر الخصم */
-    if (u.salary) {
-      const pc = card('💰 أثر الالتزام على راتب هذه الدورة');
+    if (!pay) {
+      const w = card('');
+      w.appendChild(empty('لا يُحتسب مسير رواتب لحساب مدير النظام.', 'money'));
+      w.appendChild(el('p', 'help',
+        'إحصاءات الحضور أعلاه محسوبة كاملةً من بصمات الجهاز — المستثنى هو المسير وحده.'));
+      host.appendChild(w);
+    } else if (u.salary) {
+      const pc = card('أثر الالتزام على راتب هذه الدورة', null, 'money');
       pc.innerHTML += `
         <div class="detail-list">
           <div class="detail-line"><span class="k">الراتب الأساسي</span><span class="v money">${money(pay.salary)}</span></div>
@@ -148,7 +180,7 @@ export async function render(view, token) {
           <div class="detail-line detail-line--total"><span class="k">المستحق</span><span class="v money net">${money(pay.net)}</span></div>
         </div>
         ${pay.exemptMin ? `<p class="help">أُعفي ${hhmm(pay.exemptMin)} بسبب استئذانات معتمدة.</p>` : ''}
-        ${pay.missingOut ? `<p class="help text-violet">⚠️ ${pay.missingOut} يوم بلا بصمة انصراف — راجعها قبل اعتماد المسير.</p>` : ''}`;
+        ${pay.missingOut ? `<p class="help text-violet">${pay.missingOut} يوم بلا بصمة انصراف — راجعها قبل اعتماد المسير.</p>` : ''}`;
       host.appendChild(pc);
     } else {
       const w = card('');
@@ -157,7 +189,7 @@ export async function render(view, token) {
     }
 
     /* تفصيل الأيام */
-    const dc = card('🗓️ تفصيل أيام الدورة');
+    const dc = card('تفصيل أيام الدورة', null, 'calendar');
     if (!rows.length) dc.appendChild(empty('لا أيام عمل في هذه الدورة'));
     else dc.appendChild(tableWrap(`
       <table class="tight">
@@ -166,7 +198,7 @@ export async function render(view, token) {
           <td class="num">${esc(r.dateStr)}</td>
           <td>${AR_DAYS[r.dow]}</td>
           <td class="cell-sub">${esc(shiftText(r.shift))}</td>
-          <td><span class="pill ${esc(r.cls)}">${esc(r.status)}</span></td>
+          <td><span class="pill pill--dot ${esc(r.cls)}">${esc(r.status)}</span></td>
           <td class="num text-green">${r.firstIn ? hm(r.firstIn) : '—'}</td>
           <td class="num text-red">${r.lastOut ? hm(r.lastOut) : '—'}</td>
           <td class="num">${r.secs > 0 ? fmtDur(r.secs) : '—'}</td>

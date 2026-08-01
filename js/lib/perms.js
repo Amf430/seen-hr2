@@ -40,3 +40,31 @@ export function canApproveType(r) {
   if (me.role === 'admin') return true;
   return canApprove(r) && r.type === 'permission';
 }
+
+/* ═══ سلسلة الموافقات متعددة المستويات ═══
+
+   ⚠️ نُقلت هذه من requests.js: هي أسئلة صلاحية خالصة عن (طلبٍ + المستخدم
+   الحالي)، لا عمليات كتابة. وبقاؤها هناك كان يجرّ firebase.js — ومعه الـCDN —
+   إلى كل من يسألها، فيمنع اختبارها بـ node وحده. requests.js تُعيد تصديرها
+   فلم يتغيّر أي مستورد قائم.
+
+   ⚠️ الطلب بلا حقل chain يسلك المسار القديم حرفياً: hasChain تُرجع false
+   فيسقط المنادي على canApprove. مطابق لدالة hasChain() في firestore.rules —
+   وأي تباعد بينهما يعني زرّاً يظهر للمستخدم ثم ترفضه القاعدة. */
+export const hasChain = (r) => Array.isArray(r.chain) && r.chain.length > 0;
+export const chainStep = (r) => (hasChain(r) ? (r.step || 0) : 0);
+export const isLastStep = (r) => hasChain(r) && chainStep(r) + 1 >= r.chain.length;
+
+export const CHAIN_ROLE_AR = { manager: 'مدير القسم', admin: 'الموارد البشرية' };
+export const chainRoleAr = (k) => CHAIN_ROLE_AR[k] || k;
+
+/* هل يملك المستخدم الحالي الخطوة المنتظرة؟ */
+export function ownsCurrentStep(r) {
+  const me = getMe();
+  if (!me || !hasChain(r) || r.status !== 'pending') return false;
+  if (r.employeeUid === me.id) return false;
+  const role = r.chain[chainStep(r)];
+  if (role === 'admin')   return me.role === 'admin';
+  if (role === 'manager') return me.role === 'manager' && !!me.department && me.department === r.department;
+  return false;
+}

@@ -16,8 +16,8 @@ export function render(view) {
 
   if (!MY.length) {
     const c = card('');
-    c.appendChild(empty('لا توجد طلبات بعد', '📭'));
-    c.appendChild(button('➕ تقديم طلب', 'btn sm', () => go('new')));
+    c.appendChild(empty('لا توجد طلبات بعد', 'inbox'));
+    c.appendChild(button('تقديم طلب', 'btn sm', () => go('new')));
     view.appendChild(c);
     return;
   }

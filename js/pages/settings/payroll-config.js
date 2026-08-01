@@ -10,7 +10,7 @@ export function render(view) {
   const S = getSettings();
   const cfg = payrollConfig();
 
-  const c = card('⚖️ إعدادات حساب الرواتب',
+  const c = card('إعدادات حساب الرواتب', null, 'scale',
     'تُستخدم في «مسير الرواتب» وفي تحليلات كل موظف. الافتراضي: الراتب ÷ 30 ÷ 8 = قيمة الساعة.');
 
   const body = el('div', '');
@@ -58,7 +58,7 @@ export function render(view) {
     'المسير يُحسب لحظياً من هذه القيم، فتعديلها يغيّر أرقام الدورات السابقة أيضاً عند فتحها. صدّر المسير قبل التعديل لو تحتاج نسخة من الأرقام القديمة.'));
 
   /* القواعد المعتمدة — مكتوبة كما ينفّذها الكود بالضبط */
-  const rc = card('📐 قواعد الاحتساب المعتمدة');
+  const rc = card('قواعد الاحتساب المعتمدة');
   rc.innerHTML += `
     <div class="detail-list">
       <div class="detail-line"><span class="k">قيمة اليوم</span><span class="v">الراتب ÷ ${cfg.daysPerMonth}</span></div>

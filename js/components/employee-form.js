@@ -12,6 +12,7 @@ import { getSettings } from '../lib/state.js';
 import { activeBranches, branchesOf as allBranches } from '../lib/geo.js';
 import { normPhone, isValidSaudiMobile } from '../lib/phone.js';
 import { createEmployee, updateEmployee, generateTempPassword } from '../lib/users.js';
+import { managerCandidates } from '../lib/org.js';
 
 const ROLE_OPTS = [
   ['employee', 'موظف'],
@@ -32,6 +33,8 @@ export function openEmpForm(u = null, after) {
     const extra = allBranches().filter((b) => picked0.includes(b.id) && !ids.has(b.id));
     return [...act, ...extra.map((b) => ({ ...b, suspended: true }))];
   })();
+  /* المرشّحون لأن يكونوا مديراً — بلا نفسه، وبلا من يخلق حلقة تسلسل */
+  const bosses = managerCandidates(u ? u.id : '__new__');
   const mode = (u && u.workMode === 'remote') ? 'remote' : 'onsite';
   const picked = Array.isArray(u && u.branchIds) ? u.branchIds : [];
 
@@ -60,8 +63,16 @@ export function openEmpForm(u = null, after) {
           <input id="ePhone" value="${esc(u?.phone || '')}" placeholder="05xxxxxxxx" inputmode="numeric"
                  ${isEdit ? 'disabled' : ''}>
           ${isEdit ? '<div class="help">رقم الدخول لا يُعدَّل من هنا — استخدم «استعادة الوصول».</div>' : ''}</div>
-        <div class="field"><label for="eMgr">المدير المباشر</label>
-          <input id="eMgr" value="${esc(u?.manager || '')}"></div>
+        <div class="field"><label for="eMgrUid">المدير المباشر</label>
+          <select id="eMgrUid">
+            <option value="">— بلا مدير مباشر —</option>
+            ${bosses.map((b) => `<option value="${esc(b.id)}"${
+              (u?.managerUid || '') === b.id ? ' selected' : ''}>${esc(b.name)}${
+              b.jobTitle ? ' — ' + esc(b.jobTitle) : ''}</option>`).join('')}
+          </select>
+          <div class="help">${u?.manager && !u?.managerUid
+            ? `مسجّل نصّاً: «${esc(u.manager)}» — اختره من القائمة ليربطه النظام فعلياً.`
+            : 'يحدّد وجهة الطلبات في سلسلة الموافقات، ومن يظهر له هذا الموظف في «فريقي».'}</div></div>
       </div>
     </div>
 
@@ -158,7 +169,11 @@ export function openEmpForm(u = null, after) {
       empId:       m.$('#eEmpId').value.trim(),
       department:  m.$('#eDept').value.trim(),
       jobTitle:    m.$('#eTitle').value.trim(),
-      manager:     m.$('#eMgr').value.trim(),
+      /* ⚠️ الحقل النصّي القديم يبقى كما هو ولا يُحذف: هو ما يُعرض في بطاقة
+         الموظف اليوم، ولا يوجد ترحيل آلي موثوق من نصّ إلى معرّف (اسمان
+         متشابهان يكفيان لربط خاطئ). الربط قرار يدوي من الأدمن. */
+      manager:     u?.manager || '',
+      managerUid:  m.$('#eMgrUid').value || '',
       hireDate:    m.$('#eHire').value,
       salary:      Number(m.$('#eSalary').value) || 0,
       contractEnd: m.$('#eContractEnd').value || '',

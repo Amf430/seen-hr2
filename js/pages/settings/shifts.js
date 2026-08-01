@@ -8,7 +8,7 @@ export function render(view) {
   const S = getSettings();
 
   /* ── الورديات الأسبوعية ── */
-  const shCard = card('🕗 شفتات الدوام الأسبوعية',
+  const shCard = card('شفتات الدوام الأسبوعية', null, 'clock',
     'لكل يوم حدّد نوع الوردية ووقت البداية والنهاية. الأقسام تقدر تتجاوزها بورديات خاصة.');
   const shifts = S.shifts || {};
   const wrap = tableWrap(`
@@ -43,7 +43,7 @@ export function render(view) {
   view.appendChild(shCard);
 
   /* ── العطل الرسمية والدوام الخاص ── */
-  const exCard = card('📅 العطل الرسمية ودوام خاص بتاريخ محدّد',
+  const exCard = card('العطل الرسمية ودوام خاص بتاريخ محدّد', null, 'calendar',
     'تُطبَّق على جميع الموظفين وتتقدّم على ورديات القسم والشركة. «راحة» تجعل اليوم عطلة رسمية فلا يُحسب غياباً ولا يُخصم.');
   const exHost = el('div', '');
   exCard.appendChild(exHost);
@@ -77,7 +77,7 @@ export function render(view) {
     const list = [...(S.dateExceptions || [])].sort((a, b) => (a.date < b.date ? 1 : -1));
     exHost.innerHTML = '';
     if (!list.length) {
-      exHost.appendChild(empty('لا استثناءات — أضف العطل الرسمية حتى لا تُحسب غياباً على الموظفين.', '📅'));
+      exHost.appendChild(empty('لا استثناءات — أضف العطل الرسمية حتى لا تُحسب غياباً على الموظفين.', 'calendar'));
       return;
     }
     const w = tableWrap(`
@@ -92,7 +92,7 @@ export function render(view) {
       tr.innerHTML = `
         <td class="num">${esc(x.date)}</td>
         <td>${isNaN(d) ? '' : AR_DAYS[d.getDay()]}</td>
-        <td><span class="pill ${x.type === 'off' ? 'holiday' : 'pending'}">${x.type === 'off' ? 'عطلة' : 'دوام خاص'}</span></td>
+        <td><span class="pill pill--dot ${x.type === 'off' ? 'holiday' : 'pending'}">${x.type === 'off' ? 'عطلة' : 'دوام خاص'}</span></td>
         <td class="num">${x.type === 'off' ? '—' : esc((x.start || '') + '–' + (x.end || ''))}</td>
         <td>${esc(x.label || '')}</td>`;
       const td = el('td', '');

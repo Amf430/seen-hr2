@@ -9,14 +9,14 @@ export function render(view) {
 
   /* أسباب الاستئذان */
   view.appendChild(chipCard({
-    title: 'أسباب الاستئذان', icon: '🕐', key: 'permissionReasons',
+    title: 'أسباب الاستئذان', icon: 'clock', key: 'permissionReasons',
     fields: ['label'], labels: ['السبب'],
     renderItem: (item) => esc(item.label),
     build: (vals, mkId) => ({ id: mkId(), label: vals.label })
   }));
 
   /* أنواع الإجازات */
-  const lc = card('🏖️ أنواع الإجازات',
+  const lc = card('أنواع الإجازات',
     'الرصيد = عدد الأيام السنوية. «يُخصم من الرصيد» يقلّل رصيد الموظف عند الموافقة. «بدون راتب» تعني أن اليوم يُخصم من الراتب في المسير.');
   const chips = el('div', 'chips');
   lc.appendChild(chips);
@@ -27,9 +27,19 @@ export function render(view) {
     if (!list.length) { chips.appendChild(el('span', 'desc', 'لا توجد أنواع.')); return; }
     list.forEach((t) => {
       const unpaid = (t.unpaid !== undefined) ? !!t.unpaid : /بدون\s*راتب/.test(t.label || '');
+      const chain = Array.isArray(t.approvalChain) ? t.approvalChain : [];
+      const chainTxt = chain.length ? chain.map(chainRoleAr).join(' ← ') : 'الموارد البشرية مباشرةً';
       const c = el('span', 'chip',
-        `${esc(t.label)} <small>${t.deduct ? 'رصيد ' + esc(t.balance) : 'بدون خصم رصيد'} · ${unpaid ? '❌ بدون راتب' : '💰 مدفوعة'}</small>`);
-      const tg = el('button', 'chip__act', unpaid ? '💰' : '🚫');
+        `${esc(t.label)} <small>${t.deduct ? 'رصيد ' + esc(t.balance) : 'بدون خصم رصيد'} · ${unpaid ? 'بدون راتب' : 'مدفوعة'} · ${esc(chainTxt)}</small>`);
+
+      /* ⚠️ السلسلة تُنسخ على الطلب وقت تقديمه لا وقت اعتماده — فتغييرها هنا
+         لا يمسّ الطلبات المقدَّمة، وهذا مقصود: مسار طلب لا يتبدّل تحت قدمي
+         من قدّمه. */
+      const ch = el('button', 'chip__act', 'المسار');
+      ch.title = 'سلسلة الموافقات لهذا النوع';
+      ch.onclick = () => openChain(t, draw);
+
+      const tg = el('button', 'chip__act', unpaid ? 'مدفوعة' : 'بدون راتب');
       tg.title = unpaid ? 'اجعلها مدفوعة' : 'اجعلها بدون راتب';
       tg.onclick = async () => {
         t.unpaid = !unpaid;
@@ -42,7 +52,7 @@ export function render(view) {
         S.leaveTypes = (S.leaveTypes || []).filter((z) => z.id !== t.id);
         await saveSettings(); draw();
       };
-      c.append(tg, x);
+      c.append(ch, tg, x);
       chips.appendChild(c);
     });
   };
@@ -78,7 +88,7 @@ export function render(view) {
 
   /* جهات الاعتماد */
   view.appendChild(chipCard({
-    title: 'جهات الاعتماد (المُستأذَن منهم)', icon: '✅', key: 'approvers',
+    title: 'جهات الاعتماد (المُستأذَن منهم)', icon: 'check', key: 'approvers',
     fields: ['name'], labels: ['الاسم / الجهة'],
     renderItem: (item) => esc(item.name),
     build: (vals, mkId) => ({ id: mkId(), name: vals.name })
@@ -86,7 +96,73 @@ export function render(view) {
 
   if (!(S.approvers || []).length) {
     const w = card('');
-    w.appendChild(empty('بدون جهة اعتماد واحدة على الأقل، ما يقدر أي موظف يقدّم طلباً.', '⚠️'));
+    w.appendChild(empty('بدون جهة اعتماد واحدة على الأقل، ما يقدر أي موظف يقدّم طلباً.', 'alert'));
     view.appendChild(w);
   }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   سلسلة الموافقات لنوع إجازة.
+
+   بلا سلسلة يسلك الطلب المسار القديم: الموارد البشرية تعتمده مباشرةً. هذا
+   هو الوضع الافتراضي لكل الأنواع القائمة، فلا شيء يتغيّر حتى تُضاف سلسلة.
+   ═══════════════════════════════════════════════════════════════════════════ */
+const STEP_OPTS = [['manager', 'مدير القسم'], ['admin', 'الموارد البشرية']];
+
+function openChain(t, after) {
+  const cur = Array.isArray(t.approvalChain) ? [...t.approvalChain] : [];
+
+  const m = openModal(`
+    <h3>مسار اعتماد «${esc(t.label)}»</h3>
+    <div class="help">الطلب يمرّ بالخطوات بالترتيب. لا يصير معتمَداً — ولا يُخصم الرصيد —
+    إلا بعد آخر خطوة. الرفض في أي خطوة يوقف السلسلة فوراً.</div>
+    <div id="chSteps" class="steps"></div>
+    <div class="form-row">
+      <div class="field"><label for="chAdd">إضافة خطوة</label>
+        <select id="chAdd">${STEP_OPTS.map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join('')}</select></div>
+      <div class="field"><label>&nbsp;</label><button class="btn ghost" id="chAddBtn" type="button">أضف للنهاية</button></div>
+    </div>
+    <div class="err" id="chErr"></div>
+    <div class="row">
+      <button class="btn ghost" id="chClear">بلا سلسلة (المسار المباشر)</button>
+      <button class="btn" id="chSave">حفظ المسار</button>
+    </div>`);
+
+  const paint = () => {
+    const box = m.$('#chSteps');
+    if (!cur.length) {
+      box.innerHTML = '<p class="help">بلا سلسلة — تعتمده الموارد البشرية مباشرةً.</p>';
+      return;
+    }
+    box.innerHTML = '';
+    cur.forEach((role, i) => {
+      const row = el('div', 'step',
+        `<span class="step__n">${i + 1}</span><span class="step__t">${esc(chainRoleAr(role))}</span>`);
+      const del = el('button', 'chip__x', '×');
+      del.setAttribute('aria-label', 'حذف الخطوة');
+      del.onclick = () => { cur.splice(i, 1); paint(); };
+      row.appendChild(del);
+      box.appendChild(row);
+    });
+  };
+
+  m.$('#chAddBtn').onclick = () => {
+    if (cur.length >= 4) { m.$('#chErr').textContent = 'الحدّ الأقصى أربع خطوات'; return; }
+    m.$('#chErr').textContent = '';
+    cur.push(m.$('#chAdd').value);
+    paint();
+  };
+  m.$('#chClear').onclick = async () => {
+    delete t.approvalChain;
+    await saveSettings(['leaveTypes']);
+    m.close(); after(); toast('صار المسار مباشراً', 'ok');
+  };
+  m.$('#chSave').onclick = async () => {
+    if (!cur.length) { m.$('#chErr').textContent = 'أضف خطوة واحدة على الأقل، أو اختر «بلا سلسلة»'; return; }
+    t.approvalChain = cur;
+    await saveSettings(['leaveTypes']);
+    m.close(); after(); toast('حُفظ مسار الاعتماد', 'ok');
+  };
+  paint();
 }

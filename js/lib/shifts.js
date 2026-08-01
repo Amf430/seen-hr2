@@ -88,3 +88,27 @@ export function shiftEndPassed() {
   if (!w) return false;
   return now > new Date(w.end.getTime() + GRACE_AFTER_END_MIN * 60000);
 }
+
+/* ═══ أيام الإجازة الفعلية ═══
+
+   ⚠️ كانت في lib/dates.js وتقرأ SETTINGS.shifts وحدها. الآن تمرّ بـ
+   resolveShift() فتحترم نفس ترتيب الأولوية الذي يعتمده المسير والتقارير:
+     ١) استثناء التاريخ (عطلة رسمية أو دوام خاص)
+     ٢) وردية قسم الموظف
+     ٣) الوردية الأسبوعية العامة
+
+   الأثر العملي: إجازة تمرّ على عيد رسمي ما عاد يُخصم العيد فيها من رصيد
+   الموظف، وعدد الأيام المخصوم صار مطابقاً لعدد الأيام التي يعفيها المسير.
+
+   deptName اختياري — لو لم يُمرَّر يسقط للورديات العامة، وهو سلوك النسخة
+   السابقة بالضبط. */
+export function workingDaysBetween(a, b, deptName) {
+  const start = new Date(a + 'T00:00:00'), end = new Date(b + 'T00:00:00');
+  if (isNaN(start) || isNaN(end) || end < start) return { days: 0, off: 0 };
+  let n = 0, off = 0;
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const sh = resolveShift(ymd(d), d.getDay(), deptName);
+    if (!sh || sh.type === 'off') off++; else n++;
+  }
+  return { days: Math.max(0, n), off };
+}

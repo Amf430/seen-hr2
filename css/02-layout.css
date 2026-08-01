@@ -36,6 +36,9 @@
   margin-block-end:2px;
   background:transparent;border:0;border-radius:var(--r-md);
   color:var(--a-white-80);font-size:var(--fs-base);font-weight:var(--fw-medium);
+  /* روابط التنقّل صارت <a href> حقيقية (انظر buildNav) — والمتصفح يسطّرها
+     افتراضياً، فتُلغى هنا. اللون أعلاه يتغلّب على لون الروابط العام. */
+  text-decoration:none;
   text-align:start;cursor:pointer;
   transition:background var(--dur-1) var(--ease),color var(--dur-1) var(--ease)}
 .nav-item::before,.nav a::before{content:"";position:absolute;inset-block:9px;

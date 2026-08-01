@@ -46,7 +46,11 @@ export function subscribeData() {
     setMe(next);
     paintIdentity();
 
-    if (changed.length && changed.every((k) => COSMETIC.has(k))) return;
+    /* ⚠️ `!changed.length` شرط أساسي لا تحسين: اللقطة الأولى للاشتراك — وكل
+       لقطة يولّدها Firestore محلياً قبل تأكيد الخادم — تصل بلا تغيير فعلي.
+       بالشرط القديم (changed.length && …) كانت تسقط للسطر التالي فتُعيد عرض
+       الصفحة تحت قدمي الموظف، وهو بالضبط ما يحاول هذا الفحص منعه. */
+    if (!changed.length || changed.every((k) => COSMETIC.has(k))) return;
     rerenderIf(ME_PAGES);
   }, (err) => console.error('me', err));
 
