@@ -168,16 +168,35 @@ tr.row-total td {
 /* ── الشاشة الجانبية على الجوال ──
    الكود يبدّل .show على السجادة؛ نظام التصميم كتبها على body.nav-open.
    ندعم الاثنين حتى لا تعتمد الحركة على أيهما فاز. */
+.nav-scrim {
+  position: fixed; inset: 0; z-index: 55;
+  background: var(--scrim, rgba(43,35,32,.55));
+  opacity: 0; pointer-events: none; visibility: hidden;
+  transition: opacity .24s ease, visibility .24s;
+}
 .nav-scrim.show { opacity: 1; pointer-events: auto; visibility: visible }
+@media (min-width: 861px) { .nav-scrim { display: none } }
 
 @media (max-width: 860px) {
+  /* ⚠️ لا تُضِف هنا قاعدة مثل html[dir="rtl"] .sidebar — وزنها (0,2,1) يتغلّب
+     على .sidebar.open ذات الوزن (0,2,0)، فلا تنفتح القائمة أبداً. حصل هذا
+     فعلاً. الصفحة دائماً rtl، فالقاعدة الواحدة تكفي. */
+  /* ⚠️ الصفحة rtl، فـ inset-inline-start هو الحافة اليمنى — وهذه هي الجهة
+     التي يجب أن يخرج منها الدرج. استخدام inset-inline-end يضعه على اليسار،
+     ثم يدفعه translateX(100%) لليمين فيظهر شريط ضيّق في المنتصف. حصل فعلاً.
+     ملاحظة: translateX فيزيائي دائماً ولا يتبع الاتجاه، فموجبه يمين دوماً. */
+  /* مواضع فيزيائية صراحةً (right/left) وليست منطقية: القاعدة الأساسية في
+     02-layout.css تضبط خصائص منطقية أخرى، والخلط بينهما جعل الدرج يتجاوز
+     حافة الشاشة فيُقصّ نصف النص. التطبيق rtl دائماً، فلا حاجة للتجريد. */
   .sidebar {
-    position: fixed; inset-block: 0; inset-inline-start: 0;
+    position: fixed;
+    top: 0; bottom: 0; right: 0; left: auto;
+    inline-size: min(300px, 86vw);
     z-index: 60; transform: translateX(100%);
-    transition: transform .22s ease;
+    transition: transform .24s ease;
+    overflow-y: auto; overscroll-behavior: contain;
+    box-shadow: -8px 0 32px rgba(0, 0, 0, .28);
   }
-  html[dir="rtl"] .sidebar { transform: translateX(100%) }
-  html[dir="ltr"] .sidebar { transform: translateX(-100%) }
   .sidebar.open { transform: translateX(0) }
   .menu-toggle { display: inline-flex; align-items: center; justify-content: center }
   .nav-scrim {
@@ -217,3 +236,75 @@ html, body { max-inline-size: 100%; overflow-x: hidden }
   padding-block-start: var(--sp-3, 12px); font-weight: 800;
 }
 .detail-line--total .v { font-size: var(--fs-lg, 1.125rem) }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   قفل التمرير — النافذة المنبثقة والقائمة الجانبية
+
+   المشكلة التي كانت: .modal فيها max-block-size مع overflow:hidden، فالمحتوى
+   الأطول من الشاشة يُقصّ ولا يتمرّر — فيتمرّر خلفه الصفحة نفسها. الآن جسم
+   النافذة وحده يتمرّر، والصفحة خلفه مقفلة تماماً.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* الصفحة خلف النافذة أو القائمة لا تتحرّك إطلاقاً */
+body.is-locked {
+  overflow: hidden;
+  touch-action: none;
+}
+
+.overlay {
+  align-items: flex-start;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: var(--sp-4, 16px);
+}
+
+.modal {
+  margin-block: auto;               /* يتوسّط رأسياً، ويعلو للأعلى إذا طال */
+  max-block-size: none;             /* الارتفاع يحدّه جسم النافذة، لا هي */
+}
+
+/* جسم النافذة هو الوحيد الذي يتمرّر */
+.modal__body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  max-block-size: calc(100dvh - 15rem);
+  padding-inline: var(--sp-6, 22px);
+  padding-block: var(--sp-2, 6px) var(--sp-4, 14px);
+}
+.modal__head {
+  position: sticky; inset-block-start: 0; z-index: 2;
+  background: var(--card);
+  padding: var(--sp-5, 18px) var(--sp-6, 22px) var(--sp-3, 10px);
+  border-block-end: 1px solid var(--line-2, #f4eee9);
+}
+.modal__head h3 { margin: 0 }
+.modal__foot {
+  position: sticky; inset-block-end: 0; z-index: 2;
+  background: var(--card);
+  padding: var(--sp-4, 14px) var(--sp-6, 22px) var(--sp-5, 18px);
+  border-block-start: 1px solid var(--line-2, #f4eee9);
+  display: flex; gap: var(--sp-3, 10px);
+}
+.modal__foot .btn { flex: 1; justify-content: center }
+
+@media (max-width: 560px) {
+  /* النافذة بارتفاع الشاشة بالضبط — لا أقل ولا أكثر.
+     min-block-size كانت تجعلها تطول بطول محتواها، فتنزل أزرار «حفظ/إلغاء»
+     تحت حافة الشاشة ولا يوصلها الإبهام. الآن الجسم وحده يتمدّد ويتمرّر،
+     والترويسة والأزرار مثبّتتان أعلى وأسفل. */
+  .overlay { padding: 0; align-items: stretch; overflow: hidden }
+  .modal {
+    max-inline-size: none; inline-size: 100%;
+    block-size: 100dvh; min-block-size: 0;
+    border-radius: 0; margin: 0;
+  }
+  .modal__body {
+    max-block-size: none;
+    flex: 1 1 auto; min-block-size: 0;
+    overflow-y: auto; overscroll-behavior: contain;
+  }
+  /* الأزرار قريبة من الإبهام، وفوق شريط المتصفح السفلي */
+  .modal__foot { padding-block-end: max(var(--sp-5, 18px), env(safe-area-inset-bottom)) }
+}

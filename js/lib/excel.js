@@ -48,8 +48,11 @@ const mapSess = (rows) => rows.map((row) => {
   return {
     'الموظف': row.r.employeeName, 'الرقم الوظيفي': row.r.employeeEmpId || '', 'القسم': row.r.department || '',
     'التاريخ': row.r.date, 'اليوم': AR_DAYS[row.r.dow] || '', 'الوردية': row.r.shiftLabel || '',
-    'الفرع': row.r.branchName || (s.inBranchName || ''), 'الجلسة': row.idx + 1,
-    'وقت الحضور': hm(s.in), 'وقت الانصراف': hm(s.out), 'ساعات العمل': hours
+    'الجلسة': row.idx + 1,
+    'وقت الحضور': hm(s.in), 'وقت الانصراف': hm(s.out), 'ساعات العمل': hours,
+    /* ⚠️ الأعمدة الجديدة تُضاف في النهاية دائماً. إدراج عمود في المنتصف يزحزح
+       كل ما بعده فتنكسر معادلات الملفات الجاهزة عند المالك. */
+    'الفرع': s.inBranchName || row.r.branchName || ''
   };
 });
 
@@ -120,9 +123,11 @@ export function attendanceExport(cyc, opt, dailyRowsList, sessRowsList) {
       return {
         'الموظف': row.r.employeeName, 'الرقم الوظيفي': row.r.employeeEmpId || '', 'القسم': row.r.department || '',
         'التاريخ': row.r.date, 'اليوم': AR_DAYS[row.r.dow] || '', 'الوردية': row.r.shiftLabel || '',
-        'الفرع': row.r.branchName || s.inBranchName || '', 'الجلسة': row.idx + 1,
+        'الجلسة': row.idx + 1,
         'وقت الحضور': hm(s.in), 'وقت الانصراف': hm(s.out), 'ساعات العمل': hours,
-        'المصدر': (s.source || row.r.source || (opt.isDevice ? 'device' : 'web')) === 'device' ? 'جهاز البصمة' : 'الموقع'
+        'المصدر': (s.source || row.r.source || (opt.isDevice ? 'device' : 'web')) === 'device' ? 'جهاز البصمة' : 'الموقع',
+        /* عمود جديد — في النهاية دائماً، ومن الجلسة نفسها لا من جذر الوثيقة */
+        'الفرع': s.inBranchName || row.r.branchName || ''
       };
     })]);
   }

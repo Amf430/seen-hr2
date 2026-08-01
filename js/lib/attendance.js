@@ -7,7 +7,7 @@
    التقارير وفي بروفايل الموظف. لا تُعاد صياغتها.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { db, collection, query, where, getDocs } from './firebase.js';
+import { db, doc, getDoc, collection, query, where, getDocs } from './firebase.js';
 import { ymd, AR_DAYS } from './dates.js';
 import { tsToDate } from './format.js';
 import { resolveShift, shiftWindowFor, MISSING_OUT_AFTER_MIN, LATE_GRACE_MIN } from './shifts.js';
@@ -23,12 +23,25 @@ export function sessionsOf(d) {
   return [];
 }
 
-export function workedSecs(sessions) {
+/* ⚠️ `until` معامل جديد لم يكن في النسخة القديمة، ووجوده يصلح خطأً حقيقياً:
+   الجلسة المفتوحة كانت تُحتسب من وقت الدخول حتى «الآن» مهما مضى. موظف نسي
+   بصمة الانصراف يوم 27 يوليو كان يظهر في التقرير بـ«114:23:44» ساعة — العدّاد
+   ظلّ يزيد خمسة أيام. مع تمرير `until` تُقصّ الجلسة المفتوحة عند نهاية
+   ورديتها، فيظهر رقم منطقي.
+
+   بلا `until` يبقى السلوك كما كان تماماً — وهذا مقصود: مؤقّت الدوام الحيّ في
+   شاشة الحضور يحتاج فعلاً أن يعدّ حتى اللحظة. */
+export function workedSecs(sessions, until) {
   let t = 0, open = false;
   for (const s of sessions) {
     const i = tsToDate(s.in); if (!i) continue;
     const o = tsToDate(s.out);
-    if (o) t += (o - i) / 1000; else { t += (Date.now() - i) / 1000; open = true; }
+    if (o) t += (o - i) / 1000;
+    else {
+      const stop = (until != null) ? Math.min(Date.now(), until) : Date.now();
+      t += Math.max(0, (stop - i) / 1000);
+      open = true;
+    }
   }
   return { secs: t, open };
 }
@@ -40,7 +53,31 @@ export function lastOutOf(sessions) {
   return null;
 }
 
-/* جلب سجلات الحضور ضمن دورة — من أي مجموعة (الموقع أو الجهاز) */
+/* ── سجلات الموظف نفسه ──
+   ⚠️ لا تستعمل fetchAttendance هنا. هي تستعلم بالتاريخ فقط، وقاعدة القراءة
+   تسمح للموظف بسجلاته هو فقط — وFirestore يرفض الاستعلام كاملاً ما لم يكن
+   مقيَّداً بحيث تحقّق كل نتيجة محتملة شرط القاعدة. النتيجة كانت أن بطاقة
+   «سجلّي في هذه الدورة» ما تظهر أبداً لأي موظف.
+
+   إضافة where('employeeUid','==',uid) تحلّها لكنها تحتاج فهرساً مركّباً
+   يُنشأ من Console. ومعرّف الوثيقة معروف مسبقاً (uid_YYYY-MM-DD)، فنقرأها
+   مباشرة بلا استعلام ولا فهرس. */
+export async function fetchMyAttendance(cycle, uid, coll = 'attendance') {
+  const now = new Date();
+  const end = (cycle.end < now) ? cycle.end : now;
+  const days = [];
+  for (let d = new Date(cycle.start); d <= end; d.setDate(d.getDate() + 1)) days.push(ymd(d));
+
+  const snaps = await Promise.all(
+    days.map((ds) => getDoc(doc(db, coll, `${uid}_${ds}`)).catch(() => null))
+  );
+  return snaps
+    .filter((s) => s && s.exists())
+    .map((s) => ({ id: s.id, ...s.data() }));
+}
+
+/* جلب سجلات الحضور ضمن دورة — من أي مجموعة (الموقع أو الجهاز).
+   للأدمن فقط: القاعدة تسمح له بقراءة الكل، فالاستعلام بالتاريخ يمرّ. */
 export async function fetchAttendance(cycle, coll = 'attendance') {
   const s1 = ymd(cycle.start), s2 = ymd(cycle.end);
   const q1 = query(collection(db, coll), where('date', '>=', s1), where('date', '<=', s2));
@@ -85,8 +122,9 @@ export function buildDailyStatus(cyc, users, requests, recs) {
       const firstIn = sessions.length ? tsToDate(sessions[0].in) : null;
       const lastOut = lastOutOf(sessions);
       const openSess = sessions.some((s) => !s.out);
-      const { secs } = workedSecs(sessions);
       const win = shiftWindowFor(d, shift);
+      /* الجلسة المفتوحة تُقصّ عند نهاية الوردية بدل أن تعدّ حتى الآن */
+      const { secs } = workedSecs(sessions, win ? win.end.getTime() : null);
       let status, cls, note = '', lateMin = 0;
       if (leave) { status = 'إجازة: ' + (leave.categoryLabel || ''); cls = 'leave'; }
       else if (firstIn) {

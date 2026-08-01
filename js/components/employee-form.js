@@ -9,7 +9,7 @@
 
 import { openModal, toast, esc, uid } from '../lib/dom.js';
 import { getSettings } from '../lib/state.js';
-import { activeBranches } from '../lib/geo.js';
+import { activeBranches, branchesOf as allBranches } from '../lib/geo.js';
 import { normPhone, isValidSaudiMobile } from '../lib/phone.js';
 import { createEmployee, updateEmployee, generateTempPassword } from '../lib/users.js';
 
@@ -22,7 +22,16 @@ const ROLE_OPTS = [
 export function openEmpForm(u = null, after) {
   const isEdit = !!u;
   const S = getSettings();
-  const branches = activeBranches();
+  /* ⚠️ الفروع النشطة + أي فرع مقيَّد به هذا الموظف حتى لو كان موقوفاً.
+     بدون ذلك ما يُعرض له مربّع، فيُقرأ عند الحفظ كأنه غير مختار — فيُمسح
+     تقييده بصمت لمجرد أن الأدمن فتح ملفه وضغط حفظ. */
+  const picked0 = Array.isArray(u && u.branchIds) ? u.branchIds : [];
+  const branches = (() => {
+    const act = activeBranches();
+    const ids = new Set(act.map((b) => b.id));
+    const extra = allBranches().filter((b) => picked0.includes(b.id) && !ids.has(b.id));
+    return [...act, ...extra.map((b) => ({ ...b, suspended: true }))];
+  })();
   const mode = (u && u.workMode === 'remote') ? 'remote' : 'onsite';
   const picked = Array.isArray(u && u.branchIds) ? u.branchIds : [];
 
@@ -95,7 +104,7 @@ export function openEmpForm(u = null, after) {
           <label>الفروع المسموح له التسجيل منها</label>
           ${branches.length ? `<div class="checkbox-grid">${branches.map((b) => `
             <label class="checkbox"><input type="checkbox" class="eBranch" value="${esc(b.id)}"
-              ${picked.includes(b.id) ? 'checked' : ''}> ${esc(b.name)}</label>`).join('')}</div>`
+              ${picked.includes(b.id) ? 'checked' : ''}> ${esc(b.name)}${b.suspended ? ' <small>(موقوف)</small>' : ''}</label>`).join('')}</div>`
             : '<div class="help">لم تُضَف فروع بعد — أضفها من «الفروع ونطاق الحضور».</div>'}
           <div class="help">لا تختر شيئاً = مسموح له من كل الفروع.</div>
         </div>

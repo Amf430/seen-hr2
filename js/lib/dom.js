@@ -63,24 +63,79 @@ export function toast(msg, type = '') {
 /* ── النوافذ المنبثقة ──
    كانت مكرّرة ست مرات بنفس الشكل. الإغلاق بالضغط خارجها أو بمفتاح Esc
    (المفتاح كان ناقصاً في النسخة القديمة). */
+/* عدّاد الأقفال — نافذة تفتح فوق نافذة يجب ألا تفكّ القفل عند إغلاق واحدة */
+let lockCount = 0;
+export function lockScroll() {
+  if (lockCount++ === 0) document.body.classList.add('is-locked');
+}
+export function unlockScroll() {
+  if (lockCount > 0 && --lockCount === 0) document.body.classList.remove('is-locked');
+}
+
+/* ── النافذة المنبثقة ──
+   ⚠️ البنية هنا ليست تجميلاً. النسخة السابقة كانت تضع كل المحتوى مباشرة
+   داخل .modal، و.modal لها ارتفاع أقصى مع overflow:hidden — فالمحتوى الأطول
+   من الشاشة كان يُقصّ ولا يتمرّر، فيتمرّر خلفه الصفحة نفسها. على الجوال يعني
+   ذلك أن الزر الذي تريده يبقى خارج المتناول.
+
+   الآن: العنوان ثابت أعلى، والأزرار ثابتة أسفل، والجسم وحده يتمرّر —
+   و overscroll-behavior:contain يمنع تسريب التمرير للصفحة خلفه. */
 export function openModal(innerHtml) {
   const ov = el('div', 'overlay');
-  const m  = el('div', 'modal', innerHtml);
+  const m  = el('div', 'modal');
+
+  /* نفكّك ما مرّره المنادي إلى ترويسة/جسم/أزرار بلا أن يغيّر أحد نداءه */
+  const tmp = el('div', '', innerHtml);
+  const h3   = tmp.querySelector(':scope > h3');
+  const foot = tmp.querySelector(':scope > .row');
+
+  if (h3) {
+    const head = el('div', 'modal__head');
+    head.appendChild(h3);
+    m.appendChild(head);
+  }
+  const body = el('div', 'modal__body');
+  while (tmp.firstChild) {
+    const node = tmp.firstChild;
+    tmp.removeChild(node);
+    if (node === foot) continue;
+    body.appendChild(node);
+  }
+  m.appendChild(body);
+  if (foot) { foot.classList.add('modal__foot'); m.appendChild(foot); }
+
   ov.appendChild(m);
   document.body.appendChild(ov);
+  lockScroll();
 
+  const prevFocus = document.activeElement;
+  let closed = false;
   const close = () => {
+    if (closed) return;
+    closed = true;
     ov.remove();
+    unlockScroll();
     document.removeEventListener('keydown', onKey);
+    if (prevFocus && prevFocus.focus) prevFocus.focus();
   };
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
+
+  const onKey = (e) => {
+    if (e.key === 'Escape') { close(); return; }
+    /* حبس التركيز داخل النافذة — بدونه يهرب Tab لعناصر الصفحة خلفها */
+    if (e.key !== 'Tab') return;
+    const f = [...m.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')]
+      .filter((x) => x.offsetParent !== null);
+    if (!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  };
 
   ov.onclick = (e) => { if (e.target === ov) close(); };
   document.addEventListener('keydown', onKey);
 
-  /* أول حقل يستقبل التركيز — لوحة المفاتيح وحدها تكفي لاستخدام النافذة */
-  const first = m.querySelector('input, select, textarea, button');
-  if (first) first.focus();
+  const firstField = m.querySelector('input, select, textarea, button');
+  if (firstField) firstField.focus();
 
   return { overlay: ov, modal: m, close, $: (s) => m.querySelector(s) };
 }

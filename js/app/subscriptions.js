@@ -28,10 +28,25 @@ export function subscribeData() {
 
   /* ملف المستخدم نفسه — يحدّث الرصيد فوراً عند خصمه أو إعادته
      دون الحاجة لتسجيل خروج ودخول */
+  /* ⚠️ حقول لا تستدعي إعادة عرض الصفحة.
+     bioCredentials تُكتب في منتصف تسجيل الحضور (عند ربط بصمة الجهاز أول مرة).
+     وبما أن هذه الوثيقة تحت اشتراك لحظي، كانت الكتابة تُعيد عرض الصفحة تحت
+     قدمي الموظف بينما هو داخل العملية — فيُهدم زر الحضور ويضيع ما جرى.
+     الحل: نقارن ما تغيّر فعلاً، ولا نُعيد العرض إن كان التغيير لا يخصّ الشاشة. */
+  const COSMETIC = new Set(['bioCredentials']);
+  let prev = { ...me };
+
   unsubMe = onSnapshot(doc(db, 'users', me.id), (snap) => {
     if (!snap.exists()) return;
-    setMe({ id: me.id, ...snap.data() });
+    const next = { id: me.id, ...snap.data() };
+    const changed = [...new Set([...Object.keys(prev), ...Object.keys(next)])]
+      .filter((k) => JSON.stringify(prev[k]) !== JSON.stringify(next[k]));
+    prev = { ...next };
+
+    setMe(next);
     paintIdentity();
+
+    if (changed.length && changed.every((k) => COSMETIC.has(k))) return;
     rerenderIf(ME_PAGES);
   }, (err) => console.error('me', err));
 
