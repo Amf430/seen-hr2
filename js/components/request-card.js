@@ -54,10 +54,20 @@ export function requestCard(r, forAdmin) {
   const mayApprove = forAdmin && canApproveType(r);
 
   if (mayApprove && r.status === 'pending') {
-    const ok = el('button', 'btn sm', '✔ موافقة');
-    ok.onclick = () => approve(r);
     const no = el('button', 'btn sm danger', '✖ رفض');
-    no.onclick = () => openReject(r);
+    no.onclick = () => { if (!no.disabled) openReject(r); };
+    const ok = el('button', 'btn sm', '✔ موافقة');
+    /* ⚠️ بلا قفل، الضغطة الثانية تخصم الرصيد مرة ثانية. adjustBalance ذرّية
+       لكنها تُنفَّذ مرتين، فينزل رصيد الموظف الضعف بلا أي أثر على الشاشة.
+       ويزيدها سوءاً أن القائمة تُعاد بناؤها بعد الموافقة، فالضغطة الثانية
+       قد تقع على طلب موظف آخر صعد مكانه. */
+    ok.onclick = async () => {
+      if (ok.disabled) return;
+      ok.disabled = true; no.disabled = true;
+      ok.textContent = '… جارٍ التنفيذ';
+      try { await approve(r); }
+      finally { ok.disabled = false; no.disabled = false; ok.textContent = '✔ موافقة'; }
+    };
     bar.append(ok, no);
     c.appendChild(bar);
   } else if (mayApprove && r.status === 'approved') {

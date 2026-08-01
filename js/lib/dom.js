@@ -32,8 +32,11 @@ export const esc = (s) =>
 export function safeUrl(u) {
   const raw = (u == null ? '' : String(u)).trim();
   if (!raw) return '';
+  /* ⚠️ بلا قاعدة (base). تمرير location.origin كقاعدة يجعل أي نص يُحلَّل
+     بنجاح: «تقرير طبي» تصير https://<موقعنا>/تقرير%20طبي فتمرّ الفحص وتُحفظ
+     رابطاً مكسوراً يفتح موقعنا نفسه. الرابط لازم يحمل بروتوكوله بنفسه. */
   let parsed;
-  try { parsed = new URL(raw, location.origin); }
+  try { parsed = new URL(raw); }
   catch (e) { return ''; }
   return (parsed.protocol === 'http:' || parsed.protocol === 'https:') ? parsed.href : '';
 }

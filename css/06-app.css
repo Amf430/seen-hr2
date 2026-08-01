@@ -217,9 +217,11 @@ tr.row-total td {
   .hero-card__name { font-size: var(--fs-xl, 1.25rem) }
 }
 
-/* الجداول تتمرّر داخل حاويتها — الصفحة نفسها لا تتمرّر أفقياً أبداً */
+/* الجداول تتمرّر داخل حاويتها — الصفحة نفسها لا تتمرّر أفقياً أبداً.
+   ⚠️ لا تستعمل overflow-x:hidden هنا: تجعل body حاوية تمرير فيتعطّل
+   position:sticky للترويسة. 01-base.css يستعمل clip وهو الصحيح — يقصّ بلا
+   إنشاء حاوية تمرير. */
 .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch }
-html, body { max-inline-size: 100%; overflow-x: hidden }
 
 /* ── بطاقة الطلب ── */
 .request-card__title {
@@ -307,4 +309,21 @@ body.is-locked {
   }
   /* الأزرار قريبة من الإبهام، وفوق شريط المتصفح السفلي */
   .modal__foot { padding-block-end: max(var(--sp-5, 18px), env(safe-area-inset-bottom)) }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ⚠️ iOS يكبّر الصفحة تلقائياً عند التركيز على أي حقل خطّه أصغر من 16px،
+   ولا يرجّعها. مقياس النظام يعطي 15px، فكان الموظف يفتح شاشة الدخول على
+   آيفون فتقفز الصفحة وتتزحزح — من أول حقل يلمسه.
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (pointer: coarse) {
+  input, select, textarea,
+  .field input, .field select, .field textarea,
+  .search-input, .select-lg, .inline-input {
+    font-size: 16px;
+  }
+  /* أهداف لمس لا تقل عن 44px */
+  .btn, .nav a, .chip__x, .chip__act, .menu-toggle { min-block-size: 44px }
+  .btn.sm { min-block-size: 40px }
+  .actions-cell .btn { min-block-size: 40px }
 }

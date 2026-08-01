@@ -82,6 +82,23 @@ export function shiftLabelOf(dow) {
   return shiftText(sh);
 }
 
+/* أيام العمل الفعلية بين تاريخين لموظف بعينه.
+   ⚠️ كانت في dates.js وتقرأ SETTINGS.shifts[dow] فقط — تتجاهل العطل الرسمية
+   وورديات القسم. فمن يأخذ إجازة تشمل عيداً كان يُخصم من رصيده السنوي أيام
+   العيد نفسها. resolveShift يطبّق الأولوية الصحيحة: استثناء التاريخ ثم وردية
+   القسم ثم ورديات الشركة. (نُقلت هنا لأن dates.js لا يستطيع استيراد هذا
+   الملف — سينشأ استيراد دائري.) */
+export function workingDaysBetween(a, b, deptName) {
+  const start = new Date(a + 'T00:00:00'), end = new Date(b + 'T00:00:00');
+  if (isNaN(start) || isNaN(end) || end < start) return { days: 0, off: 0 };
+  let n = 0, off = 0;
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const sh = resolveShift(ymd(d), d.getDay(), deptName);
+    if (!sh || sh.type === 'off') off++; else n++;
+  }
+  return { days: Math.max(0, n), off };
+}
+
 export function shiftEndPassed() {
   const now = new Date();
   const w = shiftWindowFor(now, myShiftToday(now));

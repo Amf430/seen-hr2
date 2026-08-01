@@ -4,6 +4,12 @@ import { canApprove, canApproveType } from '../lib/perms.js';
 import { requestCard } from '../components/request-card.js';
 import { empty, callout } from '../lib/ui.js';
 
+/* ⚠️ حالة الفرز خارج render عمداً.
+   كل موافقة تكتب في Firestore، فيُطلق الاشتراك اللحظي إعادة عرض الصفحة —
+   وكانت تُعيد بناء الفلاتر بقيمها الافتراضية، فيضيع ما اختاره المراجع وما
+   كتبه في البحث في اللحظة التي يشتغل فيها. */
+const filterState = { status: 'pending', type: '', search: '' };
+
 export function render(view) {
   const me = getMe();
 
@@ -32,6 +38,11 @@ export function render(view) {
       'طلبات الإجازة يعتمدها مدير الموارد البشرية لأنها تُعدّل أرصدة الموظف.'));
   }
 
+  /* استرجاع الحالة المحفوظة قبل أول رسم */
+  filt.querySelector('#fStatus').value = filterState.status;
+  filt.querySelector('#fType').value   = filterState.type;
+  filt.querySelector('#fSearch').value = filterState.search;
+
   const host = el('div', '');
   view.appendChild(host);
 
@@ -40,6 +51,7 @@ export function render(view) {
     const st = filt.querySelector('#fStatus').value;
     const ty = filt.querySelector('#fType').value;
     const s  = filt.querySelector('#fSearch').value.trim();
+    filterState.status = st; filterState.type = ty; filterState.search = filt.querySelector('#fSearch').value;
 
     let list = getRequests().filter((r) => (!st || r.status === st) && (!ty || r.type === ty));
     if (me.role === 'manager') list = list.filter((r) => canApprove(r));

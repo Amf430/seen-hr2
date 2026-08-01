@@ -1,6 +1,7 @@
 import { el, esc, toast } from '../lib/dom.js';
 import { getSettings } from '../lib/state.js';
-import { workingDaysBetween } from '../lib/dates.js';
+import { workingDaysBetween } from '../lib/shifts.js';
+import { getMe } from '../lib/state.js';
 import { submitRequest } from '../lib/requests.js';
 import { go } from '../lib/nav.js';
 import { card, empty } from '../lib/ui.js';
@@ -75,7 +76,7 @@ function permForm() {
     const aId = f.querySelector('#pfApprover').value;
     const note = f.querySelector('#pfNote').value.trim();
     if (!date || !time) { toast('أدخل التاريخ والوقت', 'err'); return; }
-    if (!rId) { toast('اختر السبب', 'err'); return; }
+    if (!rId) { toast('لم تُعرَّف أسباب استئذان بعد — تواصل مع الموارد البشرية', 'err'); return; }
     if (!aId) { toast('اختر جهة الاعتماد', 'err'); return; }
 
     const reason = (S.permissionReasons || []).find((x) => x.id === rId);
@@ -121,7 +122,7 @@ function leaveForm() {
   const upd = () => {
     const s = f.querySelector('#lfStart').value, e = f.querySelector('#lfEnd').value;
     if (!s || !e) { f.querySelector('#lfDays').textContent = ''; return; }
-    const w = workingDaysBetween(s, e);
+    const w = workingDaysBetween(s, e, getMe().department);
     f.querySelector('#lfDays').textContent =
       `المدة: ${w.days} يوم عمل` + (w.off ? ` (تم استثناء ${w.off} يوم راحة)` : '');
   };
@@ -141,9 +142,11 @@ function leaveForm() {
     if (new Date(en) < new Date(s)) { toast('تاريخ النهاية قبل البداية', 'err'); return; }
     if (!aId) { toast('اختر جهة الاعتماد', 'err'); return; }
 
+    /* بلا أنواع إجازات معرّفة كان الطلب يُرسَل بنوع فارغ ويصل للأدمن بلا تصنيف */
+    if (!tId) { toast('لم تُعرَّف أنواع إجازات بعد — تواصل مع الموارد البشرية', 'err'); return; }
     const t = (S.leaveTypes || []).find((x) => x.id === tId);
     const appr = (S.approvers || []).find((x) => x.id === aId);
-    const wd = workingDaysBetween(s, en);
+    const wd = workingDaysBetween(s, en, getMe().department);
     if (!wd.days) { toast('المدة المختارة كلها أيام راحة', 'err'); return; }
 
     btn.disabled = true; btn.textContent = 'جارٍ التقديم…';
