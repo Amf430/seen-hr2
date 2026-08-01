@@ -23,12 +23,25 @@ export function sessionsOf(d) {
   return [];
 }
 
-export function workedSecs(sessions) {
+/* ⚠️ `until` معامل جديد لم يكن في النسخة القديمة، ووجوده يصلح خطأً حقيقياً:
+   الجلسة المفتوحة كانت تُحتسب من وقت الدخول حتى «الآن» مهما مضى. موظف نسي
+   بصمة الانصراف يوم 27 يوليو كان يظهر في التقرير بـ«114:23:44» ساعة — العدّاد
+   ظلّ يزيد خمسة أيام. مع تمرير `until` تُقصّ الجلسة المفتوحة عند نهاية
+   ورديتها، فيظهر رقم منطقي.
+
+   بلا `until` يبقى السلوك كما كان تماماً — وهذا مقصود: مؤقّت الدوام الحيّ في
+   شاشة الحضور يحتاج فعلاً أن يعدّ حتى اللحظة. */
+export function workedSecs(sessions, until) {
   let t = 0, open = false;
   for (const s of sessions) {
     const i = tsToDate(s.in); if (!i) continue;
     const o = tsToDate(s.out);
-    if (o) t += (o - i) / 1000; else { t += (Date.now() - i) / 1000; open = true; }
+    if (o) t += (o - i) / 1000;
+    else {
+      const stop = (until != null) ? Math.min(Date.now(), until) : Date.now();
+      t += Math.max(0, (stop - i) / 1000);
+      open = true;
+    }
   }
   return { secs: t, open };
 }
@@ -85,8 +98,9 @@ export function buildDailyStatus(cyc, users, requests, recs) {
       const firstIn = sessions.length ? tsToDate(sessions[0].in) : null;
       const lastOut = lastOutOf(sessions);
       const openSess = sessions.some((s) => !s.out);
-      const { secs } = workedSecs(sessions);
       const win = shiftWindowFor(d, shift);
+      /* الجلسة المفتوحة تُقصّ عند نهاية الوردية بدل أن تعدّ حتى الآن */
+      const { secs } = workedSecs(sessions, win ? win.end.getTime() : null);
       let status, cls, note = '', lateMin = 0;
       if (leave) { status = 'إجازة: ' + (leave.categoryLabel || ''); cls = 'leave'; }
       else if (firstIn) {

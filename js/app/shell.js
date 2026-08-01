@@ -6,10 +6,10 @@
    قائمة مسطّحة تضع «طلباتي» بجانب «مسير الرواتب» تجعل النظام يبدو بلا بنية.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { $, el, esc } from '../lib/dom.js';
+import { $, el, esc, lockScroll, unlockScroll } from '../lib/dom.js';
 import { getMe, getRequests } from '../lib/state.js';
 import { navFor, PAGES, HOME_ADMIN } from '../config/pages.js';
-import { go, getPage } from '../lib/nav.js';
+import { go, getPage, onNavigate } from '../lib/nav.js';
 import { canApprove, roleLabel } from '../lib/perms.js';
 
 export function paintIdentity() {
@@ -84,20 +84,28 @@ export function initShellChrome() {
   const scrim   = $('#navScrim');
 
   const close = () => {
+    if (!sidebar.classList.contains('open')) return;
     sidebar.classList.remove('open');
     if (scrim) scrim.classList.remove('show');
     toggle.setAttribute('aria-expanded', 'false');
+    unlockScroll();
   };
   const open = () => {
     sidebar.classList.add('open');
     if (scrim) scrim.classList.add('show');
     toggle.setAttribute('aria-expanded', 'true');
+    lockScroll();
   };
 
   toggle.onclick = () => (sidebar.classList.contains('open') ? close() : open());
   if (scrim) scrim.onclick = close;
-  /* Esc يغلق القائمة — كان ناقصاً */
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+
+  /* ⚠️ يُغلق الدرج عند كل تنقّل. النسخة القديمة كانت تفعل هذا داخل go()
+     (السطر 746)، وضاع في التقسيم — فكان الموظف يضغط صفحة على الجوال
+     فتبقى القائمة مفتوحة فوق الصفحة التي طلبها. */
+  onNavigate(close);
+
   return { closeSidebar: close };
 }
 
