@@ -7,7 +7,7 @@
    التقارير وفي بروفايل الموظف. لا تُعاد صياغتها.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { db, collection, query, where, getDocs } from './firebase.js';
+import { db, doc, getDoc, collection, query, where, getDocs } from './firebase.js';
 import { ymd, AR_DAYS } from './dates.js';
 import { tsToDate } from './format.js';
 import { resolveShift, shiftWindowFor, MISSING_OUT_AFTER_MIN, LATE_GRACE_MIN } from './shifts.js';
@@ -53,7 +53,31 @@ export function lastOutOf(sessions) {
   return null;
 }
 
-/* جلب سجلات الحضور ضمن دورة — من أي مجموعة (الموقع أو الجهاز) */
+/* ── سجلات الموظف نفسه ──
+   ⚠️ لا تستعمل fetchAttendance هنا. هي تستعلم بالتاريخ فقط، وقاعدة القراءة
+   تسمح للموظف بسجلاته هو فقط — وFirestore يرفض الاستعلام كاملاً ما لم يكن
+   مقيَّداً بحيث تحقّق كل نتيجة محتملة شرط القاعدة. النتيجة كانت أن بطاقة
+   «سجلّي في هذه الدورة» ما تظهر أبداً لأي موظف.
+
+   إضافة where('employeeUid','==',uid) تحلّها لكنها تحتاج فهرساً مركّباً
+   يُنشأ من Console. ومعرّف الوثيقة معروف مسبقاً (uid_YYYY-MM-DD)، فنقرأها
+   مباشرة بلا استعلام ولا فهرس. */
+export async function fetchMyAttendance(cycle, uid, coll = 'attendance') {
+  const now = new Date();
+  const end = (cycle.end < now) ? cycle.end : now;
+  const days = [];
+  for (let d = new Date(cycle.start); d <= end; d.setDate(d.getDate() + 1)) days.push(ymd(d));
+
+  const snaps = await Promise.all(
+    days.map((ds) => getDoc(doc(db, coll, `${uid}_${ds}`)).catch(() => null))
+  );
+  return snaps
+    .filter((s) => s && s.exists())
+    .map((s) => ({ id: s.id, ...s.data() }));
+}
+
+/* جلب سجلات الحضور ضمن دورة — من أي مجموعة (الموقع أو الجهاز).
+   للأدمن فقط: القاعدة تسمح له بقراءة الكل، فالاستعلام بالتاريخ يمرّ. */
 export async function fetchAttendance(cycle, coll = 'attendance') {
   const s1 = ymd(cycle.start), s2 = ymd(cycle.end);
   const q1 = query(collection(db, coll), where('date', '>=', s1), where('date', '<=', s2));

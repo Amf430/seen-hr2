@@ -46,7 +46,12 @@ export async function saveBranches(list) {
   const S = getSettings();
   S.branches = list;
   const first = list.find((b) => b.active !== false) || list[0];
-  if (first) S.company = { lat: first.lat, lng: first.lng, radius: first.radius };
+  /* ⚠️ لا بد من مسح المرآة عند إفراغ القائمة. بدون else كان حذف آخر فرع
+     يُبقي company بإحداثياته، ثم يعيد branchesOf() تركيبه كـ«المقر الرئيسي»
+     — فيرجع الفرع المحذوف من القبر بنفس نطاقه. */
+  S.company = first
+    ? { lat: first.lat, lng: first.lng, radius: first.radius }
+    : { lat: null, lng: null, radius: 500 };
   await saveSettings();
 }
 

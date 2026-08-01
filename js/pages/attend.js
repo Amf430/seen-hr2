@@ -4,7 +4,7 @@ import { getMe } from '../lib/state.js';
 import { attendPanel } from '../components/attend-panel.js';
 import { cycleOf, ymd, AR_DAYS } from '../lib/dates.js';
 import { fmtDur, hm } from '../lib/format.js';
-import { sessionsOf, workedSecs, fetchAttendance } from '../lib/attendance.js';
+import { sessionsOf, workedSecs, fetchMyAttendance } from '../lib/attendance.js';
 import { isStale } from '../lib/nav.js';
 import { card, tableWrap, empty, grid, stat } from '../lib/ui.js';
 
@@ -21,18 +21,17 @@ export async function render(view, token) {
 
   /* الموظف يقرأ سجلاته هو فقط — القاعدة ترفض استعلاماً غير مقيّد به،
      فنفلتر محلياً بعد الجلب المقيّد بالتاريخ ونتعامل مع الرفض بهدوء. */
-  let recs = [];
-  try { recs = await fetchAttendance(cyc, 'attendance'); }
+  let mine = [];
+  try { mine = await fetchMyAttendance(cyc, me.id, 'attendance'); }
   catch (e) {
+    console.error(e);
     if (isStale(token)) return;
     host.innerHTML = '';
-    host.appendChild(empty('سجلّك يظهر هنا بعد أول تسجيل حضور'));
+    host.appendChild(empty('تعذّر تحميل سجلّك — حدّث الصفحة'));
     return;
   }
   if (isStale(token)) return;
-
-  const mine = recs.filter((r) => r.employeeUid === me.id)
-                   .sort((a, b) => (a.date < b.date ? 1 : -1));
+  mine.sort((a, b) => (a.date < b.date ? 1 : -1));
 
   host.innerHTML = '';
   if (!mine.length) { host.appendChild(empty('ما سجّلت حضوراً في هذه الدورة بعد', '🗓️')); return; }
