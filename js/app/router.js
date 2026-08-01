@@ -66,7 +66,10 @@ async function render() {
 
   const view = $('#view');
   view.innerHTML = '';
-  view.scrollTop = 0;
+  /* ⚠️ #view ليست حاوية التمرير — المستند هو الذي يتمرّر، فـ view.scrollTop
+     كتابة بلا أثر. الموظف كان ينتقل لصفحة الحضور فيجدها مُمرَّرة لأسفل، تحت
+     زر «تسجيل حضور» مباشرة، فيظن أن الزر غير موجود. */
+  window.scrollTo(0, 0);
 
   /* الرئيسية تختلف حسب الدور */
   let fn = (page === 'home')

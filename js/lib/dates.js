@@ -6,7 +6,6 @@
    تعديل هنا يغيّر رواتب الناس بصمت. لا تُعاد صياغتها.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { getSettings } from './state.js';
 
 export const AR_MONTHS = ['يناير','فبراير','مارس','أبريل','مايو','يونيو',
                           'يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
@@ -76,18 +75,6 @@ export function hmToDate(base, hhmmStr) {
   return x;
 }
 
-/* أيام الإجازة الفعلية = أيام العمل فقط، باستثناء أيام الراحة من إعدادات الشفتات */
-export function workingDaysBetween(a, b) {
-  const sh = getSettings().shifts || {};
-  const start = new Date(a + 'T00:00:00'), end = new Date(b + 'T00:00:00');
-  if (isNaN(start) || isNaN(end) || end < start) return { days: 0, off: 0 };
-  let n = 0, off = 0;
-  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    const s = sh[d.getDay()];
-    if (s && s.type === 'off') off++; else n++;
-  }
-  return { days: Math.max(0, n), off };
-}
 
 /* عدد الأيام المتبقية على انتهاء العقد (سالب = منتهٍ) */
 export function contractDaysLeft(dateStr) {
