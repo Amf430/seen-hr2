@@ -127,6 +127,10 @@ service cloud.firestore {
            Previously date/time were writable, which feeds the payroll exemption. */
         || (sameDept()
             && p().type == 'permission'
+            /* ⚠️ الحالة السابقة لازم تكون «تحت المراجعة». بدونها يقدر المدير
+               يوافق على طلب سحبه الموظف بنفسه (cancelled ← approved) أو
+               يعيد فتح طلب مرفوض. */
+            && p().status == 'pending'
             && p().employeeUid != request.auth.uid
             && d().status in ['approved','rejected']
             && d().reviewedBy == me().name

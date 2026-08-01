@@ -108,6 +108,18 @@ await check('employee approves a colleague request',  false, () => updateDoc(doc
 await check('manager approves LEAVE (balances)',      false, () => updateDoc(doc(mgr, 'requests/leaveOfEmp'), { status: 'approved', reviewedBy: 'فهد', reviewedAt: serverTimestamp(), rejectReason: '' }));
 await check('manager rewrites permission time',       false, () => updateDoc(doc(mgr, 'requests/permOfEmp'), { status: 'approved', reviewedBy: 'فهد', reviewedAt: serverTimestamp(), rejectReason: '', time: '13:00' }));
 await check('manager attributes decision to admin',   false, () => updateDoc(doc(mgr, 'requests/permOfEmp'), { status: 'approved', reviewedBy: 'المدير', reviewedAt: serverTimestamp(), rejectReason: '' }));
+await check('manager approves a WITHDRAWN request',   false, async () => {
+  await env.withSecurityRulesDisabled(async (c) => setDoc(doc(c.firestore(), 'requests/withdrawnReq'), {
+    employeeUid: 'emp2U', employeeName: 'خالد', department: 'المبيعات', type: 'permission',
+    status: 'cancelled', date: '2026-08-01', time: '09:00', reviewedBy: '', reviewedAt: null, rejectReason: '' }));
+  return updateDoc(doc(mgr, 'requests/withdrawnReq'), { status: 'approved', reviewedBy: 'فهد', reviewedAt: serverTimestamp(), rejectReason: '' });
+});
+await check('manager re-opens a REJECTED request',    false, async () => {
+  await env.withSecurityRulesDisabled(async (c) => setDoc(doc(c.firestore(), 'requests/rejectedReq'), {
+    employeeUid: 'emp2U', employeeName: 'خالد', department: 'المبيعات', type: 'permission',
+    status: 'rejected', date: '2026-08-01', time: '09:00', reviewedBy: 'فهد', reviewedAt: null, rejectReason: 'لا' }));
+  return updateDoc(doc(mgr, 'requests/rejectedReq'), { status: 'approved', reviewedBy: 'فهد', reviewedAt: serverTimestamp(), rejectReason: '' });
+});
 
 console.log('\n\x1b[1m═══ 5. ATTENDANCE FRAUD ═══\x1b[0m');
 await check('attendance for a PAST date',             false, () => setDoc(doc(emp, 'attendance/empU_2026-01-10'), { ...attDoc(), date: '2026-01-10' }));

@@ -207,7 +207,10 @@ async function doAttendance(kind, ref, btn, bioNote, rule, setBusy) {
      NotAllowedError فيوقف الحفظ كلياً، فيقف داخل الفرع عاجزاً عن التسجيل. */
   btn.textContent = '👆 تحقّق بالبصمة…';
   const bio = await verifyBiometric();
-  bioNote.textContent = bio.ok ? '' : ('ℹ️ ' + bioReasonAr(bio.reason) + ' — سيُسجَّل حضورك بدونها');
+  /* «تم الربط» نجاح لا فشل — لا نُلحق به «سيُسجَّل حضورك بدونها» */
+  bioNote.textContent = bio.ok ? ''
+    : bio.reason === 'enrolled-now' ? ('✅ ' + bioReasonAr(bio.reason))
+    : ('ℹ️ ' + bioReasonAr(bio.reason) + ' — سيُسجَّل حضورك بدونها');
 
   /* ⑤ الكتابة */
   btn.textContent = '💾 جارٍ الحفظ…';

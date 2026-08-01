@@ -64,7 +64,10 @@ const BIO_REASON_AR = {
   'cancelled'          : 'أُلغي التحقق بالبصمة',
   'declined-enroll'    : 'ما تم ربط بصمة هذا الجهاز بحسابك',
   'rp-id-mismatch'     : 'رابط الموقع مختلف عن النطاق المعتمد — راجع الدعم الفني',
-  'verify-failed'      : 'ما نجح التحقق بالبصمة'
+  'verify-failed'      : 'ما نجح التحقق بالبصمة',
+  /* التسجيل نجح — رسالة إيجابية لا خطأ. كانت ناقصة فيسقط على الرسالة العامة
+     «تعذّر التحقق بالبصمة»، فيظنّ الموظف أن الربط فشل وهو نجح. */
+  'enrolled-now'       : 'تم ربط بصمة هذا الجهاز بحسابك — بتُطلب منك من المرة الجاية'
 };
 export const bioReasonAr = (r) => BIO_REASON_AR[r] || 'تعذّر التحقق بالبصمة';
 
@@ -197,22 +200,25 @@ export async function verifyBiometric() {
   if (!cap.ok) return { ok: false, enrolled: false, reason: cap.reason };
 
   const have = knownCreds();
+  /* هل لهذا الجهاز بالذات مفتاح مسجّل؟ القائمة البعيدة تشمل أجهزة أخرى. */
+  const thisDeviceHasKey = localCreds().length > 0;
 
-  /* أول مرة على هذا الجهاز → تسجيل.
-     ⚠️ التسجيل ليس تحققاً: نرجع enrolled:true و ok:false حتى لا يُحسب
+  /* التسجيل ليس تحققاً: نرجع enrolled:true و ok:false حتى لا يُحسب
      مجرد إنشاء مفتاح كأنه إثبات هوية — وهذا بالضبط خطأ النسخة القديمة. */
-  if (!have.length) {
+  const doEnroll = async () => {
     try {
       await enroll();
       return { ok: false, enrolled: true, reason: 'enrolled-now' };
     } catch (e) {
-      if (e.name === 'NotAllowedError')  return { ok: false, enrolled: false, reason: 'declined-enroll' };
-      if (e.name === 'SecurityError')    return { ok: false, enrolled: false, reason: 'rp-id-mismatch' };
+      if (e.name === 'NotAllowedError')   return { ok: false, enrolled: false, reason: 'declined-enroll' };
+      if (e.name === 'SecurityError')     return { ok: false, enrolled: false, reason: 'rp-id-mismatch' };
       if (e.name === 'InvalidStateError') return { ok: false, enrolled: true,  reason: 'enrolled-now' };
       console.error('bio enroll', e);
       return { ok: false, enrolled: false, reason: 'declined-enroll' };
     }
-  }
+  };
+
+  if (!have.length) return doEnroll();
 
   try {
     const a = await navigator.credentials.get({
@@ -231,6 +237,14 @@ export async function verifyBiometric() {
        إعادة التسجيل الصامتة كانت تُفرغ التحقق من معناه وتكدّس المفاتيح. */
     if (e.name === 'NotAllowedError') return { ok: false, enrolled: true, reason: 'cancelled' };
     if (e.name === 'SecurityError')   return { ok: false, enrolled: true, reason: 'rp-id-mismatch' };
+
+    /* ⚠️ جهاز جديد: الفهرس البعيد فيه مفاتيح أجهزة أخرى، فما دخلنا فرع
+       التسجيل أصلاً — ثم فشل get() لأن المفتاح غير موجود هنا. النتيجة كانت
+       أن البصمة تفشل على هذا الجهاز إلى الأبد بلا مخرج.
+       (على أندرويد قد يُزامَن المفتاح فينجح get، ولهذا نجرّبه أولاً.)
+       نسجّل الجهاز الآن مرة واحدة فقط. */
+    if (!thisDeviceHasKey) return doEnroll();
+
     console.error('bio verify', e);
     return { ok: false, enrolled: true, reason: 'verify-failed' };
   }
