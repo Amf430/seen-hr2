@@ -327,3 +327,37 @@ body.is-locked {
   .btn.sm { min-block-size: 40px }
   .actions-cell .btn { min-block-size: 40px }
 }
+
+/* ── ذيل الشريط الجانبي ──
+   الترميز يستعمل .foot/.who/.role وزرّاً بلا صنف، ونظام التصميم عرّف
+   .sidebar__foot. النتيجة كانت «تسجيل الخروج» نصاً أبيض عارياً ملتصقاً
+   بحافة الشاشة وبشريط الإيماءات في iOS. */
+.sidebar .foot {
+  flex: none; margin-block-start: auto;
+  padding: var(--sp-3, 12px) var(--sp-4, 16px) max(var(--sp-4, 16px), env(safe-area-inset-bottom));
+  border-block-start: 1px solid var(--a-white-12, rgba(255,255,255,.12));
+}
+.sidebar .foot .who  { color: #fff; font-weight: var(--fw-bold, 700); font-size: var(--fs-sm, .8125rem) }
+.sidebar .foot .role { color: var(--a-white-56, rgba(255,255,255,.56)); font-size: var(--fs-caption, .75rem);
+                       margin-block-end: var(--sp-3, 10px) }
+.sidebar .foot #logoutBtn {
+  inline-size: 100%; min-block-size: 40px;
+  border-radius: var(--r-md, 10px);
+  background: var(--a-white-12, rgba(255,255,255,.12));
+  border: 1px solid var(--a-white-16, rgba(255,255,255,.16));
+  color: #fff; font-weight: var(--fw-bold, 700); font-size: var(--fs-sm, .8125rem);
+  cursor: pointer; transition: background .15s;
+}
+.sidebar .foot #logoutBtn:hover { background: var(--a-white-16, rgba(255,255,255,.2)) }
+
+/* شعار الدرج — .logo .brand-mark لا يطابق أياً من قاعدتي التصميم */
+.logo .brand-mark {
+  inline-size: 42px; block-size: 42px; flex: none;
+  border-radius: var(--r-md, 12px);
+  background: var(--a-white-16, rgba(255,255,255,.16)); color: #fff;
+  font-size: var(--fs-lg, 1.125rem); font-weight: 800;
+  display: grid; place-items: center;
+}
+
+/* زر الحضور الكبير يملأ عرض البطاقة */
+.btn--xl { inline-size: 100%; justify-content: center; margin-block-start: var(--sp-3, 10px) }

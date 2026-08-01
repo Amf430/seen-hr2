@@ -3,13 +3,13 @@ import { getUsers, getRequests, getProfileUid } from '../lib/state.js';
 import { refreshUsers } from '../lib/users.js';
 import { recentCyclesList, reqEventDate, contractDaysLeft, AR_DAYS } from '../lib/dates.js';
 import { money, hhmm, hm, fmtDur, p2 } from '../lib/format.js';
-import { fetchAttendance, buildDailyStatus } from '../lib/attendance.js';
+import { fetchMyAttendance, buildDailyStatus } from '../lib/attendance.js';
 import { computePayroll, payrollConfig } from '../lib/payroll.js';
 import { shiftText } from '../lib/shifts.js';
 import { describeRule } from '../lib/geo.js';
 import { openEmpForm } from '../components/employee-form.js';
 import { go, isStale, rerender } from '../lib/nav.js';
-import { roleLabel } from '../lib/perms.js';
+import { roleLabel, isAdmin } from '../lib/perms.js';
 import { card, grid, stat, empty, tableWrap, button, bar } from '../lib/ui.js';
 
 export async function render(view, token) {
@@ -42,20 +42,32 @@ export async function render(view, token) {
   view.appendChild(hd);
 
   const bar2 = el('div', 'btn-bar');
-  bar2.append(
-    button('← كل الموظفين', 'btn sm ghost', () => go('employees')),
-    button('✏️ تعديل البيانات والراتب', 'btn sm', () => openEmpForm(u, async () => { await refreshUsers(); rerender(); }))
-  );
+  bar2.appendChild(button('← كل الموظفين', 'btn sm ghost', () => go('employees')));
+  /* ⚠️ قاعدة users تسمح بالتعديل للأدمن وحده، فالزر عند المدير كان يفشل
+     دائماً برسالة «ما عندك صلاحية». صفحة الموظفين تتجنّب هذا أصلاً — لا
+     تُعرض أزرار محكوم عليها بالفشل. */
+  if (isAdmin()) {
+    bar2.appendChild(button('✏️ تعديل البيانات والراتب', 'btn sm',
+      () => openEmpForm(u, async () => { await refreshUsers(); rerender(); })));
+  }
   view.appendChild(bar2);
 
   /* التعاقد */
   const cfg = payrollConfig();
   const dl = contractDaysLeft(u.contractEnd);
-  const cd = card('💼 التعاقد والراتب');
-  const cg = grid(4);
+  /* ⚠️ الراتب لمدير النظام فقط. صفحة «ملفات الموظفين» تخفي عمود الراتب عن
+     مدير القسم (employees.js)، وكانت هذه الصفحة تعرضه له كاملاً مع تفصيل
+     الخصومات — تسريب رواتب لكل مرؤوسيه بخطوتين. */
+  const showMoney = isAdmin();
+  const cd = card(showMoney ? '💼 التعاقد والراتب' : '💼 التعاقد');
+  const cg = grid(showMoney ? 4 : 2);
+  if (showMoney) {
+    cg.append(
+      stat(u.salary ? money(u.salary) : '—', 'الراتب الشهري (ريال)'),
+      stat(u.salary ? money(u.salary / (cfg.daysPerMonth || 30) / (cfg.hoursPerDay || 8)) : '—', 'قيمة الساعة (ريال)')
+    );
+  }
   cg.append(
-    stat(u.salary ? money(u.salary) : '—', 'الراتب الشهري (ريال)'),
-    stat(u.salary ? money(u.salary / (cfg.daysPerMonth || 30) / (cfg.hoursPerDay || 8)) : '—', 'قيمة الساعة (ريال)'),
     stat(u.contractEnd || '—', 'انتهاء العقد' + (dl !== null ? ` · ${dl < 0 ? 'منتهٍ' : dl + ' يوم متبقّي'}` : ''),
       dl !== null && dl < 0 ? 'r' : (dl !== null && dl <= 60 ? 'a' : '')),
     stat(u.hireDate || '—', 'تاريخ المباشرة')
@@ -80,11 +92,13 @@ export async function render(view, token) {
     const cyc = cycles[+dd.value];
     host.innerHTML = '<div class="card"><div class="empty"><span class="spinner"></span> جارٍ الحساب…</div></div>';
     let recs = [];
-    try { recs = await fetchAttendance(cyc, 'zkAttendance'); }
+    /* قراءة مباشرة بمعرّف الوثيقة — الاستعلام بالمدى مرفوض لغير الأدمن،
+       وهذه الصفحة تحتاج موظفاً واحداً فقط فلا تحتاج استعلاماً ولا فهرساً. */
+    try { recs = await fetchMyAttendance(cyc, u.id, 'zkAttendance'); }
     catch (e) { console.error(e); host.innerHTML = '<div class="card"><div class="empty">تعذّر تحميل سجل البصمة</div></div>'; return; }
     if (isStale(token)) return;
 
-    const mine = recs.filter((r) => r.employeeUid === u.id);
+    const mine = recs;
     const reqs = getRequests().filter((r) => r.employeeUid === u.id);
     const rows = buildDailyStatus(cyc, [u], reqs, mine);
     const pay = computePayroll(cyc, [u], reqs, mine)[0];
@@ -136,8 +150,8 @@ export async function render(view, token) {
                     seg(miss, 'نسيان بصمة', 'var(--violet)');
     host.appendChild(bc);
 
-    /* أثر الخصم */
-    if (u.salary) {
+    /* أثر الخصم — للأدمن وحده */
+    if (showMoney && u.salary) {
       const pc = card('💰 أثر الالتزام على راتب هذه الدورة');
       pc.innerHTML += `
         <div class="detail-list">
@@ -150,7 +164,7 @@ export async function render(view, token) {
         ${pay.exemptMin ? `<p class="help">أُعفي ${hhmm(pay.exemptMin)} بسبب استئذانات معتمدة.</p>` : ''}
         ${pay.missingOut ? `<p class="help text-violet">⚠️ ${pay.missingOut} يوم بلا بصمة انصراف — راجعها قبل اعتماد المسير.</p>` : ''}`;
       host.appendChild(pc);
-    } else {
+    } else if (showMoney) {
       const w = card('');
       w.appendChild(empty('لم يُحدَّد راتب لهذا الموظف — اضغط «تعديل البيانات والراتب» لإضافته.'));
       host.appendChild(w);
