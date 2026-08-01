@@ -89,8 +89,12 @@ service cloud.firestore {
     /* ═════════════════════════ settings ═════════════════════════ */
     match /settings/{doc} {
       /* was sIn(): a signed-up stranger could read company GPS, payroll rules,
-         department list and every manager's uid. Now requires a real profile. */
-      allow read:  if hasP();
+         department list and every manager's uid.
+         isActive() and not hasP(): a suspended employee kept reading all of it,
+         which the emulator caught. Note users/{uid} self-read deliberately stays
+         at sIn() — the client must be able to read its own doc to DISCOVER it is
+         suspended and show the right message before signing itself out. */
+      allow read:  if isActive();
       allow write: if isAdmin();
     }
 
