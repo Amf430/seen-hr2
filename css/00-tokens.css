@@ -9,10 +9,10 @@
      Byte-identical to index.html lines 13-24. Do not change, re-tint,
      or add a new accent hue anywhere in this system.
      ════════════════════════════════════════════════════════════════ */
-  --maroon:#5A1A1A;
-  --maroon-2:#7a2a2a;
-  --maroon-tint:#f6eeee;
-  --gold:#b8945a;
+  --maroon:#240215;
+  --maroon-2:#6a063e;
+  --maroon-tint:#f9f2f6;
+  --gold:#b28764;
   --paper:#faf7f4;
   --card:#ffffff;
   --ink:#2b2320;
@@ -44,7 +44,7 @@
   --paper-2:#f3ede8;       /* rails, inactive segment track */
   --row-alt:#fcfaf8;       /* table zebra */
   --row-hover:#f8f3ef;     /* table row hover (was #fdfbf9, line 115) */
-  --maroon-ink:#3f1010;    /* gradient end, already used at line 38/172 */
+  --maroon-ink:#16010d;    /* gradient end, already used at line 38/172 */
 
   /* ════════════════════════════════════════════════════════════════
      3 · ALPHAS — elevation, scrims, on-dark surfaces
@@ -53,9 +53,9 @@
   --a-ink-06:rgba(43,35,32,.06);
   --a-ink-08:rgba(43,35,32,.08);
   --a-ink-14:rgba(43,35,32,.14);
-  --a-maroon-08:rgba(90,26,26,.08);
-  --a-maroon-16:rgba(90,26,26,.16);
-  --a-maroon-24:rgba(90,26,26,.24);
+  --a-maroon-08:rgba(36,2,21,.08);
+  --a-maroon-16:rgba(36,2,21,.16);
+  --a-maroon-24:rgba(36,2,21,.24);
   --a-white-08:rgba(255,255,255,.08);
   --a-white-12:rgba(255,255,255,.12);
   --a-white-16:rgba(255,255,255,.16);

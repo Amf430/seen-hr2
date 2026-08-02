@@ -9,6 +9,7 @@
       "firebase.json",
       "firestore.rules",
       "test/**",
+      "bridge/**",
       "**/.*",
       "**/node_modules/**"
     ],

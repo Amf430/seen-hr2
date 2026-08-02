@@ -21,6 +21,14 @@ import { payrollConfig } from './payroll.js';
 
 const COMPANY = 'شركة سين العقارية';
 
+/* ⚠️ عنوان مطلق لا نسبي. الوثيقة تُبنى في نافذة about:blank عبر
+   document.write، وقاعدة العنوان فيها ليست صفحتنا — فمسار نسبي مثل
+   img/mark.png لا يُحلّ، فتُطبع الوثيقة بلا شعار. new URL تبنيه من عنوان
+   الصفحة الحالية، والنافذة من نفس الأصل فتقرؤه بلا مانع. */
+/* 192 لا 1024: الشعار يُعرض 56px، وعند طباعة 300dpi يقارب 175px — فـ192
+   تكفي بهامش، و1024 تعني 47 ك.ب تُحمَّل بلا فائدة في كل شهادة. */
+const markUrl = () => new URL('img/icon-192.png', location.href).href;
+
 /* ⚠️ كل قيمة تمرّ عبر esc(): المستند يُبنى بـ innerHTML في نافذة جديدة،
    واسم الموظف بيانات يكتبها الأدمن. حقن هنا يعمل في سياق نطاقنا. */
 function shell(title, bodyHtml) {
@@ -32,17 +40,18 @@ function shell(title, bodyHtml) {
   body{font-family:'Tajawal',system-ui,'Segoe UI','Noto Sans Arabic',Tahoma,sans-serif;
     color:#241d1a;line-height:1.95;margin:0;font-size:15px}
   .head{display:flex;align-items:center;gap:14px;
-    border-bottom:2px solid #5A1A1A;padding-bottom:14px;margin-bottom:26px}
-  .seal{width:52px;height:52px;display:grid;place-items:center;flex:none;
-    border:2px solid #B8945A;border-radius:12px;color:#5A1A1A;
-    font-size:26px;font-weight:800}
-  .head b{display:block;font-size:19px;color:#5A1A1A}
+    border-bottom:2px solid #240215;padding-bottom:14px;margin-bottom:26px}
+  .seal{width:56px;height:56px;flex:none;object-fit:contain}
+  /* ⚠️ الطباعة تُسقط الصور والخلفيات افتراضياً في بعض المتصفحات. هذه
+     تُجبرها على طباعة الشعار — وثيقة رسمية بلا شعار ليست وثيقة. */
+  @media print{ .seal{ -webkit-print-color-adjust:exact; print-color-adjust:exact } }
+  .head b{display:block;font-size:19px;color:#240215}
   .head span{display:block;font-size:12px;color:#6f645d}
-  h1{font-size:20px;margin:0 0 6px;text-align:center;color:#5A1A1A}
+  h1{font-size:20px;margin:0 0 6px;text-align:center;color:#240215}
   .meta{text-align:center;font-size:12px;color:#6f645d;margin-bottom:26px}
   table{width:100%;border-collapse:collapse;margin:18px 0}
   th,td{border:1px solid #e7ded7;padding:9px 12px;text-align:right;font-size:14px}
-  th{background:#f7eeee;color:#5A1A1A;font-weight:700;width:38%}
+  th{background:#f7eeee;color:#240215;font-weight:700;width:38%}
   td.num,th.num{font-variant-numeric:tabular-nums}
   p{margin:0 0 12px}
   .sign{margin-top:52px;display:flex;justify-content:space-between;gap:30px}
@@ -52,11 +61,11 @@ function shell(title, bodyHtml) {
     font-size:11px;color:#6f645d;text-align:center}
   .no-print{margin:18px 0;text-align:center}
   .no-print button{font:inherit;font-size:15px;padding:10px 26px;border:0;border-radius:9px;
-    background:#5A1A1A;color:#fff;cursor:pointer}
+    background:#240215;color:#fff;cursor:pointer}
   @media print{ .no-print{display:none} }
 </style></head><body>
 <div class="head">
-  <div class="seal">س</div>
+  <img class="seal" src="${esc(markUrl())}" alt="${esc(COMPANY)}">
   <div><b>${COMPANY}</b><span>إدارة الموارد البشرية</span></div>
 </div>
 ${bodyHtml}

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<meta name="theme-color" content="#5A1A1A" />
+<meta name="theme-color" content="#240215" />
 <meta name="description" content="نظام إدارة الموارد البشرية — سين العقارية" />
 <title>إدارة الموارد البشرية — سين العقارية</title>
 
@@ -29,6 +29,14 @@ if (window.top !== window.self) {
   try { window.top.location = window.self.location; } catch (e) { /* أصل مختلف */ }
 }
 </script>
+
+<!-- أيقونة الموقع — مشتقّة من img/mark.png بمقاسات مختلفة.
+     ⚠️ 32 ليست تصغيراً للـ512: المتصفح يصغّر بجودة أقل من sips، والرمز
+     عند 32 بكسل يفقد تفاصيله فيصير بقعة. لكل مقاس ملفه. -->
+<link rel="icon" type="image/png" sizes="32x32" href="img/icon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="img/icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="img/icon-512.png">
+<link rel="apple-touch-icon" sizes="180x180" href="img/icon-180.png">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -97,9 +105,8 @@ if (window.top !== window.self) {
 <!-- ============ الدخول ============ -->
 <div id="loginScreen" class="hidden">
   <main class="login-card">
-    <div class="brand-mark" aria-hidden="true">س</div>
+    <img class="brand-logo" src="img/logo.png" alt="سين العقارية" width="1814" height="1833">
     <h1>إدارة الموارد البشرية</h1>
-    <p class="sub">سين العقارية</p>
     <div class="field">
       <label for="loginEmail">رقم الجوال</label>
       <input id="loginEmail" type="text" inputmode="numeric" placeholder="05xxxxxxxx" autocomplete="username" />
@@ -118,7 +125,7 @@ if (window.top !== window.self) {
 <!-- ============ تغيير كلمة المرور لأول مرة ============ -->
 <div id="pwScreen" class="hidden">
   <main class="login-card">
-    <div class="brand-mark" aria-hidden="true">س</div>
+    <img class="brand-logo" src="img/logo.png" alt="سين العقارية" width="1814" height="1833">
     <h1>تعيين كلمة مرور جديدة</h1>
     <p class="sub">لأول مرة، الرجاء تغيير كلمة المرور المبدئية قبل المتابعة</p>
     <div class="field">
@@ -140,7 +147,8 @@ if (window.top !== window.self) {
 
   <aside class="sidebar" id="sidebar">
     <div class="logo">
-      <div class="brand-mark" aria-hidden="true">س</div>
+      <img class="brand-mark brand-mark--img" src="img/mark-white-192.png" alt="" aria-hidden="true"
+           width="192" height="192">
       <div><b>إدارة الموارد البشرية</b><span>سين العقارية</span></div>
     </div>
     <nav class="nav" id="navLinks" aria-label="التنقّل الرئيسي"></nav>
