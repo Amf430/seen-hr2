@@ -917,3 +917,20 @@ tr.is-clickable:hover{background:var(--row-hover)}
 .doc-edit__foot{margin-block-start:var(--sp-3);display:flex;align-items:center;
   gap:var(--sp-2);flex-wrap:wrap;min-block-size:22px}
 .doc-edit input:disabled{background:var(--paper-2);color:var(--muted-strong);cursor:not-allowed}
+
+/* ── بطاقات الخدمات والاختصارات ──
+   هدف لمس كبير بدل صفّ أزرار صغيرة متلاصقة: هذه شاشات يفتحها الموظف من
+   جواله، وثلاثة أزرار sm متجاورة تعني ثلاثة أهداف بعرض إصبع واحد. */
+.svc-grid{display:grid;gap:var(--sp-3);
+  grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+.svc-card{display:flex;align-items:flex-start;gap:var(--sp-3);text-align:start;
+  padding:var(--sp-4);border:1px solid var(--line);border-radius:var(--r-md);
+  background:var(--card);font:inherit;color:var(--ink);cursor:pointer;
+  transition:border-color var(--dur-1) var(--ease),background var(--dur-1) var(--ease)}
+.svc-card:hover{border-color:var(--maroon);background:var(--maroon-tint)}
+.svc-card .ic{inline-size:22px;block-size:22px;flex:none;color:var(--maroon);
+  margin-block-start:2px}
+.svc-card__body{flex:1;min-inline-size:0}
+.svc-card__body b{display:block;font-size:var(--fs-base);margin-block-end:2px}
+.svc-card__body span{display:block;font-size:var(--fs-micro);
+  color:var(--muted-strong);line-height:1.6}

@@ -14,6 +14,9 @@ export const PAGES = {
   attend:        { title: 'الحضور والانصراف',      hint: 'سجّل حضورك وانصرافك' },
   new:           { title: 'تقديم طلب',             hint: 'اختر نوع الطلب واملأ البيانات' },
   mine:          { title: 'طلباتي',                hint: 'تابع حالة طلباتك' },
+  'profile-me':  { title: 'ملفي الوظيفي',          hint: 'بطاقتك ومستنداتك وبيانات اتصالك' },
+  services:      { title: 'خدماتي',                hint: 'تعريف بالراتب · خطاب للبنك · كشف الإجازات' },
+  performance:   { title: 'أدائي',                 hint: 'حضورك وتأخيرك وغيابك في هذه الدورة' },
   inbox:         { title: 'بانتظار موافقتك',       hint: 'راجع الطلبات ووافق أو ارفض' },
   employees:     { title: 'ملفات الموظفين',        hint: 'البيانات والعقود والرواتب والصلاحيات' },
   profile:       { title: 'بروفايل الموظف',        hint: 'الراتب والعقد وتحليلات الالتزام' },
@@ -60,6 +63,12 @@ export const NAV_GROUPS = [
     { id: 'attend',     icon: 'clock',  label: 'تسجيل حضوري',      roles: ['employee', 'manager'] },
     { id: 'attendance', icon: 'globe',  label: 'الحضور من الجوال', roles: ['admin'] },
     { id: 'zklog',      icon: 'finger', label: 'سجل جهاز البصمة',  roles: ['admin'] }
+  ]},
+
+  { group: 'حسابي', items: [
+    { id: 'profile-me',  icon: 'people',   label: 'ملفي الوظيفي', roles: ['employee', 'manager'] },
+    { id: 'performance', icon: 'chart',    label: 'أدائي',        roles: ['employee', 'manager'] },
+    { id: 'services',    icon: 'doc',      label: 'خدماتي',       roles: ['employee', 'manager'] }
   ]},
 
   { group: 'الطلبات', items: [
