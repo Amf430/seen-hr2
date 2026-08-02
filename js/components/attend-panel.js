@@ -21,7 +21,7 @@ import { fmtDate, fmtDur, hm, p2, fmtDist } from '../lib/format.js';
 import { sessionsOf, workedSecs } from '../lib/attendance.js';
 import { shiftLabelOf, shiftEndPassed } from '../lib/shifts.js';
 import { getPosition, geoRuleFor, nearestBranch, activeBranches, REMOTE_BRANCH_ID, REMOTE_LABEL } from '../lib/geo.js';
-import { verifyBiometric, bioReasonAr, setCredentialPersister } from '../lib/biometric.js';
+import { verifyBiometric, bioReasonAr, bioUserCancelled, setCredentialPersister } from '../lib/biometric.js';
 import { capturePhoto, savePhoto } from '../lib/photo.js';
 import { saveBioCredentials } from '../lib/users.js';
 import { setPageInterval, trackSubscription, onCleanup } from '../lib/lifecycle.js';
@@ -285,11 +285,32 @@ async function doAttendance(kind, ref, btn, bioNote, rule, setBusy) {
       return fail('تسجيلك من خارج نطاق الفرع يحتاج صورة للموقع — اضغط الزر وصوّر مكانك');
   }
 
-  /* ④ البصمة — لا تمنع التسجيل أبداً.
-     في النسخة القديمة كان إلغاء الموظف لشاشة المفتاح على أندرويد يرمي
-     NotAllowedError فيوقف الحفظ كلياً، فيقف داخل الفرع عاجزاً عن التسجيل. */
+  /* ④ البصمة — عجزُ الجهاز لا يمنع، وإلغاءُ الموظف يمنع.
+     ⚠️ الفرق بين الحالتين هو كل شيء هنا:
+
+     النسخة الأقدم كانت تمنع التسجيل عند أي فشل، فالموظف الذي جواله بلا
+     قفل شاشة يقف داخل الفرع عاجزاً عن التسجيل — عطل حقيقي.
+     ثم صُحِّح بأن يمضي التسجيل مهما كانت النتيجة، وهذا بالغ في الاتجاه
+     المضادّ: من يضغط «تسجيل الحضور» ثم يُلغي شاشة الوجه/البصمة قد ألغى
+     العملية قصداً — ومع ذلك كان حضوره يُسجَّل، فيكتشف أنه «داخل العمل»
+     بلا أن يُتمّ شيئاً، ولا سبيل للتراجع إلا بانصراف وهمي.
+
+     فالمعيار ليس «هل نجحت البصمة» بل «من أوقفها»:
+       • ألغاها الموظف بنفسه  → إلغاء العملية كاملةً، ولا يُكتب شيء
+       • عجز الجهاز أو بيئته  → تمضي وتُسجَّل النتيجة على الجلسة للمراجعة */
   btn.textContent = 'تحقّق بالبصمة…';
   const bio = await verifyBiometric();
+
+  /* إلغاء متعمَّد: رفض شاشة التحقق، أو رفض ربط الجهاز أول مرة. كلاهما
+     ضغطةُ «إلغاء» من الموظف لا قصورٌ في الجهاز. */
+  if (bioUserCancelled(bio)) {
+    bioNote.textContent = '';
+    /* ليس خطأً بل قرار الموظف — رسالة محايدة لا حمراء */
+    toast(kind === 'in' ? 'أُلغي تسجيل الحضور' : 'أُلغي تسجيل الانصراف');
+    setBusy(false);
+    return;
+  }
+
   /* «تم الربط» نجاح لا فشل — إلحاق «سيُسجَّل حضورك بدونها» به يخبر الموظف
      أن الربط فشل وهو قد نجح للتو. */
   bioNote.textContent = bio.ok ? ''
