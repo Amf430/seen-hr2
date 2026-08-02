@@ -24,6 +24,9 @@ import * as inbox          from '../pages/inbox.js';
 import * as employees      from '../pages/employees.js';
 import * as employeeProfile from '../pages/employee-profile.js';
 import * as orgChart       from '../pages/org-chart.js';
+import * as myProfile      from '../pages/my-profile.js';
+import * as myServices     from '../pages/my-services.js';
+import * as myPerformance  from '../pages/my-performance.js';
 import * as attendanceLog  from '../pages/attendance-log.js';
 import * as payroll        from '../pages/payroll.js';
 import * as monthly        from '../pages/monthly.js';
@@ -43,6 +46,9 @@ const RENDERERS = {
   employees:      employees.render,
   profile:        employeeProfile.render,
   org:            orgChart.render,
+  'profile-me':   myProfile.render,
+  services:       myServices.render,
+  performance:    myPerformance.render,
   attendance:     (v, t) => attendanceLog.render(v, t, { coll: 'attendance',   isDevice: false }),
   zklog:          (v, t) => attendanceLog.render(v, t, { coll: 'zkAttendance', isDevice: true  }),
   payroll:        payroll.render,
