@@ -64,7 +64,14 @@ export function subscribeData() {
       updateBadges();
       rerenderIf(MANAGER_PAGES);
     }, (err) => console.error('reqs', err));
-    refreshUsers().catch((e) => console.error(e));
+    /* ⚠️ إعادة العرض بعد وصول الموظفين ضرورية لا تحسين.
+       هذه تعمل بالتوازي مع أول عرض للصفحة، فتُرسم اللوحة والقائمة فارغة —
+       ثم تصل البيانات ولا يُعاد عرض شيء، فتبقى الأرقام صفراً حتى ينتقل
+       المستخدم لصفحة أخرى ويعود. وأسوأ من الصفر أن اللوحة كانت تُترجمه
+       جملةً: «راحة أو عطلة رسمية — لا دوام مجدول» في وسط يوم عمل. */
+    refreshUsers()
+      .then(() => rerenderIf(me.role === 'admin' ? ADMIN_PAGES : MANAGER_PAGES))
+      .catch((e) => console.error(e));
 
   } else if (me.role === 'admin') {
     unsubReqs = onSnapshot(query(collection(db, 'requests')), (snap) => {
@@ -74,7 +81,14 @@ export function subscribeData() {
       updateBadges();
       rerenderIf(ADMIN_PAGES);
     }, (err) => console.error('reqs', err));
-    refreshUsers().catch((e) => console.error(e));
+    /* ⚠️ إعادة العرض بعد وصول الموظفين ضرورية لا تحسين.
+       هذه تعمل بالتوازي مع أول عرض للصفحة، فتُرسم اللوحة والقائمة فارغة —
+       ثم تصل البيانات ولا يُعاد عرض شيء، فتبقى الأرقام صفراً حتى ينتقل
+       المستخدم لصفحة أخرى ويعود. وأسوأ من الصفر أن اللوحة كانت تُترجمه
+       جملةً: «راحة أو عطلة رسمية — لا دوام مجدول» في وسط يوم عمل. */
+    refreshUsers()
+      .then(() => rerenderIf(me.role === 'admin' ? ADMIN_PAGES : MANAGER_PAGES))
+      .catch((e) => console.error(e));
 
   } else {
     const q1 = query(collection(db, 'requests'), where('employeeUid', '==', me.id));

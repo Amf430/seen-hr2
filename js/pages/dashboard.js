@@ -116,8 +116,25 @@ export async function render(view, token) {
   } catch (e) { console.error(e); }
   if (isStale(token)) return;
 
+  /* ⚠️ تُقرأ قائمة الموظفين من جديد هنا، ولا يُعاد استعمال `users` المُلتقطة
+     في أول السطور.
+
+     refreshUsers() تعمل بالتوازي مع أول عرض للوحة (انظر subscribeData)، فعند
+     أول تحميل تُعرض اللوحة والقائمة ما زالت فارغة. و`users` مُلتقطة مرة واحدة
+     قبل الـawait، فتبقى فارغة إلى آخر العرض مهما وصل بعدها.
+
+     الأثر لم يكن رقماً ناقصاً بل جملةً كاذبة: expected=0 يعني «لا أحد عليه
+     وردية»، فيكتب الشريط «راحة أو عطلة رسمية — لا دوام مجدول» في وسط يوم
+     عمل عادي. ويبقى كذلك حتى ينتقل الأدمن لصفحة أخرى ويعود. */
+  const staff = getUsers();
+  /* ⚠️ وكل ما اشتُقّ من القائمة يُعاد اشتقاقه: wf و w حُسبتا قبل الـawait
+     أيضاً، فكانتا تعرضان «٠ على رأس العمل» و«٠ عقود تحتاج متابعة» في نفس
+     اللحظة — أرقام تبدو معقولة فلا يشكّ فيها أحد. */
+  const wf2 = contracts(staff);
+  const w2  = workforce(staff);
+
   /* ── شريط النبض النهائي: الحضور الحيّ يتصدّر ── */
-  const ta = todayAttendance(users, todayRecs, reqs);
+  const ta = todayAttendance(staff, todayRecs, reqs);
   const rateColor = (r) => r >= 90 ? 'var(--green)' : r >= 70 ? 'var(--amber)' : 'var(--red)';
 
   pulseHost.innerHTML = '';
@@ -133,10 +150,10 @@ export async function render(view, token) {
       tone: ta.absent ? 'bad' : '',
       sub: ta.expected ? `من أصل ${ta.expected} عليهم وردية` : 'لا دوام اليوم' },
     { label: 'في إجازة', value: ta.onLeave, ico: 'doc',
-      sub: `${w.active} على رأس العمل · ${w.remote} عن بُعد` },
-    { label: 'عقود تحتاج متابعة', value: wf.soon.length + wf.expired.length, ico: 'doc',
-      tone: wf.expired.length ? 'bad' : wf.soon.length ? 'warn' : '',
-      sub: wf.expired.length ? `${wf.expired.length} منها منتهٍ فعلاً` : 'خلال ٦٠ يوماً' }
+      sub: `${w2.active} على رأس العمل · ${w2.remote} عن بُعد` },
+    { label: 'عقود تحتاج متابعة', value: wf2.soon.length + wf2.expired.length, ico: 'doc',
+      tone: wf2.expired.length ? 'bad' : wf2.soon.length ? 'warn' : '',
+      sub: wf2.expired.length ? `${wf2.expired.length} منها منتهٍ فعلاً` : 'خلال ٦٠ يوماً' }
   ]));
 
   /* من هو داخل العمل الآن */
@@ -159,7 +176,7 @@ export async function render(view, token) {
   }
 
   /* تكلفة الرواتب */
-  const ps = payrollSummary(cyc, users, reqs, zk);
+  const ps = payrollSummary(cyc, staff, reqs, zk);
   const pc = card('');
   pc.appendChild(sectionHead({ text: 'تكلفة الرواتب — هذه الدورة', icon: 'money' },
     button('فتح المسير', 'btn sm ghost', () => go('payroll'))));
@@ -175,7 +192,7 @@ export async function render(view, token) {
   payHost.appendChild(pc);
 
   /* ما يحتاج إجراءً */
-  const ds = expiringDocs(users);
+  const ds = expiringDocs(staff);
   const items = actionItems({
     workforceStats: w, contractStats: wf, payroll: ps,
     requests: rp, attendance: ta.expected ? ta : null, docStats: ds
@@ -218,12 +235,12 @@ export async function render(view, token) {
   }
 
   /* العقود المنتهية قريباً */
-  if (wf.expired.length || wf.soon.length) {
+  if (wf2.expired.length || wf2.soon.length) {
     const cc = card('عقود تحتاج متابعة', null, 'doc');
     cc.appendChild(tableWrap(`
       <table class="tight">
         <thead><tr><th>الموظف</th><th>القسم</th><th>ينتهي</th><th>الحالة</th></tr></thead>
-        <tbody>${[...wf.expired, ...wf.soon].slice(0, 12).map((x) => `<tr>
+        <tbody>${[...wf2.expired, ...wf2.soon].slice(0, 12).map((x) => `<tr>
           <td><b>${esc(x.u.name)}</b></td>
           <td>${esc(x.u.department || '—')}</td>
           <td class="num">${esc(x.u.contractEnd)}</td>
