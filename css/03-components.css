@@ -934,3 +934,26 @@ tr.is-clickable:hover{background:var(--row-hover)}
 .svc-card__body b{display:block;font-size:var(--fs-base);margin-block-end:2px}
 .svc-card__body span{display:block;font-size:var(--fs-micro);
   color:var(--muted-strong);line-height:1.6}
+
+/* ── أنواع الإجازات ──
+   كانت شرائح سطرية تحمل اسماً وثلاث حقائق وثلاثة أزرار، فتلتفّ وتتداخل.
+   صفٌّ لكل نوع: الحالة شارات تُقرأ، والإجراءات مفصولة عنها بصرياً. */
+.lt-list{display:flex;flex-direction:column;gap:var(--sp-2);margin-block:var(--sp-3)}
+.lt-row{display:flex;align-items:flex-start;justify-content:space-between;
+  gap:var(--sp-4);flex-wrap:wrap;
+  padding:var(--sp-3) var(--sp-4);border:1px solid var(--line);
+  border-radius:var(--r-md);background:var(--card)}
+.lt-row__main{flex:1;min-inline-size:220px}
+.lt-row__main>b{display:block;font-size:var(--fs-base);margin-block-end:var(--sp-2)}
+.lt-badges{display:flex;flex-wrap:wrap;gap:var(--sp-2)}
+.lt-chain{display:flex;align-items:baseline;gap:var(--sp-2);flex-wrap:wrap;
+  margin-block-start:var(--sp-2);font-size:var(--fs-micro)}
+.lt-chain .k{color:var(--muted-strong)}
+.lt-chain .v{color:var(--maroon);font-weight:var(--fw-medium)}
+/* ⚠️ الإجراءات لا تلتفّ داخل النصّ: صفّ مستقل يبقى مجموعاً حتى على الجوال */
+.lt-row__acts{display:flex;flex-wrap:wrap;gap:var(--sp-2);flex:none}
+@media (max-width:640px){
+  .lt-row{flex-direction:column}
+  .lt-row__acts{inline-size:100%}
+  .lt-row__acts .btn{flex:1}
+}

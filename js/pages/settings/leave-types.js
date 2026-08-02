@@ -18,45 +18,72 @@ export function render(view) {
     build: (vals, mkId) => ({ id: mkId(), label: vals.label })
   }));
 
-  /* أنواع الإجازات */
+  /* ── أنواع الإجازات ──
+     ⚠️ كانت تُعرض كـ«شريحة» واحدة تحمل: الاسم، والرصيد، وحالة الراتب،
+     ومسار الاعتماد، وزرَّين، وزرّ حذف. والشريحة عنصر سطريّ مصمَّم لوسم قصير،
+     فكان كل ذلك يلتفّ ويتداخل على أي شاشة.
+
+     والأسوأ من الازدحام تناقضٌ في المعنى: النصّ يكتب الحالة («بدون راتب»)
+     والزرّ بجواره يكتب الإجراء المضادّ («مدفوعة») — كلمتان متعاكستان
+     متلاصقتان، فلا يُعرف أيّهما الوصف وأيّهما الزرّ.
+
+     الآن: صفٌّ لكل نوع. الحالة شارات ملوّنة تُقرأ ولا تُضغط، والإجراء زرّ
+     يبدأ بفعل صريح («اجعلها…») فلا يلتبس بالوصف. */
   const lc = card('أنواع الإجازات',
     'الرصيد = عدد الأيام السنوية. «يُخصم من الرصيد» يقلّل رصيد الموظف عند الموافقة. «بدون راتب» تعني أن اليوم يُخصم من الراتب في المسير.');
-  const chips = el('div', 'chips');
-  lc.appendChild(chips);
+  const rows = el('div', 'lt-list');
+  lc.appendChild(rows);
 
   const draw = () => {
-    chips.innerHTML = '';
+    rows.innerHTML = '';
     const list = S.leaveTypes || [];
-    if (!list.length) { chips.appendChild(el('span', 'desc', 'لا توجد أنواع.')); return; }
+    if (!list.length) { rows.appendChild(el('p', 'desc', 'لا توجد أنواع.')); return; }
+
     list.forEach((t) => {
       const unpaid = (t.unpaid !== undefined) ? !!t.unpaid : /بدون\s*راتب/.test(t.label || '');
       const chain = Array.isArray(t.approvalChain) ? t.approvalChain : [];
       const chainTxt = chain.length ? chain.map(chainRoleAr).join(' ← ') : 'الموارد البشرية مباشرةً';
-      const c = el('span', 'chip',
-        `${esc(t.label)} <small>${t.deduct ? 'رصيد ' + esc(t.balance) : 'بدون خصم رصيد'} · ${unpaid ? 'بدون راتب' : 'مدفوعة'} · ${esc(chainTxt)}</small>`);
+
+      const row = el('div', 'lt-row');
+      row.innerHTML = `
+        <div class="lt-row__main">
+          <b>${esc(t.label)}</b>
+          <div class="lt-badges">
+            <span class="pill pill--dot ${t.deduct ? 'pending' : ''}">${
+              t.deduct ? 'يُخصم من الرصيد · ' + esc(t.balance) + ' يوم' : 'لا يُخصم من الرصيد'}</span>
+            <span class="pill pill--dot ${unpaid ? 'rejected' : 'active'}">${
+              unpaid ? 'بدون راتب' : 'مدفوعة'}</span>
+          </div>
+          <div class="lt-chain">
+            <span class="k">مسار الاعتماد</span>
+            <span class="v">${esc(chainTxt)}</span>
+          </div>
+        </div>`;
+
+      const acts = el('div', 'lt-row__acts');
 
       /* ⚠️ السلسلة تُنسخ على الطلب وقت تقديمه لا وقت اعتماده — فتغييرها هنا
          لا يمسّ الطلبات المقدَّمة، وهذا مقصود: مسار طلب لا يتبدّل تحت قدمي
          من قدّمه. */
-      const ch = el('button', 'chip__act', 'المسار');
-      ch.title = 'سلسلة الموافقات لهذا النوع';
-      ch.onclick = () => openChain(t, draw);
+      acts.appendChild(button('تعديل المسار', 'btn sm ghost', () => openChain(t, draw), 'gear'));
 
-      const tg = el('button', 'chip__act', unpaid ? 'مدفوعة' : 'بدون راتب');
-      tg.title = unpaid ? 'اجعلها مدفوعة' : 'اجعلها بدون راتب';
-      tg.onclick = async () => {
-        t.unpaid = !unpaid;
-        await saveSettings(); draw();
-        toast(t.unpaid ? 'صارت بدون راتب' : 'صارت مدفوعة', 'ok');
-      };
-      const x = el('button', 'chip__x', '×');
-      x.setAttribute('aria-label', 'حذف');
-      x.onclick = async () => {
+      /* الزرّ يبدأ بفعل، فلا يُقرأ وصفاً للحالة */
+      acts.appendChild(button(unpaid ? 'اجعلها مدفوعة' : 'اجعلها بدون راتب',
+        'btn sm ghost', async () => {
+          t.unpaid = !unpaid;
+          await saveSettings(['leaveTypes']); draw();
+          toast(t.unpaid ? 'صارت بدون راتب' : 'صارت مدفوعة', 'ok');
+        }, 'money'));
+
+      const x = button('حذف', 'btn sm ghost danger', async () => {
         S.leaveTypes = (S.leaveTypes || []).filter((z) => z.id !== t.id);
-        await saveSettings(); draw();
-      };
-      c.append(ch, tg, x);
-      chips.appendChild(c);
+        await saveSettings(['leaveTypes']); draw();
+        toast('حُذف النوع', 'ok');
+      }, 'trash');
+      acts.appendChild(x);
+
+      row.appendChild(acts);
+      rows.appendChild(row);
     });
   };
   draw();
