@@ -4,6 +4,12 @@
 serviceAccountKey.json
 *serviceAccount*.json
 
+# مسار بايثون المحمول — يختلف بين الأجهزة
+python-path.txt
+
+# نسخة بايثون محمولة موضوعة داخل المجلد
+python/
+
 # حالة المؤشّر — خاصة بكل جهاز، ولا معنى لمشاركتها
 zk_state.json
 zk_state.json.tmp
