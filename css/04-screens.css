@@ -208,7 +208,7 @@
 }
 .boot-error__card{
   background:var(--card); border:1px solid var(--line); border-radius:var(--r-lg,16px);
-  box-shadow:var(--e-2,0 8px 24px rgba(90,26,26,.08));
+  box-shadow:var(--e-2,0 8px 24px rgba(36,2,21,.08));
   padding:28px 26px; max-width:520px; width:100%;
   font-size:var(--fs-base,.9375rem); line-height:1.9; color:var(--ink);
 }

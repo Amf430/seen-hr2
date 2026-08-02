@@ -34,10 +34,10 @@ td.num.text-green, td.num.text-red { font-weight: var(--fw-bold, 700) }
 
 /* ── بطاقة ترويسة (بروفايل الموظف) ── */
 .hero-card {
-  background: linear-gradient(135deg, var(--maroon) 0%, var(--maroon-ink, #3f1010) 100%);
+  background: linear-gradient(135deg, var(--maroon) 0%, var(--maroon-ink, #16010d) 100%);
   color: #fff; border: none; border-radius: var(--r-lg, 16px);
   padding: var(--sp-6, 22px); margin-block-end: var(--sp-5, 18px);
-  box-shadow: var(--e-2, 0 8px 24px rgba(90, 26, 26, .12));
+  box-shadow: var(--e-2, 0 8px 24px rgba(36, 2, 21, .12));
 }
 .hero-card__name { font-size: var(--fs-2xl, 1.375rem); font-weight: 800; line-height: 1.4 }
 .hero-card__meta { font-size: var(--fs-sm, .8125rem); opacity: .85; margin-block-start: 3px }
@@ -361,3 +361,34 @@ body.is-locked {
 
 /* زر الحضور الكبير يملأ عرض البطاقة */
 .btn--xl { inline-size: 100%; justify-content: center; margin-block-start: var(--sp-3, 10px) }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   شعار الشركة — يحلّ محلّ حرف «س» في كل موضع.
+
+   ⚠️ .brand-mark الأصلية تُصمَّم مربّعاً ملوّناً يحمل حرفاً: خلفية، ووزن خط،
+   و place-items للتوسيط. كلها لا معنى لها لصورة، وبعضها يضرّ — الخلفية
+   تُحيط الشعار الشفّاف بمربّع، فيبدو ملصقاً لا مدمجاً. لذا تُلغى صراحةً
+   للنسخة المصوّرة بدل الاعتماد على أن الصورة ستغطّيها.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.brand-mark--img{
+  background:none !important;
+  box-shadow:none !important;
+  border-radius:0 !important;
+  object-fit:contain;
+  /* الرمز الأبيض على العنّابي الداكن — بلا خلفية ولا إطار */
+  inline-size:38px; block-size:38px;
+}
+
+/* شاشتا الدخول وتغيير كلمة المرور: اللوقو كاملاً بنصّه */
+.brand-logo{
+  display:block;
+  inline-size:auto;
+  max-inline-size:210px;
+  block-size:auto;
+  margin:0 auto var(--sp-5);
+}
+/* ⚠️ ارتفاع اللوقو يقارب عرضه (1814×1833)، فبلا سقف يدفع الحقول خارج
+   الشاشة على جوال قصير. */
+@media (max-height:720px){
+  .brand-logo{max-inline-size:150px;margin-block-end:var(--sp-4)}
+}
