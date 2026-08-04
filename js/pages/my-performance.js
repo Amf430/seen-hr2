@@ -23,7 +23,9 @@ import { el, esc } from '../lib/dom.js';
 import { getMe, getRequests } from '../lib/state.js';
 import { recentCyclesList, AR_DAYS } from '../lib/dates.js';
 import { hhmm, hm, fmtDur, p2 } from '../lib/format.js';
-import { fetchMyAttendance, buildDailyStatus } from '../lib/attendance.js';
+import { fetchMyAttendance, buildDailyStatus, uidsOf,
+         sessionsOf, lastOutOf } from '../lib/attendance.js';
+import { tsToDate } from '../lib/format.js';
 import { isStale, go } from '../lib/nav.js';
 import { PERM_BACKDATE_DAYS } from '../lib/requests.js';
 import { card, grid, stat, empty, tableWrap, bar, sectionHead, callout, button } from '../lib/ui.js';
@@ -49,8 +51,16 @@ export async function render(view, token) {
     const cyc = cycles[+dd.value];
     host.innerHTML = '<div class="card"><div class="empty"><span class="spinner"></span> جارٍ الحساب…</div></div>';
 
-    let recs = [];
-    try { recs = await fetchMyAttendance(cyc, me.id, 'zkAttendance'); }
+    /* ⚠️ المصدران معاً: zkAttendance هو ما يُحسب عليه المسير ويبقى أساس
+       الأرقام أعلاه، و attendance (تسجيل الجوال) يُعرض بجانبه للمقارنة.
+       الموظف يسأل «بصمت وما ظهر» — وبلا عرض المصدرين لا جواب عنده. */
+    let recs = [], webRecs = [];
+    try {
+      [recs, webRecs] = await Promise.all([
+        fetchMyAttendance(cyc, uidsOf(me), 'zkAttendance'),
+        fetchMyAttendance(cyc, uidsOf(me), 'attendance').catch(() => [])
+      ]);
+    }
     catch (e) {
       console.error(e);
       host.innerHTML = '<div class="card"><div class="empty">تعذّر تحميل سجلّك — تحقّق من اتصالك</div></div>';
@@ -152,8 +162,63 @@ export async function render(view, token) {
           <td class="cell-sub">${esc(r.note || '')}</td></tr>`).join('')}</tbody>
       </table>`));
     host.appendChild(dc);
+
+    /* ── المصدران جنباً إلى جنب ── */
+    host.appendChild(sourceCard('البصمة الحقيقية — جهاز ZKTeco', 'finger', recs,
+      'هذا هو المصدر الذي يُحسب عليه راتبك. يكتبه الجهاز في المكتب ولا يُعدَّل من التطبيق.'));
+    host.appendChild(sourceCard('بصمة الجوال — تسجيل من التطبيق', 'globe', webRecs,
+      'تسجيلك الذاتي من الجوال مع موقعك. للتوثيق والمتابعة — لا يحلّ محلّ بصمة الجهاز في المسير.'));
   }
 
   dd.onchange = draw;
   await draw();
+}
+
+/* ═══ بطاقة مصدر واحد ═══
+   ⚠️ لا تُعيد حساب «متأخر» ولا «غائب»: هذه البطاقة تعرض ما سجّله المصدر
+   حرفياً — دخول وخروج وساعات. قرار الحالة يبقى لـ buildDailyStatus وحدها
+   أعلى الصفحة، وإلا ظهر للموظف رقمان مختلفان لنفس اليوم. */
+function sourceCard(title, ico, recs, desc) {
+  const c = card('');
+  c.appendChild(sectionHead({ text: title, icon: ico }));
+  c.appendChild(el('p', 'desc', desc));
+
+  if (!recs.length) {
+    c.appendChild(empty('لا سجلات من هذا المصدر في هذه الدورة', ico));
+    return c;
+  }
+
+  const rows = [...recs].sort((a, b) => (a.date < b.date ? 1 : -1));
+  let secs = 0, days = 0, openDays = 0;
+  const body = rows.map((r) => {
+    const ss = sessionsOf(r);
+    const first = ss.length ? tsToDate(ss[0].in) : null;
+    const out = lastOutOf(ss);
+    const w = ss.reduce((a, s) => {
+      const i = tsToDate(s.in), o = tsToDate(s.out);
+      return a + ((i && o) ? (o - i) / 1000 : 0);
+    }, 0);
+    secs += w; days++;
+    if (!out) openDays++;
+    return `<tr>
+      <td class="num">${esc(r.date)}</td>
+      <td class="num text-green">${first ? hm(first) : '—'}</td>
+      <td class="num text-red">${out ? hm(out) : '—'}</td>
+      <td class="num">${ss.length}</td>
+      <td class="num">${w > 0 ? fmtDur(w) : '—'}</td></tr>`;
+  }).join('');
+
+  const g = grid(3);
+  g.append(
+    stat(days, 'أيام مسجّلة'),
+    stat(fmtDur(secs), 'مجموع الساعات'),
+    stat(openDays, 'بلا خروج', openDays ? 'a' : '')
+  );
+  c.appendChild(g);
+  c.appendChild(tableWrap(`
+    <table class="tight">
+      <thead><tr><th>التاريخ</th><th>أول دخول</th><th>آخر خروج</th><th>جلسات</th><th>الساعات</th></tr></thead>
+      <tbody>${body}</tbody>
+    </table>`));
+  return c;
 }

@@ -809,6 +809,56 @@ label.btn{cursor:pointer}
    «أرسِل الصورة» يظهر قبل التقاط أي صورة. */
 .btn[hidden]{display:none}
 
+/* ── طلبات الموارد البشرية ── */
+.tk-list{display:flex;flex-direction:column;gap:var(--sp-2)}
+.tk-row{display:flex;align-items:flex-start;gap:var(--sp-3);inline-size:100%;
+  padding:var(--sp-3);border:1px solid var(--line);border-radius:var(--r-md);
+  background:var(--card);text-align:start;cursor:pointer;font:inherit;color:inherit}
+.tk-row:hover{border-color:var(--maroon)}
+/* ما ينتظر ردّاً يُرى قبل أن يُقرأ — شريط لا لون خلفية، فالقائمة تبقى هادئة */
+.tk-row.is-todo{border-inline-start:3px solid var(--amber)}
+.tk-main{display:flex;flex-direction:column;gap:2px;min-inline-size:0;flex:1}
+.tk-top{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap}
+.tk-top b{font-size:var(--fs-sm);color:var(--ink)}
+.tk-meta{font-size:var(--fs-micro);color:var(--muted-strong)}
+.tk-last{font-size:var(--fs-sm);color:var(--muted-strong);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tk-when{flex:none;font-size:var(--fs-micro);color:var(--muted-strong);white-space:nowrap}
+
+.tk-head{display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center;
+  font-size:var(--fs-micro);color:var(--muted-strong);margin-block-end:var(--sp-2)}
+/* ⚠️ ارتفاع أقصى وتمرير داخلي: محادثة طويلة تدفع حقل الردّ خارج الشاشة،
+   فيبدو أن لا سبيل للردّ. */
+.tk-thread{max-block-size:46vh;overflow-y:auto;overscroll-behavior:contain;
+  display:flex;flex-direction:column;gap:var(--sp-2);
+  padding:var(--sp-2);background:var(--paper-2);border-radius:var(--r-md)}
+.tk-msg{max-inline-size:84%;padding:var(--sp-2) var(--sp-3);border-radius:var(--r-md);
+  background:var(--card);border:1px solid var(--line)}
+/* الموارد البشرية على الجهة المقابلة — الطرفان يُميَّزان بالموضع لا باللون وحده */
+.tk-msg.is-hr{align-self:flex-start;background:var(--maroon-tint);border-color:var(--a-maroon-16)}
+.tk-msg.is-emp{align-self:flex-end}
+.tk-msg__who{font-size:var(--fs-micro);color:var(--maroon);font-weight:var(--fw-bold)}
+.tk-msg__text{font-size:var(--fs-sm);color:var(--ink);white-space:pre-wrap;
+  overflow-wrap:anywhere;margin-block:2px}
+.tk-msg__at{font-size:10px;color:var(--muted-strong)}
+
+/* ── لوحة أفضل المنتظمين ──
+   ⚠️ النسبة على حافة السطر بخطّ جدولي: الأرقام تحت بعضها تُقارَن بلمحة،
+   وهذا كل الغرض من لوحة تحفيز. */
+.tp-list{display:flex;flex-direction:column;gap:var(--sp-2);margin-block-start:var(--sp-3)}
+.tp-row{display:flex;align-items:center;gap:var(--sp-3);
+  padding:var(--sp-2) var(--sp-3);border:1px solid var(--line);
+  border-radius:var(--r-md);background:var(--card)}
+.tp-row.is-me{border-color:var(--maroon);background:var(--maroon-tint)}
+.tp-medal{font-size:20px;line-height:1;flex:none;inline-size:26px;text-align:center}
+.tp-who{display:flex;flex-direction:column;min-inline-size:0;flex:1}
+.tp-who b{font-size:var(--fs-sm);color:var(--ink);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tp-who small{font-size:var(--fs-micro);color:var(--muted-strong)}
+.tp-you{font-size:var(--fs-micro);color:var(--maroon);font-weight:var(--fw-bold)}
+.tp-rate{flex:none;font-size:var(--fs-lg);font-weight:var(--fw-bold);color:var(--maroon);
+  font-variant-numeric:tabular-nums}
+
 /* ── لوحة استهلاك الصور ── */
 .usage{display:flex;align-items:center;gap:var(--sp-4);flex-wrap:wrap}
 .usage__bar{flex:1;min-inline-size:160px;block-size:8px;background:var(--paper-2);

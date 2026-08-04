@@ -18,10 +18,12 @@ import { getMe, getSettings } from '../lib/state.js';
 import { attendPanel } from '../components/attend-panel.js';
 import { miniRow } from '../components/request-card.js';
 import { ownRequests } from './requests-mine.js';
-import { go } from '../lib/nav.js';
+import { go, isStale } from '../lib/nav.js';
 import { docsOf, docStatus } from '../lib/documents.js';
 import { contractDaysLeft } from '../lib/dates.js';
 import { card, grid, stat, empty, sectionHead, button } from '../lib/ui.js';
+import { readLeaderboard } from '../lib/leaderboard.js';
+import { topPunctualCard } from '../components/top-punctual.js';
 import { icon } from '../lib/icons.js';
 
 /* البطاقات التي تنقل الموظف لصفحاته — بديل الأقسام التي كانت محشورة هنا */
@@ -34,7 +36,7 @@ const SHORTCUTS = [
     desc: 'بطاقتك ومستنداتك وبيانات اتصالك' }
 ];
 
-export function render(view) {
+export function render(view, token) {
   const me = getMe();
   const S = getSettings();
 
@@ -114,4 +116,18 @@ export function render(view) {
   });
   qc.appendChild(gridEl);
   view.appendChild(qc);
+
+  /* ── أفضل المنتظمين ──
+     ⚠️ تُحمّل بعد رسم الصفحة ولا تُؤخّرها: render هنا متزامنة عمداً — الحضور
+     هو ما يفتح الموظف الصفحة لأجله كل صباح، وجعلُه ينتظر قراءة شبكة من أجل
+     لوحة تحفيز يقلب الأولويات. تظهر البطاقة حين تصل، ولا تظهر أصلاً إن لم
+     يكن الأدمن قد نشرها بعد. */
+  readLeaderboard().then((data) => {
+    /* ⚠️ isStale لا view.isConnected: ‏#view عنصر ثابت يُفرَّغ بـ innerHTML
+       ولا يُستبدل، فيبقى isConnected صحيحاً بعد إعادة العرض — فكانت البطاقة
+       تُضاف مرتين كلما أُعيد عرض الرئيسية (وهو يقع مع كل لقطة بيانات). */
+    if (isStale(token)) return;
+    const c = topPunctualCard(data, { meName: me.name });
+    if (c) view.appendChild(c);
+  });
 }

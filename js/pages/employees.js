@@ -1,6 +1,7 @@
 import { el, esc, toast, openModal } from '../lib/dom.js';
 import { getMe, getUsers } from '../lib/state.js';
-import { refreshUsers, toggleSuspend, deleteEmployee, restoreAccess } from '../lib/users.js';
+import { refreshUsers, toggleSuspend, deleteEmployee, restoreAccess,
+         findOrphanHistory, linkPreviousUids } from '../lib/users.js';
 import { requestsOfUser } from '../lib/requests.js';
 import { db, doc, updateDoc } from '../lib/firebase.js';
 import { openEmpForm } from '../components/employee-form.js';
@@ -82,6 +83,7 @@ export async function render(view, token) {
               } catch (e) { console.error(e); toast('تعذّر التنفيذ', 'err'); }
             } },
           { label: 'استعادة الوصول', ico: 'login', onClick: () => openRestore(u, afterChange) },
+          { label: 'استرجاع سجلات سابقة', ico: 'archive', onClick: () => openReclaim(u, afterChange) },
           u.id !== me.id ? null : undefined,
           u.id !== me.id
             ? { label: 'حذف الملف', ico: 'trash', danger: true, onClick: () => openDelete(u, afterChange) }
@@ -125,6 +127,65 @@ function openDelete(u, after) {
     confirmLabel: 'حذف نهائي',
     run: async () => { await deleteEmployee(u); await after(); toast('تم حذف الملف'); }
   });
+}
+
+/* ── استرجاع سجلات سابقة ──
+   لمن استُعيد وصوله قبل إصلاح restoreAccess: تاريخه ما زال في قاعدة البيانات
+   تحت معرّف قديم، والمسير يعتبر أيامه غياباً ويخصم عليها. هذه الشاشة تجده
+   وتعرضه على الأدمن ليربطه. */
+async function openReclaim(u, after) {
+  const m = openModal(`
+    <h3>استرجاع سجلات سابقة — ${esc(u.name)}</h3>
+    <div class="help">استعادة الوصول تُنشئ حساباً جديداً بمعرّف جديد، وسجلات الحضور
+      مفهرسة بالمعرّف. فسجلات ما قبل الاستعادة تبقى في النظام لكنها لا تُنسب لأحد —
+      والمسير يعتبر تلك الأيام غياباً ويخصم عليها. نبحث عنها بالرقم الوظيفي
+      «${esc(u.empId || '—')}».</div>
+    <div id="rcBody"><div class="empty"><span class="spinner"></span> جارٍ البحث…</div></div>
+    <div class="row">
+      <button class="btn ghost" id="rcCancel">إغلاق</button>
+      <button class="btn" id="rcOk" hidden>اربط السجلات</button>
+    </div>`);
+  m.$('#rcCancel').onclick = m.close;
+  const body = m.$('#rcBody'), ok = m.$('#rcOk');
+
+  if (!String(u.empId || '').trim()) {
+    body.innerHTML = '<div class="empty">لا رقم وظيفي على هذا الملف — والبحث يعتمد عليه. أضِفه أولاً من «تعديل البيانات».</div>';
+    return;
+  }
+
+  let res;
+  try { res = await findOrphanHistory(u); }
+  catch (e) { console.error(e); body.innerHTML = '<div class="empty text-red">تعذّر البحث — تحقّق من اتصالك.</div>'; return; }
+
+  if (!res.found.length) {
+    body.innerHTML = '<div class="empty">لا سجلات يتيمة لهذا الرقم الوظيفي. تاريخ الموظف كامل كما هو.</div>';
+    return;
+  }
+
+  body.innerHTML = `<table class="tight"><thead><tr>
+      <th>المعرّف السابق</th><th>الاسم وقتها</th><th>عدد السجلات</th><th>من</th><th>إلى</th></tr></thead>
+    <tbody>${res.found.map((f) => `<tr>
+      <td class="num" style="font-size:11px">${esc(f.uid)}</td>
+      <td>${esc(f.name || '—')}</td>
+      <td class="num">${f.count}</td>
+      <td class="num">${esc(f.from)}</td>
+      <td class="num">${esc(f.to)}</td></tr>`).join('')}</tbody></table>
+    <div class="help">⚠️ تأكّد أن الاسم والتواريخ تخصّ هذا الموظف فعلاً. لو أُعيد استعمال
+      الرقم الوظيفي لموظف آخر سابق، فالربط ينسب تاريخ شخص لشخص — ولا تفعله.</div>`;
+  ok.hidden = false;
+  ok.onclick = async () => {
+    ok.disabled = true; ok.textContent = 'جارٍ الربط…';
+    try {
+      await linkPreviousUids(u, res.found.map((f) => f.uid));
+      m.close();
+      toast(`رُبطت ${res.found.reduce((a, f) => a + f.count, 0)} سجلاً`, 'ok');
+      await after();
+    } catch (e) {
+      console.error(e);
+      ok.disabled = false; ok.textContent = 'اربط السجلات';
+      toast('تعذّر الربط', 'err');
+    }
+  };
 }
 
 /* ── استعادة الوصول ── */

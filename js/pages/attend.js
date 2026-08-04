@@ -4,7 +4,7 @@ import { getMe } from '../lib/state.js';
 import { attendPanel } from '../components/attend-panel.js';
 import { cycleOf, ymd, AR_DAYS } from '../lib/dates.js';
 import { fmtDur, hm } from '../lib/format.js';
-import { sessionsOf, workedSecs, fetchMyAttendance } from '../lib/attendance.js';
+import { sessionsOf, workedSecs, fetchMyAttendance, uidsOf } from '../lib/attendance.js';
 import { resolveShift, shiftWindowFor } from '../lib/shifts.js';
 import { isStale } from '../lib/nav.js';
 import { card, tableWrap, empty, grid, stat } from '../lib/ui.js';
@@ -37,7 +37,7 @@ export async function render(view, token) {
   /* الموظف يقرأ سجلاته هو فقط — القاعدة ترفض استعلاماً غير مقيّد به،
      فنفلتر محلياً بعد الجلب المقيّد بالتاريخ ونتعامل مع الرفض بهدوء. */
   let mine = [];
-  try { mine = await fetchMyAttendance(cyc, me.id, 'attendance'); }
+  try { mine = await fetchMyAttendance(cyc, uidsOf(me), 'attendance'); }
   catch (e) {
     console.error(e);
     if (isStale(token)) return;

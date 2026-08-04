@@ -27,6 +27,7 @@ import { saveBioCredentials } from '../lib/users.js';
 import { setPageInterval, trackSubscription, onCleanup } from '../lib/lifecycle.js';
 import { notifyState, askPermission, checkCheckoutReminder } from '../lib/reminders.js';
 import { rerender } from '../lib/nav.js';
+import { callout } from '../lib/ui.js';
 
 /* الفهرس البعيد لمفاتيح البصمة يُحفظ على وثيقة الموظف */
 setCredentialPersister(saveBioCredentials);
@@ -92,6 +93,9 @@ export function attendPanel(view) {
 
   const bioNote = el('p', 'help', '');
   card.appendChild(bioNote);
+  /* تنبيه «بصمت على الجهاز فقط» — يُملأ من paintZkNote */
+  const zkNote = el('div', '');
+  card.appendChild(zkNote);
   card.appendChild(el('p', 'help',
     rule.mode === 'remote'
       ? 'حسابك مسموح له التسجيل من أي مكان. يُسجَّل موقعك على السجل للتوثيق فقط.'
@@ -101,13 +105,37 @@ export function attendPanel(view) {
   view.appendChild(card);
 
   const ref = doc(db, 'attendance', me.id + '_' + dateStr);
-  let todayDoc = null, loaded = false, loadErr = false, busy = false;
+  /* ═══ سجل جهاز البصمة لنفس اليوم ═══
+     ⚠️ مصدر ثانٍ مستقلّ تماماً: الجهاز في المكتب يكتب zkAttendance عبر
+     الجسر، والتطبيق يكتب attendance. الموظف الذي بصم على الجهاز فقط كان
+     يرى «لم تُسجّل بعد» فيظن أن بصمته ضاعت — وهي موجودة، لكن في المصدر
+     الآخر الذي لا تقرأه هذه اللوحة.
+
+     ⚠️ ولا يُغني أحدهما عن الآخر: المسير يُحسب من الجهاز، وصورة الموقع
+     والإحداثيات لا تأتي إلا من الجوال. فنُظهر الحالة الحقيقية («داخل
+     العمل») ونُبقي زرّ التسجيل من الجوال مطلوباً. */
+  const zkRef = doc(db, 'zkAttendance', me.id + '_' + dateStr);
+  let todayDoc = null, zkDoc = null, loaded = false, loadErr = false, busy = false;
 
   const isOpen = () => sessionsOf(todayDoc).some((s) => !s.out);
+  /* دخل من الجهاز ولم يسجّل من الجوال بعد */
+  const zkSessions = () => sessionsOf(zkDoc);
+  const zkOnly = () => zkSessions().length > 0 && sessionsOf(todayDoc).length === 0;
+  const zkFirstIn = () => { const ss = zkSessions(); return ss.length ? ss[0].in : null; };
 
   function paintTimer() {
     const ss = sessionsOf(todayDoc);
     if (!ss.length) {
+      /* ⚠️ «لم تُسجّل بعد» كذبة على من بصم على الجهاز. نُظهر حالته الحقيقية
+         ونترك التنبيه أدناه يشرح ما ينقصه. */
+      if (zkOnly()) {
+        const { secs, open } = workedSecs(zkSessions());
+        timerEl.className = 'work-timer ' + (open ? 'live' : 'done');
+        timerEl.innerHTML =
+          `<span class="wt-label">داخل العمل — من جهاز البصمة</span>` +
+          `<span class="wt-val num">${fmtDur(secs)}</span>`;
+        return;
+      }
       timerEl.className = 'work-timer';
       timerEl.innerHTML = '<span class="wt-idle">لم تُسجّل الحضور بعد</span>';
       return;
@@ -138,20 +166,43 @@ export function attendPanel(view) {
     const first = ss[0], last = ss[ss.length - 1];
     const where = todayDoc && todayDoc.branchName ? esc(todayDoc.branchName) : '—';
     statusBox.innerHTML = `
-      <div class="detail-line"><span class="k">الحالة الآن</span><span class="v ${open ? 'text-green' : 'text-muted'}">${
-        open ? 'داخل العمل' : (ss.length ? 'خارج العمل' : 'لم تُسجّل بعد')}</span></div>
+      <div class="detail-line"><span class="k">الحالة الآن</span><span class="v ${(open || zkOnly()) ? 'text-green' : 'text-muted'}">${
+        open ? 'داخل العمل'
+             : zkOnly() ? 'داخل العمل — من جهاز البصمة'
+             : (ss.length ? 'خارج العمل' : 'لم تُسجّل بعد')}</span></div>
       <div class="detail-line"><span class="k">المكان</span><span class="v">${where}</span></div>
       <div class="detail-line"><span class="k">عدد جلسات اليوم</span><span class="v num">${ss.length}</span></div>
       <div class="detail-line"><span class="k">أول حضور</span><span class="v num text-green">${first ? hm(first.in) : '—'}</span></div>
       <div class="detail-line"><span class="k">آخر انصراف</span><span class="v num text-red">${(last && last.out) ? hm(last.out) : '—'}</span></div>`;
   }
 
-  const paintAll = () => { paintStatus(); paintTimer(); paintBtn(); };
+  /* ⚠️ تنبيه لا منع: الموظف داخل العمل فعلاً، وبصمته على الجهاز هي ما
+     يُحسب عليه الراتب. ما ينقص هو تسجيل الجوال — وهو مصدر الموقع والصورة.
+     فالرسالة تُخبره بما ينقص ولا تُنكر ما فعل. */
+  function paintZkNote() {
+    zkNote.innerHTML = '';
+    if (!zkOnly()) return;
+    const t = zkFirstIn();
+    zkNote.appendChild(callout('warn',
+      `بصمت على جهاز الحضور${t ? ' الساعة ' + hm(t) : ''}`,
+      'حضورك مسجَّل على الجهاز ويُحسب في راتبك. تبقى خطوة واحدة: سجّل من الجوال أيضاً ' +
+      'ليُوثَّق موقعك — جهاز البصمة لا يسجّل أين كنت.'));
+  }
+
+  const paintAll = () => { paintStatus(); paintTimer(); paintBtn(); paintZkNote(); };
 
   /* اشتراك لحظي: الحالة تُستعاد صحيحة عند إعادة فتح الصفحة أو الجوال */
   trackSubscription(onSnapshot(ref,
     (snap) => { todayDoc = snap.exists() ? snap.data() : null; loaded = true; loadErr = false; paintAll(); },
     (err) => { console.error('att', err); loaded = true; loadErr = true; paintAll(); }));
+
+  /* ⚠️ اشتراك ثانٍ مستقلّ، وفشلُه لا يُعطّل اللوحة: الجسر قد يكون متوقّفاً
+     أو السجل غير موجود اليوم — وكلاهما حالة طبيعية لا خطأ. الموظف الذي
+     يسجّل من جواله وحده يجب ألّا يرى «تعذّر قراءة حالتك» لأن جهاز البصمة
+     في المكتب صامت. */
+  trackSubscription(onSnapshot(zkRef,
+    (snap) => { zkDoc = snap.exists() ? snap.data() : null; paintAll(); },
+    (err) => { console.error('zk', err); zkDoc = null; paintAll(); }));
 
   actBtn.onclick = async () => {
     if (!loaded || loadErr || busy) return;

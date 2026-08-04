@@ -17,6 +17,29 @@ import { permWindowOpen } from './requests.js';
 import { hmToDate } from './dates.js';
 import { hm } from './format.js';
 
+/* ═══ كل معرّفات الموظف — الحالي وما سبقه ═══
+
+   سجلات الحضور مُفهرسة بالـUID (`zkAttendance/{uid}_{date}`)، و«استعادة
+   الوصول» تُنشئ حساباً جديداً بـUID جديد. فبلا هذه القائمة يتيتّم تاريخ
+   الموظف كله عند أول استعادة، ويعتبره المسير غياباً فيخصم عليه.
+
+   ⚠️ هنا لا في users.js: المسير و buildDailyStatus يستوردان هذا الملف
+   أصلاً، ووضعها في users.js كان يجرّ إدارة الموظفين كاملةً إلى شجرة
+   استيراد المسير بلا داعٍ.
+
+   ⚠️ الحالي أولاً — السجل الحالي أولى عند التطابق. */
+export const uidsOf = (u) =>
+  u ? [u.id, ...((u.previousUids || []).filter((x) => x && x !== u.id))] : [];
+
+/* أول سجل يوجد لهذا الموظف في هذا اليوم، تحت أيٍّ من معرّفاته */
+export const recFor = (recMap, u, dateStr) => {
+  for (const uid of uidsOf(u)) {
+    const r = recMap[uid + '_' + dateStr];
+    if (r) return r;
+  }
+  return undefined;
+};
+
 /* الشكل القديم كان checkIn/checkOut مفردين، والجديد مصفوفة جلسات.
    ندعم الاثنين حتى تبقى السجلات القديمة مقروءة. */
 export function sessionsOf(d) {
@@ -64,15 +87,23 @@ export function lastOutOf(sessions) {
 
    إضافة where('employeeUid','==',uid) تحلّها لكنها تحتاج فهرساً مركّباً
    يُنشأ من Console. ومعرّف الوثيقة معروف مسبقاً (uid_YYYY-MM-DD)، فنقرأها
-   مباشرة بلا استعلام ولا فهرس. */
+   مباشرة بلا استعلام ولا فهرس.
+
+   ⚠️ يقبل الآن معرّفاً واحداً أو قائمة معرّفات. من استُعيد وصوله له تاريخ
+   موزّع على أكثر من UID، وقراءة الحالي وحده تُريه دورةً فارغة وتُريه في
+   «أدائي» غياباً لم يقع.
+
+   ⚠️ القراءة تفشل بصمت (catch → null) لمن لا يملكها، فمرور معرّف لا يخصّ
+   القارئ لا يكسر شيئاً — يعود فارغاً. */
 export async function fetchMyAttendance(cycle, uid, coll = 'attendance') {
+  const uids = Array.isArray(uid) ? uid.filter(Boolean) : [uid];
   const now = new Date();
   const end = (cycle.end < now) ? cycle.end : now;
   const days = [];
   for (let d = new Date(cycle.start); d <= end; d.setDate(d.getDate() + 1)) days.push(ymd(d));
 
   const snaps = await Promise.all(
-    days.map((ds) => getDoc(doc(db, coll, `${uid}_${ds}`)).catch(() => null))
+    uids.flatMap((id) => days.map((ds) => getDoc(doc(db, coll, `${id}_${ds}`)).catch(() => null)))
   );
   return snaps
     .filter((s) => s && s.exists())
@@ -123,7 +154,7 @@ export function buildDailyStatus(cyc, users, requests, recs) {
         r.employeeUid === u.id && r.date === dateStr);
       const latePerm = perms.find((p) => (p.category || '').includes('تأخير'));
       const earlyPerm = perms.find((p) => (p.category || '').includes('خروج'));
-      const rec = recMap[u.id + '_' + dateStr];
+      const rec = recFor(recMap, u, dateStr);
       const sessions = sessionsOf(rec);
       const firstIn = sessions.length ? tsToDate(sessions[0].in) : null;
       const lastOut = lastOutOf(sessions);

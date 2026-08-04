@@ -18,6 +18,16 @@ export function render(view) {
     build: (vals, mkId) => ({ id: mkId(), label: vals.label })
   }));
 
+  /* ── تصنيفات طلبات الموارد البشرية ──
+     تُدار هنا مع بقية القوائم بدل أن تكون ثابتة في الكود: التأمين الصحي
+     اليوم قد يصير «بدل سكن» غداً، وتعديلها لا يستحق نشر إصدار. */
+  view.appendChild(chipCard({
+    title: 'تصنيفات طلبات الموارد البشرية', icon: 'inbox', key: 'hrTicketCategories',
+    fields: ['label'], labels: ['التصنيف'],
+    renderItem: (item) => esc(item.label),
+    build: (vals, mkId) => ({ id: mkId(), label: vals.label })
+  }));
+
   /* ── أنواع الإجازات ──
      ⚠️ كانت تُعرض كـ«شريحة» واحدة تحمل: الاسم، والرصيد، وحالة الراتب،
      ومسار الاعتماد، وزرَّين، وزرّ حذف. والشريحة عنصر سطريّ مصمَّم لوسم قصير،

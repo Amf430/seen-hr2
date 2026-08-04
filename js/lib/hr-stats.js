@@ -116,6 +116,82 @@ export function complianceRate(cyc, users, requests, zkRecs) {
   };
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   أفضل المنتظمين أسبوعياً — لوحة تحفيز
+
+   ── دمج المصدرين ──
+   للموظف مصدرا حضور: جهاز البصمة (zkAttendance) وتسجيل الجوال (attendance).
+   المطلوب «أيّهما أولاً» — فمن بصم على الجهاز ٠٧:٥٥ ثم سجّل من جواله ٠٨:٢٠
+   حضر السابعة والخمسين، لا الثامنة والعشرين. أخذُ مصدرٍ واحد يظلم من يستعمل
+   الآخر.
+
+   ⚠️ المقارنة على أول دخول في اليوم لا على وجود السجل: السجلان قد يوجدان
+   معاً، والأبكر هو الحقيقة.
+
+   ── تعريف الانتظام ──
+   الأيام المحسوبة = أيام العمل التي ليست إجازة معتمدة. والمنتظم = من دخل في
+   وقته (buildDailyStatus تُرجعه 'present'، وهي تُدخل استئذان التأخير المعتمد
+   في الحساب فلا يُظلم صاحبه).
+
+   ⚠️ الإجازة تُطرح من المقام لا تُحسب انتظاماً: من كان في إجازة أسبوعاً كاملاً
+   كان سيتصدّر بـ ١٠٠٪ بلا أن يداوم يوماً.
+
+   ⚠️ حدّ أدنى من الأيام. بدونه يتصدّر من داوم يوماً واحداً في وقته على من
+   داوم خمسة أيام وتأخّر مرة — وهو عكس ما تكافئه اللوحة. */
+export const MIN_DAYS_FOR_BOARD = 3;
+
+/* لكل موظف ويوم: السجل صاحب الدخول الأبكر بين المصدرين */
+export function mergeEarliestIn(...lists) {
+  const best = new Map();
+  for (const list of lists) {
+    for (const r of (list || [])) {
+      const key = r.employeeUid + '_' + r.date;
+      const first = sessionsOf(r)[0];
+      const t = first ? tsToDate(first.in) : null;
+      const cur = best.get(key);
+      /* سجل بلا دخول لا يهزم سجلاً بدخول، لكنه أفضل من لا شيء */
+      if (!cur) { best.set(key, { rec: r, t }); continue; }
+      if (t && (!cur.t || t < cur.t)) best.set(key, { rec: r, t });
+    }
+  }
+  return [...best.values()].map((x) => x.rec);
+}
+
+/* نافذة الأيام السبعة المنتهية اليوم — على شكل دورة تفهمها buildDailyStatus */
+export function weekWindow(now = new Date()) {
+  const end = new Date(now);
+  const start = new Date(now);
+  start.setDate(start.getDate() - 6);
+  start.setHours(0, 0, 0, 0);
+  end.setHours(23, 59, 59, 999);
+  return { start, end, key: ymd(start) + '_' + ymd(end), label: `${ymd(start)} ← ${ymd(end)}` };
+}
+
+export function weeklyPunctuality(users, zkRecs, webRecs, requests, now = new Date()) {
+  const win = weekWindow(now);
+  const rows = buildDailyStatus(win, users, requests, mergeEarliestIn(zkRecs, webRecs));
+
+  const byUid = new Map();
+  for (const r of rows) {
+    const cur = byUid.get(r.u.id) ||
+      { uid: r.u.id, name: r.u.name || '', department: r.u.department || '', counted: 0, onTime: 0, late: 0, absent: 0 };
+    if (r.cls === 'leave') { byUid.set(r.u.id, cur); continue; }   /* خارج المقام */
+    cur.counted++;
+    if (r.cls === 'present') cur.onTime++;
+    else if (r.cls === 'late') cur.late++;
+    else if (r.cls === 'absent') cur.absent++;
+    byUid.set(r.u.id, cur);
+  }
+
+  const board = [...byUid.values()]
+    .filter((x) => x.counted >= MIN_DAYS_FOR_BOARD)
+    .map((x) => ({ ...x, rate: Math.round((x.onTime / x.counted) * 100) }))
+    /* الأعلى نسبةً، ثم من داوم أياماً أكثر، ثم بالاسم ليكون الترتيب ثابتاً */
+    .sort((a, b) => b.rate - a.rate || b.counted - a.counted || a.name.localeCompare(b.name));
+
+  return { window: win, board, qualified: board.length, minDays: MIN_DAYS_FOR_BOARD };
+}
+
 /* ═══ الطلبات — مؤشر واحد، لا أربعة ═══ */
 export function requestPulse(cyc, requests, canApproveFn) {
   const inCyc = requestsInCycle(cyc, requests);

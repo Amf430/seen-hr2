@@ -11,7 +11,7 @@ import { icon } from '../lib/icons.js';
 import { openPalette, bindPaletteShortcut } from '../components/command-palette.js';
 import { bindBell, paintBell } from '../components/notif-panel.js';
 import { getMe, getRequests } from '../lib/state.js';
-import { navFor, PAGES, HOME_ADMIN, ORG_MANAGER } from '../config/pages.js';
+import { navFor, PAGES, HOME_ADMIN, ORG_MANAGER, HR_DESK_ADMIN } from '../config/pages.js';
 import { getPage, onNavigate, goBack, canGoBack } from '../lib/nav.js';
 import { canApproveType, roleLabel } from '../lib/perms.js';
 import { hasChain, ownsCurrentStep } from '../lib/requests.js';
@@ -110,6 +110,7 @@ export function setPageHeader(pageId) {
   const me = getMe();
   const meta = (pageId === 'home' && me.role === 'admin') ? HOME_ADMIN
              : (pageId === 'org'  && me.role === 'manager') ? ORG_MANAGER
+             : (pageId === 'hr-desk' && me.role === 'admin') ? HR_DESK_ADMIN
              : (PAGES[pageId] || { title: '', hint: '' });
   $('#pageTitle').textContent = meta.title;
   $('#pageHint').textContent  = meta.hint;
