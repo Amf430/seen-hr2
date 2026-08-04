@@ -12,7 +12,13 @@
    ⚠️ الشهادة تُبنى في نافذة مستقلة لا في الصفحة: الطباعة من الصفحة نفسها
    تحتاج @media print تُخفي كل شيء آخر، وأي شاشة جديدة تُضاف لاحقاً تكسرها
    بصمت. النافذة المستقلة تحمل مستندها وحدها ولا تتأثر بما بعدها.
-   ═══════════════════════════════════════════════════════════════════════════ */
+
+   ⚠️⚠️ ولهذا زرّ الرجوع هنا، داخل الوثيقة، لا في ترويسة النظام.
+   هذه النافذة ليست صفحة من التطبيق: لا قشرة له ولا ترويسة ولا راوتر، فزرّ
+   الرجوع في topbar لا وجود له فيها أصلاً. والموظف الذي يفتح «تعريف بالراتب»
+   من أيقونة الشاشة الرئيسية يصل إلى مستند بلا شريط عنوان وبلا أي مخرج —
+   يظنّ النظام علِق. كل وثيقة تمرّ من shell() فيصلها الزرّ، فلا تُنسى واحدة
+   حين تُضاف شهادة رابعة. */
 
 import { esc } from './dom.js';
 import { money, fmtDate } from './format.js';
@@ -59,10 +65,14 @@ function shell(title, bodyHtml) {
   .sign .line{border-top:1px solid #241d1a;margin-top:52px;padding-top:7px;color:#6f645d}
   .foot{margin-top:34px;border-top:1px solid #e7ded7;padding-top:12px;
     font-size:11px;color:#6f645d;text-align:center}
-  .no-print{margin:18px 0;text-align:center}
+  .no-print{margin:18px 0;text-align:center;display:flex;gap:10px;justify-content:center;
+    flex-wrap:wrap}
   .no-print button{font:inherit;font-size:15px;padding:10px 26px;border:0;border-radius:9px;
-    background:#240215;color:#fff;cursor:pointer}
-  @media print{ .no-print{display:none} }
+    background:#240215;color:#fff;cursor:pointer;min-height:44px}
+  /* زرّ العودة ثانوي: الطباعة هي سبب فتح الوثيقة، والعودة مخرجها */
+  .no-print button.back{background:#fff;color:#240215;border:1px solid #d9cec6}
+  .close-hint{text-align:center;font-size:13px;color:#6f645d;margin:0}
+  @media print{ .no-print,.close-hint{display:none} }
 </style></head><body>
 <div class="head">
   <img class="seal" src="${esc(markUrl())}" alt="${esc(COMPANY)}">
@@ -72,7 +82,22 @@ ${bodyHtml}
 <div class="foot">
   صدرت هذه الوثيقة إلكترونياً من نظام إدارة الموارد البشرية بتاريخ ${esc(fmtDate(new Date()))}.
 </div>
-<div class="no-print"><button onclick="window.print()">طباعة / حفظ PDF</button></div>
+<div class="no-print">
+  <button onclick="window.print()">طباعة / حفظ PDF</button>
+  <button class="back" id="backBtn">رجوع</button>
+</div>
+<p class="close-hint" id="closeHint" hidden>أغلق هذه النافذة من المتصفح للعودة إلى النظام.</p>
+<script>
+/* ⚠️ window.close() تنجح على نافذة فتحها سكربت، لكن آيفون في وضع standalone
+   قد يفتحها في سفاري نفسه — تطبيق آخر لا تملك هذه الصفحة إغلاقه. فبدل زرّ
+   يبدو معطّلاً بلا تفسير، نُظهر السطر الذي يقول للموظف ماذا يفعل. */
+document.getElementById('backBtn').onclick = function () {
+  window.close();
+  setTimeout(function () {
+    if (!window.closed) document.getElementById('closeHint').hidden = false;
+  }, 400);
+};
+</script>
 </body></html>`;
 }
 
