@@ -12,7 +12,7 @@ import { openPalette, bindPaletteShortcut } from '../components/command-palette.
 import { bindBell, paintBell } from '../components/notif-panel.js';
 import { getMe, getRequests } from '../lib/state.js';
 import { navFor, PAGES, HOME_ADMIN, ORG_MANAGER } from '../config/pages.js';
-import { getPage, onNavigate } from '../lib/nav.js';
+import { getPage, onNavigate, goBack, canGoBack } from '../lib/nav.js';
 import { canApprove, roleLabel } from '../lib/perms.js';
 import { hasChain, ownsCurrentStep } from '../lib/requests.js';
 
@@ -88,6 +88,17 @@ export function updateBadges() {
   }
 }
 
+/* ── زرّ الرجوع ──
+   يظهر في كل صفحة عدا الرئيسية، حتى حين يكون المكدّس فارغاً: الموظف الذي
+   فتح الأيقونة على صفحة محفوظة يحتاج مخرجاً بقدر من وصلها بالتنقّل، و
+   goBack() تأخذه للرئيسية في تلك الحالة. إخفاؤه عليه يعني حبسه في الصفحة. */
+export function paintBackBtn(pageId) {
+  const b = $('#backBtn');
+  if (!b) return;
+  b.hidden = pageId === 'home';
+  b.setAttribute('aria-label', canGoBack() ? 'رجوع للصفحة السابقة' : 'رجوع للرئيسية');
+}
+
 export function setPageHeader(pageId) {
   const me = getMe();
   const meta = (pageId === 'home' && me.role === 'admin') ? HOME_ADMIN
@@ -128,6 +139,11 @@ export function initShellChrome() {
   };
 
   toggle.onclick = () => (sidebar.classList.contains('open') ? close() : open());
+
+  /* ⚠️ يُركَّب مرة واحدة هنا لا في كل عرض صفحة: الزرّ عنصر ثابت في الترويسة،
+     فإعادة ربطه مع كل تنقّل تُراكم لا شيء لكنها تُخفي أين رُبط فعلاً. */
+  const back = $('#backBtn');
+  if (back) back.onclick = () => goBack();
 
   /* ── البحث الموحّد ──
      الاختصار يُركَّب مرة واحدة هنا لا في كل عرض صفحة، وزر ظاهر بجواره لأن

@@ -10,7 +10,7 @@ import { $, toast } from './lib/dom.js';
 import { initAuth, login, logout, requestPasswordReset, changeOwnPassword, authError } from './lib/auth.js';
 import { getMe, resetState } from './lib/state.js';
 import { loadSettings } from './lib/settings.js';
-import { go } from './lib/nav.js';
+import { go, resetNav } from './lib/nav.js';
 import { cleanupPage } from './lib/lifecycle.js';
 import { buildNav, paintIdentity, showScreen, initShellChrome, setBootStage } from './app/shell.js';
 import { subscribeData, unsubscribeAll } from './app/subscriptions.js';
@@ -85,7 +85,9 @@ async function enterApp() {
   buildNav();
   subscribeData();
   if (!routerStarted) { startRouter(); routerStarted = true; }
-  else go(getMe().role === 'admin' ? 'home' : 'home');
+  /* دخول ثانٍ في نفس التبويب — replace لا دفع: صفحة المستخدم السابق لا
+     يصحّ أن تبقى في مكدّس الرجوع لمن دخل بعده. */
+  else go('home', '', { replace: true });
 }
 
 /* ── ربط المصادقة بالواجهة ── */
@@ -97,6 +99,7 @@ initAuth({
     unsubscribeAll();
     cleanupPage();
     resetState();
+    resetNav();
     showScreen('login');
   },
   onNeedsPassword: () => showScreen('password'),

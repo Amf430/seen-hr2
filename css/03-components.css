@@ -831,6 +831,18 @@ label.btn{cursor:pointer}
 /* ── جرس الإشعارات ──
    يلي البحث مباشرةً، فلا يحمل margin-inline-start:auto — البحث وحده يدفع
    المجموعة إلى الطرف. */
+/* ── زرّ الرجوع في الترويسة ──
+   بنفس مقاس زرّ القائمة (--control-h) لا مقاس الجرس: الاثنان يقفان متجاورين
+   في أقصى بداية الشريط على الجوال، ومقاسان مختلفان جنب بعضهما يبدوان خطأً.
+   ⚠️ [hidden] بعد قاعدة display لأن display:flex تتغلّب عليها بالتحديد. */
+.topbar__back{display:flex;align-items:center;justify-content:center;flex:none;
+  inline-size:var(--control-h);block-size:var(--control-h);
+  border:1px solid var(--line-strong);border-radius:var(--r-md);
+  background:var(--card);color:var(--maroon);cursor:pointer}
+.topbar__back:hover{background:var(--maroon-tint);border-color:var(--maroon)}
+.topbar__back svg{inline-size:20px;block-size:20px}
+.topbar__back[hidden]{display:none}
+
 .topbar__bell{position:relative;display:flex;align-items:center;justify-content:center;
   flex:none;inline-size:38px;block-size:38px;
   border:1px solid var(--line-strong);border-radius:var(--r-md);

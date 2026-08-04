@@ -12,7 +12,7 @@ import { $ } from '../lib/dom.js';
 import { getMe } from '../lib/state.js';
 import { beginRender, onNavigate, getPage, initFromHash, go } from '../lib/nav.js';
 import { cleanupPage } from '../lib/lifecycle.js';
-import { setPageHeader, setActiveNav } from './shell.js';
+import { setPageHeader, setActiveNav, paintBackBtn } from './shell.js';
 import { canOpen } from '../config/pages.js';
 
 import * as dashboard      from '../pages/dashboard.js';
@@ -71,6 +71,7 @@ async function render() {
   const token = beginRender();
   setActiveNav();
   setPageHeader(page);
+  paintBackBtn(page);
 
   const view = $('#view');
   view.innerHTML = '';
@@ -89,9 +90,12 @@ async function render() {
 
      ⚠️ go() لا مجرّد استبدال الدالة: بعد أن صارت الصفحة في العنوان، ترك
      الـ hash على صفحة ممنوعة يعني أن التحديث التالي يعيد المحاولة نفسها،
-     وأن الترويسة والقائمة الجانبية تشيران لصفحة غير المعروضة. */
+     وأن الترويسة والقائمة الجانبية تشيران لصفحة غير المعروضة.
+
+     ⚠️ replace لا دفع: الصفحة الممنوعة لا يصحّ أن تدخل مكدّس الرجوع، وإلا
+     أعادنا زرّ «رجوع» إليها فحوّلنا الحارس عنها من جديد — حلقة بلا مخرج. */
   if (!fn || (page !== 'home' && !canOpen(page, me.role))) {
-    go('home');
+    go('home', '', { replace: true });
     return;
   }
 
