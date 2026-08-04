@@ -24,8 +24,9 @@ import { getMe, getRequests } from '../lib/state.js';
 import { recentCyclesList, AR_DAYS } from '../lib/dates.js';
 import { hhmm, hm, fmtDur, p2 } from '../lib/format.js';
 import { fetchMyAttendance, buildDailyStatus } from '../lib/attendance.js';
-import { isStale } from '../lib/nav.js';
-import { card, grid, stat, empty, tableWrap, bar, sectionHead, callout } from '../lib/ui.js';
+import { isStale, go } from '../lib/nav.js';
+import { PERM_BACKDATE_DAYS } from '../lib/requests.js';
+import { card, grid, stat, empty, tableWrap, bar, sectionHead, callout, button } from '../lib/ui.js';
 
 export async function render(view, token) {
   const me = getMe();
@@ -97,6 +98,20 @@ export async function render(view, token) {
     );
     sc.appendChild(g2);
     host.appendChild(sc);
+
+    /* ── أيام تأخير ما زالت نافذة استئذانها مفتوحة ──
+       ⚠️ التنبيه هنا لا في جدول «يوماً بيوم» وحده: الجدول أسفل الصفحة
+       ويُقرأ بالبحث لا بالمرور، والنافذة ثلاثة أيام — من لا يراها اليوم
+       يخسرها. هذه هي النقطة العملية كلها في القاعدة الجديدة. */
+    const openDays = rows.filter((r) => r.excusable);
+    if (openDays.length) {
+      const c = card('');
+      c.appendChild(callout('warn', `${openDays.length} يوم تأخير بلا استئذان`,
+        `ما زال بإمكانك تقديم استئذان عن: ${openDays.map((r) => r.dateStr).join(' · ')}. ` +
+        `تُقبل الاستئذانات حتى ${PERM_BACKDATE_DAYS} أيام من تاريخ اليوم المعني، وبعدها يُعتمد التأخير بدون عذر ويبقى في الخصم.`));
+      c.appendChild(button('تقديم استئذان', 'btn sm', () => go('new'), 'plus'));
+      host.appendChild(c);
+    }
 
     /* ⚠️ نسيان بصمة الانصراف يُحسب يوماً بلا ساعات في المسير — الموظف يجب
        أن يعرف أنه ليس تفصيلاً شكلياً. */

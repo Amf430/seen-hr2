@@ -210,8 +210,25 @@ service cloud.firestore {
        manager (who may approve permissions) could approve it — erasing a
        deduction already earned, with nothing in the audit log tying the two.
 
-       14 days of backdating stays allowed: filing late for a real absence is
-       normal, and the manager still has to approve it.                     */
+       THE WINDOW IS NOW 3 DAYS, not 14 — the owner's rule: a permission may
+       be filed for its own day or up to 3 days back. After that the case is
+       closed and the lateness / early departure stands WITHOUT excuse, i.e.
+       it keeps its payroll deduction.
+
+       Why a window has to exist at all: an approved permission erases the
+       late minutes from the payroll run. With no limit, an employee who sees
+       the deduction on their payslip can file a permission for a day early in
+       the cycle and undo it retroactively. The window forces the excuse to be
+       given while it can still be checked.
+
+       ⚠️ String comparison, not timestamp arithmetic. The old form was
+           ymdTs(d().date) >= ksa() - duration.value(14,'d')
+       which compares the date's MIDNIGHT against a cutoff carrying the
+       current time of day — so a request filed at 10:00 lost the whole
+       oldest day, and the effective window shrank by one. Comparing
+       'YYYY-MM-DD' strings is exact: they sort lexicographically.
+
+       ⚠️ Mirrored in js/lib/requests.js (PERM_BACKDATE_DAYS). Change both. */
     /* ───────────── multi-step approval chain ─────────────
 
        شكل الحقول على الطلب:
@@ -264,7 +281,7 @@ service cloud.firestore {
 
     function permOk() {
       return isYmd(d().date)
-          && ymdTs(d().date) >= ksa() - duration.value(14, 'd')
+          && d().date >= ymd(ksa() - duration.value(3, 'd'))
           && d().category in ['تأخير عن الدوام', 'خروج مبكر'];
     }
 
