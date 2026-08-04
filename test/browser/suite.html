@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>اختبارات المتصفح — المسير والحالة اليومية</title>
+<style>
+  body{font-family:system-ui,'Segoe UI',Tahoma,sans-serif;padding:20px;line-height:1.7;background:#faf7f5}
+  h2{color:#240215;font-size:16px;margin:22px 0 6px;border-bottom:1px solid #e7ded7;padding-bottom:4px}
+  .ok{color:#1a7f4b}.bad{color:#c0243a;font-weight:700}
+  .row{font-size:14px}
+  pre{background:#fff;border:1px solid #e7ded7;border-radius:8px;padding:10px;
+      font-size:12px;overflow:auto;margin:4px 0 0 0}
+  #sum{font-size:17px;font-weight:700;margin-top:24px;padding:12px;border-radius:8px}
+  .pass{background:#e6f5ec;color:#1a7f4b}.fail{background:#fdeaed;color:#c0243a}
+</style>
+</head>
+<body>
+<h1 style="font-size:19px;color:#240215">اختبارات المتصفح</h1>
+<p style="font-size:13px;color:#6f645d;margin:0 0 8px">
+  payroll.js و attendance.js تجرّان firebase.js عبر سلسلة الاستيراد، وهي تجلب
+  الـSDK من gstatic وقت الاستيراد — فلا تُستوردان في node. تُختبران هنا،
+  على الوحدات الحقيقية نفسها التي تعمل في النظام.</p>
+<div id="out"></div>
+<div id="sum"></div>
+
+<script type="module">
+import { setSettings } from '../../js/lib/state.js';
+import { cycleOf, ymd } from '../../js/lib/dates.js';
+import { computePayroll, isUnpaidLeave, payrollConfig } from '../../js/lib/payroll.js';
+import { buildDailyStatus, sessionsOf, workedSecs, lastOutOf } from '../../js/lib/attendance.js';
+import { compress } from '../../js/lib/photo.js';
+import { permWindowOpen, permOldestDate } from '../../js/lib/requests.js';
+
+const out = document.getElementById('out');
+let pass = 0, fail = 0;
+const results = [];
+const group = (t) => { const h = document.createElement('h2'); h.textContent = t; out.appendChild(h); };
+function eq(name, expected, actual) {
+  const a = JSON.stringify(actual), e = JSON.stringify(expected);
+  const ok = a === e;
+  ok ? pass++ : fail++;
+  results.push({ name, ok, expected: e, actual: a });
+  const d = document.createElement('div');
+  d.className = 'row ' + (ok ? 'ok' : 'bad');
+  d.textContent = (ok ? '✓ ' : '✗ ') + name;
+  if (!ok) { const p = document.createElement('pre');
+    p.textContent = 'توقّعنا: ' + e + '\nوجاء:   ' + a; d.appendChild(p); }
+  out.appendChild(d);
+}
+
+/* ورديات الشركة: الأحد–الخميس ٠٨:٠٠–١٦:٠٠ */
+const WEEK = {
+  0:{type:'morning',start:'08:00',end:'16:00'}, 1:{type:'morning',start:'08:00',end:'16:00'},
+  2:{type:'morning',start:'08:00',end:'16:00'}, 3:{type:'morning',start:'08:00',end:'16:00'},
+  4:{type:'morning',start:'08:00',end:'16:00'},
+  5:{type:'off',start:'',end:''}, 6:{type:'off',start:'',end:''}
+};
+const LT_ANNUAL = 'lt-annual', LT_UNPAID = 'lt-unpaid';
+const settings = (over={}) => setSettings({
+  shifts: WEEK, departments: [], dateExceptions: [], branches: [], approvers: [],
+  leaveTypes: [
+    { id: LT_ANNUAL, label:'إجازة سنوية', balance:21, deduct:true },
+    { id: LT_UNPAID, label:'إجازة بدون راتب', balance:30, deduct:true, unpaid:true }
+  ],
+  company: { lat:null, lng:null, radius:500 },
+  payroll: { hoursPerDay:8, daysPerMonth:30, graceMinutes:0 },
+  ...over
+});
+
+/* ── دورة منتهية بالكامل حتى لا يتدخّل «اليوم» في النتيجة ──
+   ⚠️ computePayroll تقصّ عند min(نهاية الدورة, الآن). دورة ماضية تجعل
+   المجموعة ثابتة مهما تغيّر تاريخ التشغيل. */
+const CYC = cycleOf('2026-06-10');            /* 2026-05-26 → 2026-06-25 */
+const at = (dateStr, hhmm) => new Date(dateStr + 'T' + hhmm + ':00');
+
+/* موظف واحد براتب ٩٠٠٠ — قيمة اليوم ٣٠٠، قيمة الساعة ٣٧٫٥ */
+const EMP = { id:'e1', name:'سالم', role:'employee', department:'المبيعات',
+              salary:9000, hireDate:'2020-01-01' };
+
+/* سجل بصمة ليوم واحد */
+const rec = (dateStr, inHm, outHm) => ({
+  employeeUid:'e1', date:dateStr,
+  sessions:[{ in: at(dateStr,inHm), out: outHm ? at(dateStr,outHm) : null }]
+});
+
+/* كل أيام الدورة حاضرة في الوقت، ثم نغيّر يوماً واحداً في كل اختبار */
+function fullMonth(overrides = {}) {
+  const recs = [];
+  for (let d = new Date(CYC.start); d <= CYC.end; d.setDate(d.getDate()+1)) {
+    const ds = ymd(d), dow = d.getDay();
+    if (dow === 5 || dow === 6) continue;             /* راحة */
+    if (ds in overrides) { const o = overrides[ds]; if (o) recs.push(o); continue; }
+    recs.push(rec(ds, '08:00', '16:00'));
+  }
+  return recs;
+}
+const runPayroll = (recs, reqs=[]) => computePayroll(CYC, [EMP], reqs, recs)[0];
+
+/* ══════════════════ ١. المسير — الأساس ══════════════════ */
+group('١. المسير — الحضور المثالي');
+settings();
+{
+  const r = runPayroll(fullMonth());
+  eq('قيمة اليوم = الراتب ÷ ٣٠', 300, r.dayRate);
+  eq('قيمة الساعة = قيمة اليوم ÷ ٨', 37.5, r.hourRate);
+  eq('حضور كامل ⇒ لا خصم', 0, r.total);
+  eq('وصافي الراتب كامل', 9000, r.net);
+  eq('ولا أيام غياب', 0, r.absentDays);
+  eq('ولا أيام تأخير', 0, r.lateDays);
+  /* دورة ٢٦ مايو ← ٢٥ يونيو ٢٠٢٦ = ٣١ يوماً، منها ٨ جمعة/سبت ⇒ ٢٣ يوم عمل */
+  eq('أيام الراحة غير محسوبة — ٢٣ يوم عمل', 23, r.workDays);
+}
+
+/* ══════════════════ ٢. التأخير والخروج المبكر ══════════════════ */
+group('٢. التأخير والخروج المبكر');
+{
+  /* ٢٠٢٦-٠٦-٠١ اثنين: دخل ٠٨:٣٠ ⇒ ٣٠ د تأخير */
+  const r = runPayroll(fullMonth({ '2026-06-01': rec('2026-06-01','08:30','16:00') }));
+  eq('٣٠ دقيقة تأخير تُسجَّل', 30, r.lateMin);
+  eq('ويوم تأخير واحد', 1, r.lateDays);
+  eq('والخصم = ٣٠د × ٣٧٫٥ ÷ ٦٠ = ١٨٫٧٥', 18.75, +r.total.toFixed(2));
+}
+{
+  const r = runPayroll(fullMonth({ '2026-06-01': rec('2026-06-01','08:00','15:00') }));
+  eq('خروج مبكر ٦٠ دقيقة يُسجَّل', 60, r.earlyMin);
+  eq('وخصمه = ساعة كاملة = ٣٧٫٥', 37.5, +r.total.toFixed(2));
+}
+{
+  const r = runPayroll(fullMonth({ '2026-06-01': rec('2026-06-01','08:20','15:40') }));
+  eq('التأخير والخروج المبكر يجتمعان', { late:20, early:20 }, { late:r.lateMin, early:r.earlyMin });
+  eq('ويُخصمان معاً = ٤٠د = ٢٥', 25, +r.total.toFixed(2));
+}
+
+/* ══════════════════ ٣. الاستئذان المعتمد يُعفي ══════════════════ */
+group('٣. الاستئذان — المعتمد وحده يُعفي');
+const permOn = (date, cat, status='approved') => ({
+  id:'p-'+date+cat, type:'permission', status, employeeUid:'e1', date,
+  category:cat, categoryLabel:cat, time:'09:00'
+});
+{
+  const late = { '2026-06-01': rec('2026-06-01','08:30','16:00') };
+  eq('بلا استئذان ⇒ ٣٠د تُخصم',
+     { lateMin:30, exempt:0, ded:18.75 },
+     (() => { const r = runPayroll(fullMonth(late));
+              return { lateMin:r.lateMin, exempt:r.exemptMin, ded:+r.total.toFixed(2) }; })());
+
+  eq('استئذان تأخير معتمد ⇒ صفر خصم والدقائق تُنقل لـ«معفى»',
+     { lateMin:0, exempt:30, ded:0 },
+     (() => { const r = runPayroll(fullMonth(late), [permOn('2026-06-01','تأخير عن الدوام')]);
+              return { lateMin:r.lateMin, exempt:r.exemptMin, ded:+r.total.toFixed(2) }; })());
+
+  /* ⚠️ الحارس الحقيقي: طلب لم يُعتمد بعد لا يُعفي شيئاً */
+  eq('استئذان «تحت المراجعة» لا يُعفي',
+     { lateMin:30, ded:18.75 },
+     (() => { const r = runPayroll(fullMonth(late), [permOn('2026-06-01','تأخير عن الدوام','pending')]);
+              return { lateMin:r.lateMin, ded:+r.total.toFixed(2) }; })());
+  eq('واستئذان مرفوض لا يُعفي',
+     30, runPayroll(fullMonth(late), [permOn('2026-06-01','تأخير عن الدوام','rejected')]).lateMin);
+  eq('واستئذان معتمد ليومٍ آخر لا يُعفي',
+     30, runPayroll(fullMonth(late), [permOn('2026-06-02','تأخير عن الدوام')]).lateMin);
+  /* ⚠️ النوع يقرّر أي دقائق تُعفى — «خروج مبكر» لا يمحو تأخير الصباح */
+  eq('واستئذان «خروج مبكر» لا يُعفي تأخير الدخول',
+     30, runPayroll(fullMonth(late), [permOn('2026-06-01','خروج مبكر')]).lateMin);
+}
+{
+  const early = { '2026-06-01': rec('2026-06-01','08:00','15:00') };
+  eq('استئذان خروج مبكر معتمد يُعفي الخروج',
+     { early:0, exempt:60, ded:0 },
+     (() => { const r = runPayroll(fullMonth(early), [permOn('2026-06-01','خروج مبكر')]);
+              return { early:r.earlyMin, exempt:r.exemptMin, ded:+r.total.toFixed(2) }; })());
+  eq('واستئذان «تأخير» لا يُعفي الخروج المبكر',
+     60, runPayroll(fullMonth(early), [permOn('2026-06-01','تأخير عن الدوام')]).earlyMin);
+}
+
+/* ══════════════════ ٤. الغياب والإجازات ══════════════════ */
+group('٤. الغياب والإجازات');
+{
+  const r = runPayroll(fullMonth({ '2026-06-01': null }));
+  eq('يوم بلا بصمة = غياب', 1, r.absentDays);
+  eq('وخصمه يوم كامل = ٣٠٠', 300, +r.total.toFixed(2));
+}
+{
+  const leave = { id:'L1', type:'leave', status:'approved', employeeUid:'e1',
+                  startDate:'2026-06-01', endDate:'2026-06-03', days:3,
+                  leaveTypeId:LT_ANNUAL, categoryLabel:'إجازة سنوية', deduct:true };
+  const r = runPayroll(fullMonth({ '2026-06-01':null, '2026-06-02':null, '2026-06-03':null }), [leave]);
+  eq('إجازة مدفوعة معتمدة ⇒ ليست غياباً', 0, r.absentDays);
+  eq('وتُحتسب ٣ أيام إجازة مدفوعة', 3, r.paidLeaveDays);
+  eq('وبلا أي خصم', 0, +r.total.toFixed(2));
+}
+{
+  const unpaid = { id:'L2', type:'leave', status:'approved', employeeUid:'e1',
+                   startDate:'2026-06-01', endDate:'2026-06-02', days:2,
+                   leaveTypeId:LT_UNPAID, categoryLabel:'إجازة بدون راتب', deduct:true };
+  const r = runPayroll(fullMonth({ '2026-06-01':null, '2026-06-02':null }), [unpaid]);
+  eq('إجازة بدون راتب ⇒ يومان بلا أجر', 2, r.unpaidDays);
+  eq('وخصمها يومان كاملان = ٦٠٠', 600, +r.total.toFixed(2));
+  eq('وليست غياباً', 0, r.absentDays);
+}
+eq('isUnpaidLeave تقرأ علم النوع', true,  isUnpaidLeave({ leaveTypeId: LT_UNPAID }));
+eq('والمدفوعة ليست بدون راتب',    false, isUnpaidLeave({ leaveTypeId: LT_ANNUAL }));
+eq('وتسقط على نص التصنيف عند غياب النوع',
+   true, isUnpaidLeave({ leaveTypeId:'مجهول', categoryLabel:'إجازة بدون راتب' }));
+
+/* ══════════════════ ٥. حدود لا يجوز تجاوزها ══════════════════ */
+group('٥. حدود المسير');
+{
+  /* غياب الدورة كاملة: ٢٣ يوم × ٣٠٠ = ٦٩٠٠ — دون الراتب فلا سالب */
+  const r = runPayroll([]);
+  eq('الغياب الكامل = ٢٣ يوم', 23, r.absentDays);
+  eq('وخصمه ٦٩٠٠', 6900, +r.total.toFixed(2));
+  eq('والصافي لا يصير سالباً أبداً', true, r.net >= 0);
+}
+{
+  /* من باشر داخل الدورة لا يُحاسَب على ما قبل مباشرته */
+  const late = { ...EMP, hireDate:'2026-06-15' };
+  const r = computePayroll(CYC, [late], [], [])[0];
+  eq('من باشر ١٥ يونيو لا يُحاسَب على ما قبله', true, r.workDays < 22);
+  eq('وأيام غيابه = أيام عمله فقط', r.workDays, r.absentDays);
+}
+{
+  const admin = { id:'a1', name:'أدمن', role:'admin', salary:20000 };
+  eq('الأدمن خارج المسير', 0, computePayroll(CYC, [admin], [], []).length);
+}
+{
+  settings({ payroll: { hoursPerDay:8, daysPerMonth:30, graceMinutes:15 } });
+  const r = runPayroll(fullMonth({ '2026-06-01': rec('2026-06-01','08:10','16:00') }));
+  eq('دقائق السماح ١٥ تبتلع تأخير ١٠ دقائق', 0, r.lateMin);
+  const r2 = runPayroll(fullMonth({ '2026-06-01': rec('2026-06-01','08:30','16:00') }));
+  eq('وتأخير ٣٠ يصير ١٥ بعد السماح', 15, r2.lateMin);
+  settings();
+}
+
+/* ══════════════════ ٦. الحالة اليومية ══════════════════ */
+group('٦. الحالة اليومية — حاضر/متأخر/غائب/إجازة');
+const CYC2 = cycleOf('2026-06-10');
+const statusOf = (recs, reqs=[]) => {
+  const rows = buildDailyStatus(CYC2, [EMP], reqs, recs);
+  const m = {}; rows.forEach(r => { m[r.dateStr] = r; });
+  return m;
+};
+{
+  const m = statusOf([rec('2026-06-01','08:00','16:00')]);
+  eq('دخول في الوقت = حاضر', { status:'حاضر', cls:'present' },
+     { status:m['2026-06-01'].status, cls:m['2026-06-01'].cls });
+}
+{
+  /* ⚠️ LATE_GRACE_MIN = ١٥ — ٠٨:١٠ ما زال حاضراً */
+  const m = statusOf([rec('2026-06-01','08:10','16:00')]);
+  eq('١٠ دقائق داخل سماح التقرير = حاضر', 'present', m['2026-06-01'].cls);
+}
+{
+  const m = statusOf([rec('2026-06-01','08:30','16:00')]);
+  eq('٣٠ دقيقة = متأخر', 'late', m['2026-06-01'].cls);
+  eq('والدقائق تُحسب من بداية الوردية لا من السماح', 30, m['2026-06-01'].lateMin);
+}
+{
+  const m = statusOf([]);
+  eq('لا بصمة = غائب', 'absent', m['2026-06-01'].cls);
+}
+{
+  const leave = { type:'leave', status:'approved', employeeUid:'e1',
+                  startDate:'2026-06-01', endDate:'2026-06-01', days:1,
+                  leaveTypeId:LT_ANNUAL, categoryLabel:'إجازة سنوية' };
+  const m = statusOf([], [leave]);
+  eq('إجازة معتمدة ليست غياباً', 'leave', m['2026-06-01'].cls);
+}
+{
+  const m = statusOf([rec('2026-06-01','08:00',null)]);
+  eq('جلسة مفتوحة ومضى وقتها = نسيان بصمة خروج', 'missing', m['2026-06-01'].cls);
+}
+{
+  /* الجمعة والسبت لا تظهران أصلاً — لا يُحاسب عليهما */
+  const m = statusOf([]);
+  eq('الجمعة غير محسوبة', undefined, m['2026-06-05']);
+  eq('والسبت كذلك',       undefined, m['2026-06-06']);
+}
+
+/* ══════════════════ ٧. وسم «بدون عذر» ══════════════════ */
+group('٧. نافذة الاستئذان على الحالة اليومية');
+{
+  /* يوم قديم متأخر بلا استئذان ⇒ النافذة أُغلقت ⇒ «بدون عذر» */
+  const m = statusOf([rec('2026-06-01','08:30','16:00')]);
+  const row = m['2026-06-01'];
+  eq('يوم متأخر مضى ⇒ غير قابل للاستئذان', false, row.excusable);
+  eq('ويُوسم «بدون عذر»', true, row.note.includes('بدون عذر'));
+}
+{
+  /* اليوم نفسه ⇒ النافذة مفتوحة. نبني دورة تحوي اليوم الحالي. */
+  const today = new Date();
+  const dow = today.getDay();
+  if (dow !== 5 && dow !== 6) {
+    const ds = ymd(today);
+    const cycNow = cycleOf(today);
+    const rows = buildDailyStatus(cycNow, [EMP], [], [rec(ds,'08:45','16:00')]);
+    const row = rows.find(r => r.dateStr === ds);
+    eq('تأخير اليوم ⇒ النافذة مفتوحة', true, row.excusable);
+    eq('ويُقال له إن بإمكانه الاستئذان', true, row.note.includes('يمكن تقديم استئذان'));
+  } else {
+    eq('اليوم عطلة — تخطّي اختبار النافذة المفتوحة', true, true);
+  }
+}
+{
+  const m = statusOf([rec('2026-06-01','08:30','16:00')],
+                     [permOn('2026-06-01','تأخير عن الدوام')]);
+  eq('استئذان معتمد ⇒ لا وسم «بدون عذر»', false, m['2026-06-01'].note.includes('بدون عذر'));
+  eq('ويُذكر الاستئذان في الملاحظة',      true,  m['2026-06-01'].note.includes('استئذان تأخير'));
+}
+eq('النافذة تقبل أمس',        true,  permWindowOpen(ymd(new Date(Date.now()-86400000))));
+eq('وترفض ما قبل ٤ أيام',     false, permWindowOpen(ymd(new Date(Date.now()-4*86400000))));
+
+/* ══════════════════ ٨. الجلسات والساعات ══════════════════ */
+group('٨. الجلسات المتعددة وحساب الساعات');
+{
+  const multi = { employeeUid:'e1', date:'2026-06-01', sessions:[
+    { in: at('2026-06-01','08:00'), out: at('2026-06-01','12:00') },
+    { in: at('2026-06-01','13:00'), out: at('2026-06-01','16:00') }
+  ]};
+  eq('جلستان تُقرآن', 2, sessionsOf(multi).length);
+  eq('ومجموعهما ٧ ساعات', 7, workedSecs(sessionsOf(multi)).secs / 3600);
+  eq('وآخر خروج هو ١٦:٠٠', 16, lastOutOf(sessionsOf(multi)).getHours());
+  eq('ولا جلسة مفتوحة', false, workedSecs(sessionsOf(multi)).open);
+}
+{
+  /* الشكل القديم checkIn/checkOut ما زال مقروءاً */
+  const old = { checkIn: at('2026-06-01','08:00'), checkOut: at('2026-06-01','16:00') };
+  eq('الشكل القديم يُقرأ جلسةً واحدة', 1, sessionsOf(old).length);
+  eq('وساعاته ٨', 8, workedSecs(sessionsOf(old)).secs / 3600);
+}
+{
+  /* ⚠️ الجلسة المفتوحة تُقصّ عند `until` بدل أن تعدّ حتى الآن */
+  const open = [{ in: at('2026-06-01','08:00'), out: null }];
+  const capped = workedSecs(open, at('2026-06-01','16:00').getTime());
+  eq('الجلسة المفتوحة تُقصّ عند نهاية الوردية = ٨ ساعات', 8, capped.secs / 3600);
+  eq('وتُعلَّم مفتوحة', true, capped.open);
+  eq('وبلا قصّ تعدّ حتى الآن (أكبر بكثير)', true,
+     workedSecs(open).secs / 3600 > 1000);
+}
+eq('سجل فارغ = بلا جلسات', 0, sessionsOf(null).length);
+eq('وبلا خروج أخير',      null, lastOutOf([]));
+
+/* ══════════════════ ٩. ضغط الصورة ══════════════════ */
+group('٩. ضغط صورة إثبات الموقع');
+/* ⚠️ onload لا img.decode(): decode() على صورة خارج المستند قد لا تُحسم
+   أبداً في كروم، فتتعلّق المجموعة بلا خطأ ولا نتيجة. */
+const loadImg = (src) => new Promise((res, rej) => {
+  const i = new Image();
+  i.onload = () => res(i);
+  i.onerror = () => rej(new Error('img-load-failed'));
+  i.src = src;
+});
+async function imgFile(w, h) {
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  const c = cv.getContext('2d');
+  const g = c.createLinearGradient(0,0,w,h);
+  g.addColorStop(0,'#3a1020'); g.addColorStop(1,'#e8d8c0');
+  c.fillStyle = g; c.fillRect(0,0,w,h);
+  c.fillStyle = '#fff'; c.font = Math.round(h/8)+'px sans-serif';
+  c.fillText('LOC', w/6, h/2);
+  const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.95));
+  return new File([blob], 'shot.jpg', { type:'image/jpeg' });
+}
+{
+  const dataUrl = await compress(await imgFile(4000, 3000));
+  eq('الصورة تُضغط إلى JPEG', true, dataUrl.startsWith('data:image/jpeg'));
+  eq('وتبقى دون حدّ القاعدة (٢٤٠ ألف حرف)', true, dataUrl.length < 240000);
+  const img = await loadImg(dataUrl);
+  eq('وعرضها يُصغَّر إلى ٦٤٠', 640, img.width);
+  eq('ونسبتها محفوظة (٤:٣ ⇒ ٤٨٠)', 480, img.height);
+}
+{
+  const img = await loadImg(await compress(await imgFile(320, 240)));
+  eq('الصورة الأصغر من ٦٤٠ لا تُكبَّر', 320, img.width);
+}
+{
+  let threw = null;
+  try { await compress(new File([new Uint8Array([1,2,3])], 'x.jpg', { type:'image/jpeg' })); }
+  catch (e) { threw = e.message; }
+  eq('ملف غير صالح يرمي photo-unreadable', 'photo-unreadable', threw);
+}
+
+/* ══════════════════ النتيجة ══════════════════ */
+const sum = document.getElementById('sum');
+sum.className = fail ? 'fail' : 'pass';
+sum.textContent = `النتيجة: ${pass} ناجح، ${fail} فاشل`;
+window.__RESULTS = { pass, fail, failures: results.filter(r => !r.ok) };
+window.__DONE = true;
+</script>
+</body>
+</html>
