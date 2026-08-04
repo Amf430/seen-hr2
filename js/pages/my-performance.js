@@ -23,7 +23,7 @@ import { el, esc } from '../lib/dom.js';
 import { getMe, getRequests } from '../lib/state.js';
 import { recentCyclesList, AR_DAYS } from '../lib/dates.js';
 import { hhmm, hm, fmtDur, p2 } from '../lib/format.js';
-import { fetchMyAttendance, buildDailyStatus } from '../lib/attendance.js';
+import { fetchMyAttendance, buildDailyStatus, uidsOf } from '../lib/attendance.js';
 import { isStale, go } from '../lib/nav.js';
 import { PERM_BACKDATE_DAYS } from '../lib/requests.js';
 import { card, grid, stat, empty, tableWrap, bar, sectionHead, callout, button } from '../lib/ui.js';
@@ -50,7 +50,7 @@ export async function render(view, token) {
     host.innerHTML = '<div class="card"><div class="empty"><span class="spinner"></span> جارٍ الحساب…</div></div>';
 
     let recs = [];
-    try { recs = await fetchMyAttendance(cyc, me.id, 'zkAttendance'); }
+    try { recs = await fetchMyAttendance(cyc, uidsOf(me), 'zkAttendance'); }
     catch (e) {
       console.error(e);
       host.innerHTML = '<div class="card"><div class="empty">تعذّر تحميل سجلّك — تحقّق من اتصالك</div></div>';

@@ -17,7 +17,7 @@ import { getSettings } from './state.js';
 import { ymd } from './dates.js';
 import { tsToDate } from './format.js';
 import { resolveShift, shiftHours, shiftWindowFor } from './shifts.js';
-import { sessionsOf, workedSecs, lastOutOf } from './attendance.js';
+import { sessionsOf, workedSecs, lastOutOf, recFor } from './attendance.js';
 
 export function payrollConfig() {
   return { hoursPerDay: 8, daysPerMonth: 30, graceMinutes: 0, ...(getSettings().payroll || {}) };
@@ -76,7 +76,10 @@ export function computePayroll(cyc, users, requests, recs) {
       const latePerm  = perms.find((p) => (p.category || '').includes('تأخير'));
       const earlyPerm = perms.find((p) => (p.category || '').includes('خروج'));
 
-      const rec = recMap[u.id + '_' + dateStr];
+      /* ⚠️ recFor لا recMap[u.id + …]: من استُعيد وصوله تاريخُه تحت UID
+         سابق، والبحث بالحالي وحده يجعل كل يوم مضى «غياباً» فيُخصم يوماً
+         كاملاً عن كل واحد. راجع restoreAccess في users.js. */
+      const rec = recFor(recMap, u, dateStr);
       const ss = sessionsOf(rec);
       const firstIn = ss.length ? tsToDate(ss[0].in) : null;
       const lastOut = lastOutOf(ss);

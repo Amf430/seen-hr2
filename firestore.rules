@@ -13,6 +13,26 @@ service cloud.firestore {
     function hasP()    { return sIn() && exists(myD()); }
     function me()      { return get(myD()).data; }
     function isActive(){ return hasP() && me().get('status','active') == 'active'; }
+
+    /* ───────────── previous UIDs after an access restore ─────────────
+       Restoring access creates a NEW auth account, so the employee gets a new
+       uid, while every attendance record they already have is keyed by the old
+       one (`zkAttendance/{uid}_{date}`). Without this the employee can no
+       longer read their own history — and, worse, the payroll counts each of
+       those days as an absence and deducts a full day for it.
+
+       The records are NOT migrated, deliberately: zkAttendance is
+       `allow write: if false` so the device log cannot be rewritten by anyone
+       but the bridge. Loosening that to allow a migration would open the door
+       to forged attendance, which is far worse than the bug it fixes.
+
+       So the reader carries its old identities instead. `previousUids` is
+       written by restoreAccess and is admin-only to edit — the users rule
+       already limits an employee to mustChangePassword / bioCredentials /
+       contact fields, so an employee cannot grant themselves someone else's
+       history by adding a uid here.                                        */
+    function myOldUids() { return me().get('previousUids', []); }
+    function isMine(uid) { return uid == request.auth.uid || uid in myOldUids(); }
     function isAdmin() { return isActive() && me().role == 'admin'; }
     function isMgr()   { return isActive() && me().role == 'manager'; }
     function myDept()  { return me().get('department',''); }
@@ -344,7 +364,7 @@ service cloud.firestore {
     /* ═════════════════════════ attendance (web self check-in) ═════════════════════════ */
     match /attendance/{id} {
       allow read: if isAdmin()
-        || (sIn() && (resource == null || p().employeeUid == request.auth.uid))
+        || (hasP() && (resource == null || isMine(p().employeeUid)))
         || sameDept();
 
       allow create: if isActive()
@@ -496,8 +516,11 @@ service cloud.firestore {
        these rules. Payroll reads this collection and nothing else.          */
     match /zkAttendance/{id} {
       allow read: if isAdmin()
-        || (sIn() && (resource == null || p().employeeUid == request.auth.uid))
+        || (hasP() && (resource == null || isMine(p().employeeUid)))
         || sameDept();
+      /* ⚠️ يبقى مغلقاً تماماً. الجسر وحده يكتب عبر Admin SDK متجاوزاً
+         القواعد. لا تفتحه لترحيل سجلات — القراءة بـ isMine() تحلّ ذلك بلا
+         أن يصير السجل قابلاً للتزوير. */
       allow write: if false;
     }
 

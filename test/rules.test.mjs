@@ -34,12 +34,19 @@ await env.clearFirestore();
 await env.withSecurityRulesDisabled(async (ctx) => {
   const db = ctx.firestore();
   await setDoc(doc(db, 'users/adminU'), { name: 'المدير', role: 'admin', status: 'active', department: 'الموارد البشرية', empId: 'ADMIN' });
-  await setDoc(doc(db, 'users/empU'),   { name: 'سالم', role: 'employee', status: 'active', department: 'المبيعات', empId: '101', salary: 6000, balances: { annual: 21 } });
+  await setDoc(doc(db, 'users/empU'),   { name: 'سالم', role: 'employee', status: 'active', department: 'المبيعات', empId: '101', salary: 6000, balances: { annual: 21 }, previousUids: ['oldEmpU'] });
   await setDoc(doc(db, 'users/emp2U'),  { name: 'خالد', role: 'employee', status: 'active', department: 'المبيعات', empId: '102', salary: 5000 });
   await setDoc(doc(db, 'users/mgrU'),   { name: 'فهد', role: 'manager', status: 'active', department: 'المبيعات', empId: '103' });
   await setDoc(doc(db, 'users/suspU'),  { name: 'معلّق', role: 'employee', status: 'suspended', department: 'المبيعات', empId: '104' });
   await setDoc(doc(db, 'settings/config'), { branches: [], leaveTypes: [], company: { lat: 21.5, lng: 39.1, radius: 500 } });
   await setDoc(doc(db, 'zkAttendance/empU_2026-07-01'), { employeeUid: 'empU', date: '2026-07-01', sessions: [] });
+  /* ── history left under a previous uid, after an access restore ──
+     empU carries oldEmpU in previousUids; emp2U carries nothing. Both try to
+     read the same record — only the one who owns that past identity may. */
+  await setDoc(doc(db, 'zkAttendance/oldEmpU_2026-06-01'),
+    { employeeUid: 'oldEmpU', employeeEmpId: '101', employeeName: 'سالم', date: '2026-06-01', sessions: [] });
+  await setDoc(doc(db, 'attendance/oldEmpU_2026-06-01'),
+    { employeeUid: 'oldEmpU', employeeEmpId: '101', employeeName: 'سالم', date: '2026-06-01', sessions: [] });
   await setDoc(doc(db, 'requests/permOfEmp'), {
     employeeUid: 'empU', employeeName: 'سالم', department: 'المبيعات', type: 'permission',
     status: 'pending', date: '2026-08-01', time: '09:00', reviewedBy: '', reviewedAt: null, rejectReason: ''
@@ -228,6 +235,29 @@ await check('backdated check-in timestamp',           false, () => setDoc(doc(em
 await check('attendance under another uid',           false, () => setDoc(doc(emp, 'attendance/emp2U_' + ymdKsa()), { ...attDoc(), employeeUid: 'emp2U' }));
 await check('doc id not matching the date field',     false, () => setDoc(doc(emp, 'attendance/empU_2026-08-09'), { ...attDoc() }));
 await check('opening 2 sessions at once',             false, () => setDoc(doc(emp, 'attendance/empU_' + ymdKsa()), { ...attDoc(), sessions: [session(), session()] }));
+/* ═══ تاريخ تحت معرّف سابق — بعد استعادة الوصول ═══
+   استعادة الوصول تُنشئ حساباً بمعرّف جديد، وسجلات الحضور مفهرسة بالمعرّف.
+   فبلا هذه القراءة يفقد الموظف تاريخه، ويعتبره المسير غياباً ويخصم عليه.
+   والخطر المقابل أن يقرأ موظفٌ تاريخ غيره — فالقراءة مربوطة بـ previousUids
+   على ملف القارئ نفسه، وهو حقل لا يكتبه إلا الأدمن. */
+console.log('\n\x1b[1m═══ 5ب. المعرّفات السابقة ═══\x1b[0m');
+await check('employee reads own zk history under a previous uid', true,
+  () => getDoc(doc(emp, 'zkAttendance/oldEmpU_2026-06-01')));
+await check('employee reads own web history under a previous uid', true,
+  () => getDoc(doc(emp, 'attendance/oldEmpU_2026-06-01')));
+await check("another employee reads that same past record", false,
+  () => getDoc(doc(emp2, 'zkAttendance/oldEmpU_2026-06-01')));
+await check('stranger reads a past record',           false,
+  () => getDoc(doc(stranger, 'zkAttendance/oldEmpU_2026-06-01')));
+/* الحقل نفسه هو الحارس — فلو كتبه الموظف لمنح نفسه تاريخ غيره */
+await check('employee grants self a previous uid',    false,
+  () => updateDoc(doc(emp2, 'users/emp2U'), { previousUids: ['oldEmpU'] }));
+await check('admin sets previousUids',                true,
+  () => updateDoc(doc(admin, 'users/emp2U'), { previousUids: [] }));
+/* ولا يفتح هذا بابَ الكتابة على سجل الجهاز إطلاقاً */
+await check('employee writes a past-uid zk record',   false,
+  () => setDoc(doc(emp, 'zkAttendance/oldEmpU_2026-06-02'), { employeeUid: 'oldEmpU', date: '2026-06-02', sessions: [] }));
+
 await check('employee writes zkAttendance (payroll)', false, () => setDoc(doc(emp, 'zkAttendance/empU_' + ymdKsa()), { employeeUid: 'empU', date: ymdKsa(), sessions: [] }));
 await check('admin writes zkAttendance',              false, () => setDoc(doc(admin, 'zkAttendance/x_' + ymdKsa()), { employeeUid: 'empU', date: ymdKsa(), sessions: [] }));
 await check('employee writes bridge/status',          false, () => setDoc(doc(emp, 'bridge/status'), { deviceOk: true }));
