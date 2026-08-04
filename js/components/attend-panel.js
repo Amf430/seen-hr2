@@ -273,16 +273,11 @@ async function doAttendance(kind, ref, btn, bioNote, rule, setBusy) {
   let photo = null;
   if (needsPhoto) {
     btn.textContent = 'التقاط صورة الموقع…';
-    try {
-      photo = await capturePhoto();
-    } catch (e) {
-      console.error(e);
-      return fail(e.message === 'photo-too-large'
-        ? 'الصورة كبيرة جداً — أعد التقاطها بإضاءة أقل تفصيلاً'
-        : 'تعذّرت قراءة الصورة — أعد المحاولة');
-    }
+    /* capturePhoto تفتح نافذتها وتتولّى أخطاء الضغط بنفسها — تُرجع الصورة أو
+       null لو أغلق الموظف النافذة، ولا ترمي. */
+    photo = await capturePhoto();
     if (!photo)
-      return fail('تسجيلك من خارج نطاق الفرع يحتاج صورة للموقع — اضغط الزر وصوّر مكانك');
+      return fail('تسجيلك من خارج نطاق الفرع يحتاج صورة للموقع — افتح الكاميرا وصوّر مكانك');
   }
 
   /* ④ البصمة — عجزُ الجهاز لا يمنع، وإلغاءُ الموظف يمنع.
