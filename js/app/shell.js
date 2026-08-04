@@ -13,7 +13,7 @@ import { bindBell, paintBell } from '../components/notif-panel.js';
 import { getMe, getRequests } from '../lib/state.js';
 import { navFor, PAGES, HOME_ADMIN, ORG_MANAGER } from '../config/pages.js';
 import { getPage, onNavigate, goBack, canGoBack } from '../lib/nav.js';
-import { canApprove, roleLabel } from '../lib/perms.js';
+import { canApproveType, roleLabel } from '../lib/perms.js';
 import { hasChain, ownsCurrentStep } from '../lib/requests.js';
 
 export function paintIdentity() {
@@ -76,8 +76,15 @@ export function updateBadges() {
   paintBell();
 
   if (me.role !== 'admin' && me.role !== 'manager') return;
+  /* ⚠️ canApproveType لا canApprove — لازم تطابق ما تعدّه صفحة «بانتظار
+     موافقتك» في inbox.js، وهي تعدّ بـ canApproveType.
+
+     الفرق ليس شكلياً: canApprove تُرجع true لمدير القسم على طلبات الإجازة،
+     لكن الإجازة تُعدّل رصيد الموظف فيعتمدها الأدمن وحده. فكانت الشارة تقول
+     لمدير القسم «٤» ثم يفتح الصفحة فيجد ثلاثة وسطراً يشرح أن الإجازات ليست
+     له — رقم يعِد بعمل لا وجود له. */
   const pending = getRequests().filter((r) => r.status === 'pending' &&
-    (hasChain(r) ? ownsCurrentStep(r) : canApprove(r))).length;
+    (hasChain(r) ? ownsCurrentStep(r) : canApproveType(r))).length;
   const a = document.querySelector('#navLinks a[data-badge]');
   if (!a) return;
   a.querySelector('.badge')?.remove();
