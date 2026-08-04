@@ -26,6 +26,7 @@ export const PAGES = {
   payroll:       { title: 'مسير الرواتب — دورة 26 ← 25', hint: 'المستحق لكل موظف حسب بصمة الجهاز' },
   monthly:       { title: 'تقارير الدورات',        hint: 'دورة من 26 إلى 25 — تصدير Excel لكل دورة' },
   reports:       { title: 'تحليلات الطلبات',       hint: 'توزيع الاستئذانات والإجازات' },
+  'hr-desk':     { title: 'الموارد البشرية',        hint: 'اسأل الموارد البشرية — تأمين · راتب · إجازات · مستندات' },
   audit:         { title: 'سجل الحركات',           hint: 'من قام بماذا ومتى' },
   'set-org':      { title: 'الأقسام والهيكل',       hint: 'الأقسام ومديروها وورديات كل قسم' },
   'set-branches': { title: 'الفروع ونطاق الحضور',   hint: 'مواقع الفروع ونطاق تسجيل الحضور لكل فرع' },
@@ -36,6 +37,10 @@ export const PAGES = {
 
 /* عنوان لوحة الأدمن يختلف عن عنوان الموظف لنفس المعرّف */
 export const HOME_ADMIN = { title: 'لوحة القيادة', hint: 'نبض الشركة اليوم: القوى العاملة، الحضور، تكلفة الرواتب والطلبات' };
+
+/* نفس الصفحة، لكن الأدمن يقف على الطرف الآخر منها: يقرأ ويردّ ويُغلق */
+export const HR_DESK_ADMIN = { title: 'طلبات الموظفين',
+  hint: 'استفسارات الموظفين للموارد البشرية — قناة لا يراها مدير القسم' };
 
 /* نفس صفحة الهيكل، لكن المدير يرى فرعه منها لا الشجرة كاملة */
 export const ORG_MANAGER = { title: 'فريقي', hint: 'من يتبعك مباشرةً ومن تحتهم' };
@@ -75,7 +80,9 @@ export const NAV_GROUPS = [
     { id: 'inbox',   icon: 'inbox', label: 'بانتظار موافقتك', roles: ['admin', 'manager'], badge: true },
     { id: 'new',     icon: 'plus', label: 'تقديم طلب',       roles: ['employee', 'manager'] },
     { id: 'mine',    icon: 'list', label: 'طلباتي',          roles: ['employee', 'manager'] },
-    { id: 'reports', icon: 'chart', label: 'تحليلات الطلبات', roles: ['admin'] }
+    { id: 'reports', icon: 'chart', label: 'تحليلات الطلبات', roles: ['admin'] },
+    { id: 'hr-desk', icon: 'inbox', label: 'طلبات الموظفين',   roles: ['admin'] },
+    { id: 'hr-desk', icon: 'inbox', label: 'الموارد البشرية',  roles: ['employee', 'manager'] }
   ]},
 
   { group: 'شؤون الموظفين', items: [

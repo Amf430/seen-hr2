@@ -47,6 +47,15 @@ await env.withSecurityRulesDisabled(async (ctx) => {
     { employeeUid: 'oldEmpU', employeeEmpId: '101', employeeName: 'سالم', date: '2026-06-01', sessions: [] });
   await setDoc(doc(db, 'attendance/oldEmpU_2026-06-01'),
     { employeeUid: 'oldEmpU', employeeEmpId: '101', employeeName: 'سالم', date: '2026-06-01', sessions: [] });
+  /* تذكرة موارد بشرية يملكها empU، ورسالة واحدة تحتها */
+  await setDoc(doc(db, 'hrTickets/tkt1'), {
+    employeeUid: 'empU', employeeName: 'سالم', employeeEmpId: '101', department: 'المبيعات',
+    categoryId: 'c1', categoryLabel: 'التأمين الصحي', subject: 'بطاقة التأمين',
+    status: 'open', lastBy: 'employee', lastText: 'متى تصل؟'
+  });
+  await setDoc(doc(db, 'hrTickets/tkt1/messages/m1'), {
+    byUid: 'empU', byName: 'سالم', byRole: 'employee', text: 'متى تصل بطاقة التأمين؟'
+  });
   await setDoc(doc(db, 'requests/permOfEmp'), {
     employeeUid: 'empU', employeeName: 'سالم', department: 'المبيعات', type: 'permission',
     status: 'pending', date: '2026-08-01', time: '09:00', reviewedBy: '', reviewedAt: null, rejectReason: ''
@@ -244,6 +253,56 @@ await check('opening 2 sessions at once',             false, () => setDoc(doc(em
    الوثيقة الوحيدة التي يقرأها كل الموظفين عن زملائهم. وهي مقصودة: لوحة
    تحفيز. والبديل كان فتح سجلات الحضور للجميع ليحسبها كل متصفح — ثمن باهظ
    لا يُدفع للوحة. فتبقى السجلات مقفلة كما هي، ولا يُنشر إلا ما يُعرض. */
+/* ═══ طلبات الموارد البشرية ═══
+   قناة خاصة بين الموظف والموارد البشرية. مدير القسم خارجها عمداً: المالك
+   طلبها خاصة، والأمثلة التي ذكرها (تأمين صحي، راتب) لا يكتبها الموظف لو
+   كان مديره المباشر يقرأ.
+
+   والمحادثة نفسها «إنشاء فقط»: رسالة قيلت لا تُعدَّل ولا تُمحى، ولا حتى
+   من الأدمن — وإلا لم تكن سجلاً لشيء. */
+const newTicket = (over = {}) => ({
+  employeeUid: 'empU', employeeName: 'سالم', employeeEmpId: '101', department: 'المبيعات',
+  categoryId: 'c1', categoryLabel: 'التأمين الصحي', subject: 'سؤال',
+  status: 'open', lastBy: 'employee', lastText: 'نص',
+  createdAt: serverTimestamp(), lastAt: serverTimestamp(), ...over
+});
+const newMsg = (over = {}) => ({
+  byUid: 'empU', byName: 'سالم', byRole: 'employee', text: 'نص الرسالة',
+  at: serverTimestamp(), ...over
+});
+
+console.log('\n\x1b[1m═══ 5ج. طلبات الموارد البشرية ═══\x1b[0m');
+await check('employee raises a ticket',               true,  () => addDoc(collection(emp, 'hrTickets'), newTicket()));
+await check('employee reads own ticket',              true,  () => getDoc(doc(emp, 'hrTickets/tkt1')));
+await check('admin reads any ticket',                 true,  () => getDoc(doc(admin, 'hrTickets/tkt1')));
+await check('employee reads own thread',              true,  () => getDocs(collection(emp, 'hrTickets/tkt1/messages')));
+await check('employee replies on own ticket',         true,  () => addDoc(collection(emp, 'hrTickets/tkt1/messages'), newMsg()));
+await check('admin replies as hr',                    true,  () => addDoc(collection(admin, 'hrTickets/tkt1/messages'), newMsg({ byUid: 'adminU', byName: 'المدير', byRole: 'hr' })));
+await check('admin closes a ticket',                  true,  () => updateDoc(doc(admin, 'hrTickets/tkt1'), { status: 'closed', closedAt: serverTimestamp() }));
+
+/* ⚠️ الخصوصية هي الميزة — لو قرأها المدير أو موظف آخر سقط معناها كله */
+await check('MANAGER reads an employee ticket',       false, () => getDoc(doc(mgr, 'hrTickets/tkt1')));
+await check('MANAGER reads the thread',               false, () => getDocs(collection(mgr, 'hrTickets/tkt1/messages')));
+await check('another employee reads the ticket',      false, () => getDoc(doc(emp2, 'hrTickets/tkt1')));
+await check('another employee reads the thread',      false, () => getDocs(collection(emp2, 'hrTickets/tkt1/messages')));
+await check('another employee posts into the thread', false, () => addDoc(collection(emp2, 'hrTickets/tkt1/messages'), newMsg({ byUid: 'emp2U', byName: 'خالد' })));
+await check('stranger reads the ticket',              false, () => getDoc(doc(stranger, 'hrTickets/tkt1')));
+
+/* ⚠️ لا تُزوَّر هوية ولا دور */
+await check('ticket raised for someone else',         false, () => addDoc(collection(emp, 'hrTickets'), newTicket({ employeeUid: 'emp2U' })));
+await check('ticket raised with a false name',        false, () => addDoc(collection(emp, 'hrTickets'), newTicket({ employeeName: 'المدير' })));
+await check('ticket raised into another department',  false, () => addDoc(collection(emp, 'hrTickets'), newTicket({ department: 'المالية' })));
+await check('employee posts a message AS hr',         false, () => addDoc(collection(emp, 'hrTickets/tkt1/messages'), newMsg({ byRole: 'hr' })));
+await check('employee posts under another name',      false, () => addDoc(collection(emp, 'hrTickets/tkt1/messages'), newMsg({ byName: 'المدير' })));
+
+/* ⚠️ الإغلاق للموارد البشرية، والعنوان لا يُعاد كتابته بعد الردّ */
+await check('employee closes own ticket',             false, () => updateDoc(doc(emp, 'hrTickets/tkt1'), { status: 'closed' }));
+await check('employee retitles the ticket',           false, () => updateDoc(doc(emp, 'hrTickets/tkt1'), { subject: 'شيء آخر' }));
+await check('employee edits a sent message',          false, () => updateDoc(doc(emp, 'hrTickets/tkt1/messages/m1'), { text: 'غيّرت كلامي' }));
+await check('ADMIN edits a sent message',             false, () => updateDoc(doc(admin, 'hrTickets/tkt1/messages/m1'), { text: 'غيّرت كلامي' }));
+await check('admin deletes a sent message',           false, () => deleteDoc(doc(admin, 'hrTickets/tkt1/messages/m1')));
+await check('employee deletes own ticket',            false, () => deleteDoc(doc(emp, 'hrTickets/tkt1')));
+
 console.log('\n\x1b[1m═══ 5أ. لوحة المنتظمين ═══\x1b[0m');
 await check('employee reads the board',               true,  () => getDoc(doc(emp, 'leaderboard/weekly')));
 await check('manager reads the board',                true,  () => getDoc(doc(mgr, 'leaderboard/weekly')));

@@ -166,6 +166,77 @@ service cloud.firestore {
     }
 
     /* ═════════════════════════ settings ═════════════════════════ */
+    /* ═════════════════════ hrTickets ═════════════════════
+       An employee asking HR a question — insurance, a date, a payslip line.
+       NOT an approval: nothing here touches a balance or the payroll, which is
+       exactly why it is a separate collection. Mixing it into `requests` would
+       have put questions into the approvals inbox and into every count of
+       "pending requests", making that number lie.
+
+       ⚠️ HR ONLY. sameDept() is deliberately absent: a department manager
+       cannot read these. The owner asked for a private channel, and the
+       examples given — health insurance, salary — are the kind of thing an
+       employee will not write if their line manager is reading it.
+
+       ⚠️ The employee may reopen a closed ticket by replying, but may never
+       set `closed` themselves and may never touch the identity or the subject
+       after creation. Otherwise a ticket could be quietly retitled after HR
+       answered it, and the thread would no longer match its own header.       */
+    function ticketOwner() {
+      return sIn() && resource != null && resource.data.employeeUid == request.auth.uid;
+    }
+    function ticketOwnerAt(tid) {
+      let t = /databases/$(database)/documents/hrTickets/$(tid);
+      return sIn() && exists(t) && get(t).data.employeeUid == request.auth.uid;
+    }
+
+    match /hrTickets/{tid} {
+      allow read: if isAdmin() || ticketOwner();
+
+      allow create: if isActive()
+        && d().employeeUid   == request.auth.uid
+        && d().employeeName  == me().name
+        && d().get('department','')    == myDept()
+        && d().get('employeeEmpId','') == me().get('empId','')
+        && d().status == 'open'
+        && d().lastBy == 'employee'
+        && d().createdAt == request.time
+        && d().lastAt == request.time
+        && d().subject is string && d().subject.size() > 0 && d().subject.size() <= 120
+        && d().categoryId is string && d().categoryId != ''
+        && d().get('lastText','') is string && d().get('lastText','').size() <= 140;
+
+      allow update: if
+        /* HR answers, closes, reopens */
+        (isAdmin() && only(['status','lastBy','lastText','lastAt','closedAt']))
+        /* the employee replies — and can only ever leave it open */
+        || (isActive() && ticketOwner()
+            && only(['status','lastBy','lastText','lastAt'])
+            && d().status == 'open'
+            && d().lastBy == 'employee'
+            && d().lastAt == request.time
+            && d().get('lastText','') is string && d().get('lastText','').size() <= 140);
+
+      allow delete: if isAdmin();
+
+      /* ── the thread ──
+         Create-only on purpose. A conversation that can be edited after the
+         fact is not a record of anything: HR could rewrite what it promised,
+         or an employee what they asked. Nothing here is ever updated or
+         deleted, by anyone, including the admin.                             */
+      match /messages/{mid} {
+        allow read: if isAdmin() || ticketOwnerAt(tid);
+        allow create: if isActive()
+          && (isAdmin() || ticketOwnerAt(tid))
+          && d().byUid  == request.auth.uid
+          && d().byName == me().name
+          && d().byRole == (isAdmin() ? 'hr' : 'employee')
+          && d().at == request.time
+          && d().text is string && d().text.size() > 0 && d().text.size() <= 2000;
+        allow update, delete: if false;
+      }
+    }
+
     /* ───────────── weekly punctuality board ─────────────
        A tiny published document: rank, name, department, percentage. The admin
        computes it (they already read everyone's attendance) and every active
