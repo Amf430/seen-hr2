@@ -15,9 +15,7 @@
 
 import { el, esc, toast, openModal } from '../lib/dom.js';
 import { getMe } from '../lib/state.js';
-import { icon } from '../lib/icons.js';
-import { fmtDate } from '../lib/format.js';
-import { tsToDate } from '../lib/format.js';
+import { fmtDate, tsToDate } from '../lib/format.js';
 import { isStale } from '../lib/nav.js';
 import { card, empty, sectionHead, button, callout } from '../lib/ui.js';
 import {

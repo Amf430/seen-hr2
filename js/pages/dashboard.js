@@ -155,14 +155,17 @@ export async function render(view, token) {
   }
   readLeaderboard().then((data) => {
     /* المنشور أولاً ليطابق ما يراه الموظف بالضبط؛ وإن لم يُنشر بعد فالمحسوب */
-    const card = topPunctualCard(data || {
+    /* ⚠️ الاسم puncCard لا card: `card` مستورَدة من ui.js في أعلى الملف،
+       وتسميتها هنا تُظلّلها داخل هذه الدالة — فأول من يحتاج card() لاحقاً
+       يجدها بطاقةَ لوحةٍ لا دالةَ بناء. */
+    const puncCard = topPunctualCard(data || {
       top: punc.board.slice(0, 3).map((x, i) => ({ rank: i + 1, name: x.name,
         department: x.department, rate: x.rate, days: x.counted })),
       from: ymd(punc.window.start), to: ymd(punc.window.end), minDays: punc.minDays, at: new Date()
     });
     /* نفس السبب: #view لا يُستبدل، فـ isConnected لا يكشف إعادة العرض */
     if (isStale(token)) return;
-    if (card) view.appendChild(card);
+    if (puncCard) view.appendChild(puncCard);
   });
 
   /* ── شريط النبض النهائي: الحضور الحيّ يتصدّر ── */

@@ -12,8 +12,7 @@
 import { el, esc } from '../lib/dom.js';
 import { card, sectionHead } from '../lib/ui.js';
 import { icon } from '../lib/icons.js';
-import { fmtDate } from '../lib/format.js';
-import { tsToDate } from '../lib/format.js';
+import { fmtDate, tsToDate } from '../lib/format.js';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
 
