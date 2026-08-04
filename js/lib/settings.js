@@ -10,13 +10,14 @@ const REF = () => doc(db, 'settings', 'config');
 
 /* المفاتيح المستقلة داخل وثيقة الإعدادات — كل شاشة إعدادات تملك واحداً أو
    اثنين منها ولا تمسّ البقية. */
-const KEYS = ['permissionReasons', 'leaveTypes', 'approvers', 'departments',
+const KEYS = ['permissionReasons', 'leaveTypes', 'approvers', 'departments', 'hrTicketCategories',
               'dateExceptions', 'branches', 'payroll', 'company', 'shifts'];
 
 /* القيم الافتراضية تُدمج تحت المحفوظ، فأي مفتاح جديد نضيفه لاحقاً لا يحتاج
    ترحيل بيانات — يظهر بقيمته الافتراضية حتى يحفظ الأدمن. */
 const DEFAULTS = {
   permissionReasons: [],
+  hrTicketCategories: [],
   leaveTypes: [],
   approvers: [],
   departments: [],
@@ -88,6 +89,12 @@ export async function seedSettings() {
     permissionReasons: [
       { id: uid(), label: 'ظرف عائلي' }, { id: uid(), label: 'مراجعة طبية' },
       { id: uid(), label: 'معاملة حكومية' }, { id: uid(), label: 'ظرف طارئ' }
+    ],
+    /* بذور تُعدَّل من «أنواع الطلبات والاعتمادات» — لا قائمة نهائية */
+    hrTicketCategories: [
+      { id: uid(), label: 'التأمين الصحي' }, { id: uid(), label: 'الراتب والبدلات' },
+      { id: uid(), label: 'الإجازات والأرصدة' }, { id: uid(), label: 'المستندات والشهادات' },
+      { id: uid(), label: 'استفسار عام' }
     ],
     leaveTypes: [
       { id: uid(), label: 'إجازة سنوية',      balance: 21, deduct: true },

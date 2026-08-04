@@ -92,7 +92,26 @@ export async function deleteEmployee(u) {
 /* ── استعادة الوصول ──
    يُنشأ حساب دخول جديد بنفس رقم الجوال، وتُنقل بيانات الموظف وكل طلباته
    للحساب الجديد حتى لا يضيع شيء، ثم يُحذف الملف القديم.
-   كلمة المرور تُرجَع للمنادي ليعرضها للأدمن — ولا تُسجَّل في سجل الحركات. */
+   كلمة المرور تُرجَع للمنادي ليعرضها للأدمن — ولا تُسجَّل في سجل الحركات.
+
+   ═══ ⚠️⚠️ الـUID القديم يُحفظ، ولا يُهمَل ⚠️⚠️ ═══
+
+   Firebase يعطي الحساب الجديد UID جديداً، وكل سجلات الحضور مُفهرسة بالـUID
+   (`zkAttendance/{uid}_{date}` و `attendance/{uid}_{date}`). فالنسخة السابقة
+   كانت تنقل الطلبات وحدها ثم تحذف الملف القديم — فيتيتّم تاريخ الحضور كله.
+
+   وأثره ليس عرضياً بل مالياً: المسير يعتبر اليوم بلا سجل غياباً ويخصم يوماً
+   كاملاً. موظف براتب ٩٬٠٠٠ ومستحقّ ٨٬٦٥٠ صار مستحقّه ٦٬٦٠٠ بعد استعادة
+   وصوله — ٢٬٠٥٠ ريالاً بلا سبب. وكلما تأخّرت الاستعادة في الدورة كبر الخصم،
+   والحارس الوحيد أن الصافي لا يصير سالباً — أي أن الموظف قد يستلم صفراً.
+
+   ولماذا لا نُرحّل السجلات بدل حفظ الـUID: قاعدة zkAttendance هي
+   `allow write: if false` — لا أحد يكتب فيها من المتصفح إطلاقاً، والجسر
+   وحده عبر Admin SDK. وهذا مقصود: هي السجل الذي لا يُعبث به وعليه يُبنى
+   المسير. تخفيفها ليمكن الترحيل يفتح باب تزوير الحضور، وهو أسوأ بمراحل.
+
+   فالحلّ أن يحمل الملف قائمة UIDs السابقة، ويقرأ المسير والتقارير تحتها
+   كلها. لا تُمسّ السجلات، ولا تُخفَّف القاعدة، ولا يضيع يوم. */
 export async function restoreAccess(u, requestsOfUser, updateRequestOwner) {
   const phoneDigits = normPhone(u.phone);
   const email = phoneDigits ? phoneDigits + LOGIN_EMAIL_DOMAIN : u.email;
@@ -103,10 +122,14 @@ export async function restoreAccess(u, requestsOfUser, updateRequestOwner) {
   const newUid = acct.uid;
 
   const { id, ...data } = u;
+  /* ⚠️ الترتيب مقصود: القديمة أولاً ثم الأحدث، وبلا تكرار. الموظف الذي
+     تُستعاد وصوله مرّتين يحمل UIDين سابقين، وتاريخه موزّع عليهما معاً. */
+  const previousUids = [...new Set([...(u.previousUids || []), oldUid])];
   /* نفس التراجع: لو فشلت كتابة الملف الجديد نحذف الحساب بدل أن يُقفل الرقم
      ويصير الموظف بلا حساب قديم ولا جديد. */
   try {
-    await setDoc(doc(db, 'users', newUid), { ...data, email, mustChangePassword: true });
+    await setDoc(doc(db, 'users', newUid),
+      { ...data, email, mustChangePassword: true, previousUids });
   } catch (e) {
     await acct.rollback();
     throw e;
@@ -117,9 +140,74 @@ export async function restoreAccess(u, requestsOfUser, updateRequestOwner) {
   for (const r of olds) await updateRequestOwner(r.id, newUid);
 
   await deleteDoc(doc(db, 'users', oldUid));
-  /* التفاصيل بلا كلمة المرور — عمداً */
-  await logAction('استعادة وصول موظف', `${u.name} — أُنشئ حساب جديد بكلمة مرور مؤقتة`);
+  /* التفاصيل بلا كلمة المرور — عمداً. الـUID القديم يُذكر لأنه صار مفتاح
+     تاريخ الموظف، فلو احتاج أحد تتبّعه يوماً وجده في السجل. */
+  await logAction('استعادة وصول موظف',
+    `${u.name} — أُنشئ حساب جديد بكلمة مرور مؤقتة · حُفظ المعرّف السابق ${oldUid}`);
   return { newUid, tempPassword };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   استرجاع تاريخ فقدَ صاحبَه — لمن استُعيد وصولهم قبل هذا الإصلاح
+
+   النسخة السابقة من restoreAccess كانت تُهمل الـUID القديم، فبقي تاريخ
+   الحضور في قاعدة البيانات مفهرساً بمعرّفٍ لا يشير إليه ملف أحد. **لم يُحذف
+   شيء** — تُيّتم فقط. وهذه الدالة تجده وتُعيد ربطه.
+
+   ── كيف نجده ──
+   سجلات الجهاز تحمل `employeeEmpId` (يكتبه الجسر من رقم الموظف على الجهاز)
+   إلى جانب `employeeUid`. فالرقم الوظيفي هو الجسر بين الهويّتين: نستعلم به،
+   ونجمع كل UID ظهر تحته، ونطرح الحالي وما هو مسجَّل أصلاً — الباقي أيتام.
+
+   ⚠️ استعلام بحقل واحد، فلا يحتاج فهرساً مركّباً يُنشأ من Console.
+
+   ⚠️ يقرأ فقط. الربط فعل منفصل (linkPreviousUids) لأن القرار للأدمن:
+   الأرقام الوظيفية أُعيد استعمالها في بعض الشركات، وربط تاريخ موظفٍ سابقٍ
+   بموظفٍ حالي أسوأ من تركه يتيماً. */
+export async function findOrphanHistory(u) {
+  const empId = String(u.empId || '').trim();
+  if (!empId) return { empId: '', found: [] };
+
+  const known = new Set([u.id, ...((u.previousUids || []))]);
+  const byUid = new Map();
+
+  for (const coll of ['zkAttendance', 'attendance']) {
+    let snap;
+    try {
+      snap = await getDocs(query(collection(db, coll), where('employeeEmpId', '==', empId)));
+    } catch (e) {
+      console.error('findOrphanHistory:' + coll, e);
+      continue;
+    }
+    snap.forEach((docSnap) => {
+      const d = docSnap.data();
+      const uid = d.employeeUid;
+      if (!uid || known.has(uid)) return;
+      const cur = byUid.get(uid) || { uid, name: d.employeeName || '', count: 0, from: '', to: '', colls: new Set() };
+      cur.count++;
+      cur.colls.add(coll);
+      if (!cur.from || d.date < cur.from) cur.from = d.date;
+      if (!cur.to   || d.date > cur.to)   cur.to   = d.date;
+      byUid.set(uid, cur);
+    });
+  }
+  return {
+    empId,
+    found: [...byUid.values()]
+      .map((x) => ({ ...x, colls: [...x.colls] }))
+      .sort((a, b) => (a.from < b.from ? -1 : 1))
+  };
+}
+
+/* يربط معرّفات سابقة بملف الموظف — فيعود تاريخه للظهور في المسير والتقارير.
+   ⚠️ لا يمسّ سجلاً واحداً: يكتب حقلاً على ملف الموظف فقط. */
+export async function linkPreviousUids(u, uids) {
+  const merged = [...new Set([...(u.previousUids || []), ...uids.filter(Boolean)])]
+    .filter((x) => x !== u.id);
+  await updateDoc(doc(db, 'users', u.id), { previousUids: merged });
+  await logAction('ربط سجلات سابقة',
+    `${u.name} (${u.empId || '—'}) — ${uids.join('، ')}`);
+  return merged;
 }
 
 /* فهرس مفاتيح البصمة على وثيقة الموظف. القاعدة تسمح للموظف بتحديث هذا

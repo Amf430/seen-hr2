@@ -3,7 +3,7 @@ import { getUsers, getRequests, getProfileUid, setProfileUid, getMe } from '../l
 import { refreshUsers } from '../lib/users.js';
 import { recentCyclesList, reqEventDate, contractDaysLeft, AR_DAYS } from '../lib/dates.js';
 import { money, hhmm, hm, fmtDur, p2 } from '../lib/format.js';
-import { fetchMyAttendance, buildDailyStatus } from '../lib/attendance.js';
+import { fetchMyAttendance, buildDailyStatus, uidsOf } from '../lib/attendance.js';
 import { computePayroll, payrollConfig } from '../lib/payroll.js';
 import { shiftText } from '../lib/shifts.js';
 import { describeRule } from '../lib/geo.js';
@@ -115,7 +115,7 @@ export async function render(view, token) {
     let recs = [];
     /* قراءة مباشرة بمعرّف الوثيقة — الاستعلام بالمدى مرفوض لغير الأدمن،
        وهذه الصفحة تحتاج موظفاً واحداً فقط فلا تحتاج استعلاماً ولا فهرساً. */
-    try { recs = await fetchMyAttendance(cyc, u.id, 'zkAttendance'); }
+    try { recs = await fetchMyAttendance(cyc, uidsOf(u), 'zkAttendance'); }
     catch (e) { console.error(e); host.innerHTML = '<div class="card"><div class="empty">تعذّر تحميل سجل البصمة</div></div>'; return; }
     if (isStale(token)) return;
 

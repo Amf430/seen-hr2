@@ -31,6 +31,7 @@ import * as attendanceLog  from '../pages/attendance-log.js';
 import * as payroll        from '../pages/payroll.js';
 import * as monthly        from '../pages/monthly.js';
 import * as reports        from '../pages/reports.js';
+import * as hrDesk         from '../pages/hr-desk.js';
 import * as audit          from '../pages/audit.js';
 import * as setBranches    from '../pages/settings/branches.js';
 import * as setOrg         from '../pages/settings/departments.js';
@@ -54,6 +55,7 @@ const RENDERERS = {
   payroll:        payroll.render,
   monthly:        monthly.render,
   reports:        reports.render,
+  'hr-desk':      hrDesk.render,
   audit:          audit.render,
   'set-branches': setBranches.render,
   'set-org':      setOrg.render,

@@ -122,6 +122,13 @@ async function main() {
         { id:'lt-sick',   label:'إجازة مرضية',      balance:30, deduct:true },
         { id:'lt-unpaid', label:'إجازة بدون راتب',  balance:30, deduct:true, unpaid:true }
       ],
+      hrTicketCategories: [
+        { id:'hc-ins',  label:'التأمين الصحي' },
+        { id:'hc-pay',  label:'الراتب والبدلات' },
+        { id:'hc-leave',label:'الإجازات والأرصدة' },
+        { id:'hc-doc',  label:'المستندات والشهادات' },
+        { id:'hc-gen',  label:'استفسار عام' }
+      ],
       permissionReasons: [
         { id:'pr-1', label:'مراجعة مستشفى' },
         { id:'pr-2', label:'ظرف عائلي' },
