@@ -1,7 +1,8 @@
 import { el, esc, toast } from '../lib/dom.js';
 import { getSettings, getMe } from '../lib/state.js';
 import { workingDaysBetween } from '../lib/shifts.js';
-import { submitRequest } from '../lib/requests.js';
+import { submitRequest, permOldestDate, permWindowOpen, PERM_BACKDATE_DAYS } from '../lib/requests.js';
+import { ymdKsa } from '../lib/dates.js';
 import { go } from '../lib/nav.js';
 import { card, empty } from '../lib/ui.js';
 
@@ -40,6 +41,10 @@ export function render(view) {
 
 function permForm() {
   const S = getSettings();
+  /* ⚠️ بتاريخ الرياض لا بتاريخ الجهاز: موظف على منطقة زمنية أخرى كان يرى
+     حدّاً أدنى بيوم كامل عن الذي تفرضه القاعدة على الخادم. */
+  const today  = ymdKsa();
+  const oldest = permOldestDate(today);
   const f = el('div', '');
   f.innerHTML = `
     <div class="form-row">
@@ -53,7 +58,10 @@ function permForm() {
           `<option value="${esc(r.id)}">${esc(r.label)}</option>`).join('')}</select></div>
     </div>
     <div class="form-row">
-      <div class="field"><label for="pfDate">التاريخ</label><input id="pfDate" type="date"></div>
+      <div class="field"><label for="pfDate">التاريخ</label>
+        <input id="pfDate" type="date" min="${esc(oldest)}" value="${esc(today)}">
+        <div class="help">يُقبل الاستئذان عن يومه وحتى ${PERM_BACKDATE_DAYS} أيام مضت
+          (من ${esc(oldest)}). بعدها تُغلق الحالة ويُعتمد التأخير أو الخروج المبكر بدون عذر.</div></div>
       <div class="field"><label for="pfTime">الوقت</label><input id="pfTime" type="time"></div>
     </div>
     <div class="form-row one">
@@ -75,6 +83,12 @@ function permForm() {
     const aId = f.querySelector('#pfApprover').value;
     const note = f.querySelector('#pfNote').value.trim();
     if (!date || !time) { toast('أدخل التاريخ والوقت', 'err'); return; }
+    /* ⚠️ يُعاد الحساب على تاريخ اليوم الآن لا على `today` المحفوظ عند بناء
+       النموذج: صفحة تُركت مفتوحة ليلاً تعبر منتصف الليل، فتزحف النافذة. */
+    if (!permWindowOpen(date)) {
+      toast(`أُغلقت نافذة الاستئذان عن ${date} — تُقبل حتى ${PERM_BACKDATE_DAYS} أيام من تاريخه`, 'err');
+      return;
+    }
     if (!rId) { toast('اختر السبب', 'err'); return; }
     if (!aId) { toast('اختر جهة الاعتماد', 'err'); return; }
 

@@ -189,9 +189,15 @@ await check('LEAVE: 5 days, span 1 past the floor',   false, () =>
 await check('LEAVE: 6 days over a 3-day span',        false, () =>
   addDoc(collection(emp, 'requests'), validLeave({ days: 6, startDate: dRel(1), endDate: dRel(3) })));
 
-/* ═══ الاستئذان بأثر رجعي — إعفاء من خصم راتب مضى ═══ */
+/* ═══ الاستئذان بأثر رجعي — إعفاء من خصم راتب مضى ═══
+   النافذة ثلاثة أيام: يومه وثلاثة قبله. الرابع مرفوض — وهو حدّ القرار
+   بالضبط، فاختباره يمسك أي انزلاق بيوم في حساب النافذة. */
 await check('PERM: dated 60 days in the past',        false, () =>
   addDoc(collection(emp, 'requests'), validRequest({ date: dRel(-60) })));
+await check('PERM: dated 4 days back (past window)',  false, () =>
+  addDoc(collection(emp, 'requests'), validRequest({ date: dRel(-4) })));
+await check('PERM: dated 5 days back',                false, () =>
+  addDoc(collection(emp, 'requests'), validRequest({ date: dRel(-5) })));
 await check('PERM: forged category (fake exemption)', false, () =>
   addDoc(collection(emp, 'requests'), validRequest({ category: 'تأخير مختلق يعفيني' })));
 await check('PERM: malformed date',                   false, () =>
@@ -338,7 +344,9 @@ await check('employee reads own profile',             true,  () => getDoc(doc(em
 await check('employee reads settings',                true,  () => getDoc(doc(emp, 'settings/config')));
 await check('employee submits a permission',          true,  () => addDoc(collection(emp, 'requests'), validRequest()));
 await check('permission for an early-out',            true,  () => addDoc(collection(emp, 'requests'), validRequest({ category: 'خروج مبكر' })));
-await check('permission filed 5 days late',           true,  () => addDoc(collection(emp, 'requests'), validRequest({ date: dRel(-5) })));
+/* حافّة النافذة من الداخل — آخر يوم مقبول. لو ضاقت النافذة يوماً سقط هذا. */
+await check('permission filed 3 days late (edge)',    true,  () => addDoc(collection(emp, 'requests'), validRequest({ date: dRel(-3) })));
+await check('permission filed 1 day late',            true,  () => addDoc(collection(emp, 'requests'), validRequest({ date: dRel(-1) })));
 await check('permission for next week',               true,  () => addDoc(collection(emp, 'requests'), validRequest({ date: dRel(7) })));
 await check('employee submits a leave',               true,  () => addDoc(collection(emp, 'requests'), validLeave({ attachmentLink: 'https://drive.google.com/file/x' })));
 /* أيام العمل أقلّ من المدى التقويمي — إجازة تمرّ على راحة أو عطلة رسمية.

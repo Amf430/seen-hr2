@@ -323,7 +323,12 @@ body.is-locked {
     font-size: 16px;
   }
   /* أهداف لمس لا تقل عن 44px */
+  /* ⚠️ .topbar__back هنا مع .menu-toggle لا وحده: الزرّان متجاوران في أول
+     الشريط، ومقاسان مختلفان جنب بعضهما يبدوان خطأً — وهذا الزرّ بالذات
+     يُلمس بالإبهام في وضع standalone حيث لا بديل عنه. */
   .btn, .nav a, .chip__x, .chip__act, .menu-toggle { min-block-size: 44px }
+  /* مربّع: min-inline-size هنا وحده — تعميمها على .btn يمدّ كل زرّ ضيق */
+  .topbar__back { min-block-size: 44px; min-inline-size: 44px }
   .btn.sm { min-block-size: 40px }
   .actions-cell .btn { min-block-size: 40px }
 }

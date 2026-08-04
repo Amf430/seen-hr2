@@ -7,11 +7,11 @@
 
 import { initializeApp, deleteApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import {
-  getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged,
+  getAuth, connectAuthEmulator, signInWithEmailAndPassword, signOut, onAuthStateChanged,
   sendPasswordResetEmail, createUserWithEmailAndPassword, updatePassword, deleteUser
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {
-  getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection,
+  getFirestore, connectFirestoreEmulator, doc, getDoc, setDoc, updateDoc, deleteDoc, collection,
   addDoc, getDocs, query, where, orderBy, limit, onSnapshot, serverTimestamp,
   runTransaction, Timestamp
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
@@ -22,6 +22,41 @@ const fbApp = initializeApp(firebaseConfig);
 
 export const auth = getAuth(fbApp);
 export const db   = getFirestore(fbApp);
+
+/* ═══ المحاكي المحلي — للتجربة وحدها ═══
+
+   ── لماذا يوجد هذا أصلاً ──
+   قيادة النظام كاملاً من شاشة الدخول إلى آخر صفحة كانت تتطلّب حساباً حقيقياً
+   على الإنتاج، وكل ضغطة زرّ فيه تكتب سجلاً حقيقياً: حضور بتاريخ اليوم لموظف
+   حقيقي، وطلب يصل صندوق مدير حقيقي، وسطر في auditLog لا يُحذف أبداً
+   (allow update, delete: if false). فالتجربة نفسها كانت تلوّث ما تختبره.
+
+   مع المحاكي تُقاد الأدوار الثلاثة على بيانات مصطنعة، ولا يُكتب حرف واحد في
+   الإنتاج، وتُعاد التجربة كلما تغيّر شيء.
+
+   ⚠️⚠️ الشرط hostname وحده يفصل الاثنين، فاقرأه بدقة قبل تعديله:
+   يعمل على localhost و 127.0.0.1 فقط. النظام منشور على
+   amf430.github.io — وهو ليس أياً منهما، فلا يمرّ هذا الفرع في الإنتاج
+   إطلاقاً ولا يتغيّر سلوكه بحرف. أي توسيع لهذا الشرط يوجّه بيانات حقيقية
+   إلى خادم وهمي، أو أسوأ: يوجّه بيانات التجربة إلى الإنتاج.
+
+   ⚠️ ولا يكفي hostname وحده: نشترط أيضاً وجود العَلَم في localStorage، حتى
+   لا يتحوّل أي فتح محلي للنظام (تصفّح عادي على جهاز مطوّر) إلى محاكي بصمت
+   فيظنّ أن بياناته اختفت. يُفعَّل من صفحة البذور.
+
+   التفعيل:  localStorage.setItem('seen-hr:emulator', '1')  ثم أعد التحميل. */
+const LOCAL_HOSTS = ['localhost', '127.0.0.1'];
+export const usingEmulator = (() => {
+  if (typeof window === 'undefined') return false;
+  if (!LOCAL_HOSTS.includes(location.hostname)) return false;
+  let on = false;
+  try { on = localStorage.getItem('seen-hr:emulator') === '1'; } catch (e) { on = false; }
+  if (!on) return false;
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  connectFirestoreEmulator(db, '127.0.0.1', 8080);
+  console.log('[seen-hr] يعمل على المحاكي المحلي — لا اتصال بالإنتاج');
+  return true;
+})();
 
 export {
   signInWithEmailAndPassword, signOut, onAuthStateChanged,

@@ -83,7 +83,9 @@ export function unlockScroll() {
 
    الآن: العنوان ثابت أعلى، والأزرار ثابتة أسفل، والجسم وحده يتمرّر —
    و overscroll-behavior:contain يمنع تسريب التمرير للصفحة خلفه. */
-export function openModal(innerHtml) {
+/* onClose يُنادى مهما كان طريق الإغلاق — زرّ، أو Esc، أو ضغطة خارج النافذة.
+   بدونه كل نافذة تُرجع وعداً تبقى معلّقة للأبد لو أغلقها المستخدم بـ Esc. */
+export function openModal(innerHtml, onClose) {
   const ov = el('div', 'overlay');
   const m  = el('div', 'modal');
 
@@ -120,6 +122,7 @@ export function openModal(innerHtml) {
     unlockScroll();
     document.removeEventListener('keydown', onKey);
     if (prevFocus && prevFocus.focus) prevFocus.focus();
+    if (onClose) onClose();
   };
 
   const onKey = (e) => {

@@ -795,6 +795,20 @@ tr.is-clickable:hover{background:var(--row-hover)}
 .loc-photo__label{font-size:var(--fs-micro);color:var(--muted-strong);margin-block-end:var(--sp-1)}
 .loc-photo__img{inline-size:100%;border-radius:var(--r-md);border:1px solid var(--line);display:block}
 
+/* ── نافذة التقاط صورة الموقع ──
+   مساحة ثابتة الحدّ الأدنى: بدونها تقفز أزرار النافذة تحت الإصبع لحظة ظهور
+   المعاينة، فيضغط الموظف «إلغاء» وهو يقصد «أرسِل». */
+.shot{display:flex;align-items:center;justify-content:center;min-block-size:150px;
+  margin-block-start:var(--sp-3);padding:var(--sp-2);border:1px dashed var(--line-strong);
+  border-radius:var(--r-md);background:var(--paper-2)}
+.shot__msg{font-size:var(--fs-sm);color:var(--muted-strong);text-align:center;margin:0}
+.shot__img{max-inline-size:100%;max-block-size:44vh;border-radius:var(--r-md);display:block}
+/* التسمية تتصرّف كزرّ — لمسة الموظف عليها هي ما يفتح الكاميرا */
+label.btn{cursor:pointer}
+/* ‎.btn تفرض display:inline-flex فتتغلّب على [hidden] الافتراضية، فكان زرّ
+   «أرسِل الصورة» يظهر قبل التقاط أي صورة. */
+.btn[hidden]{display:none}
+
 /* ── لوحة استهلاك الصور ── */
 .usage{display:flex;align-items:center;gap:var(--sp-4);flex-wrap:wrap}
 .usage__bar{flex:1;min-inline-size:160px;block-size:8px;background:var(--paper-2);
@@ -817,6 +831,18 @@ tr.is-clickable:hover{background:var(--row-hover)}
 /* ── جرس الإشعارات ──
    يلي البحث مباشرةً، فلا يحمل margin-inline-start:auto — البحث وحده يدفع
    المجموعة إلى الطرف. */
+/* ── زرّ الرجوع في الترويسة ──
+   بنفس مقاس زرّ القائمة (--control-h) لا مقاس الجرس: الاثنان يقفان متجاورين
+   في أقصى بداية الشريط على الجوال، ومقاسان مختلفان جنب بعضهما يبدوان خطأً.
+   ⚠️ [hidden] بعد قاعدة display لأن display:flex تتغلّب عليها بالتحديد. */
+.topbar__back{display:flex;align-items:center;justify-content:center;flex:none;
+  inline-size:var(--control-h);block-size:var(--control-h);
+  border:1px solid var(--line-strong);border-radius:var(--r-md);
+  background:var(--card);color:var(--maroon);cursor:pointer}
+.topbar__back:hover{background:var(--maroon-tint);border-color:var(--maroon)}
+.topbar__back svg{inline-size:20px;block-size:20px}
+.topbar__back[hidden]{display:none}
+
 .topbar__bell{position:relative;display:flex;align-items:center;justify-content:center;
   flex:none;inline-size:38px;block-size:38px;
   border:1px solid var(--line-strong);border-radius:var(--r-md);

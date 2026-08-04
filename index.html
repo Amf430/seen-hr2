@@ -164,6 +164,14 @@ if (window.top !== window.self) {
     <header class="topbar">
       <button class="menu-toggle" id="menuToggle" aria-label="فتح القائمة"
               aria-controls="sidebar" aria-expanded="false">☰</button>
+      <!-- زرّ الرجوع: يظهر في كل صفحة عدا الرئيسية. لا غنى عنه حين يُضاف
+           النظام كأيقونة على الشاشة الرئيسية، فوضع standalone بلا زرّ رجوع
+           من المتصفح أصلاً. السهم لليمين لأن الواجهة RTL. -->
+      <button class="topbar__back" id="backBtn" aria-label="رجوع للصفحة السابقة" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M14 6l6 6-6 6"/><path d="M20 12H4"/></svg>
+      </button>
       <div class="page-head">
         <h2 id="pageTitle">الرئيسية</h2>
         <div class="hint" id="pageHint"></div>

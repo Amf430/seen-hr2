@@ -11,6 +11,9 @@ import { db, doc, getDoc, collection, query, where, getDocs } from './firebase.j
 import { ymd, AR_DAYS } from './dates.js';
 import { tsToDate } from './format.js';
 import { resolveShift, shiftWindowFor, MISSING_OUT_AFTER_MIN, LATE_GRACE_MIN } from './shifts.js';
+/* ⚠️ لا دورة استيراد: requests.js لا يستورد هذا الملف ولا شيء في شجرته
+   (state / perms / dom / audit / dates / firebase) يصل إليه. */
+import { permWindowOpen } from './requests.js';
 import { hmToDate } from './dates.js';
 import { hm } from './format.js';
 
@@ -128,7 +131,7 @@ export function buildDailyStatus(cyc, users, requests, recs) {
       const win = shiftWindowFor(d, shift);
       /* الجلسة المفتوحة تُقصّ عند نهاية الوردية بدل أن تعدّ حتى الآن */
       const { secs } = workedSecs(sessions, win ? win.end.getTime() : null);
-      let status, cls, note = '', lateMin = 0;
+      let status, cls, note = '', lateMin = 0, excusable = false;
       if (leave) { status = 'إجازة: ' + (leave.categoryLabel || ''); cls = 'leave'; }
       else if (firstIn) {
         /* نسيان بصمة الخروج: جلسة مفتوحة ومضى أكثر من ساعتين على نهاية الوردية */
@@ -148,6 +151,14 @@ export function buildDailyStatus(cyc, users, requests, recs) {
         }
         if (latePerm)  note = (note ? note + ' · ' : '') + `استئذان تأخير حتى ${latePerm.time || ''}`;
         if (earlyPerm) note = (note ? note + ' · ' : '') + `استئذان خروج مبكر ${earlyPerm.time || ''}`;
+        /* ── نافذة الاستئذان ──
+           يوم متأخر بلا استئذان معتمد: إمّا النافذة ما زالت مفتوحة فيُقال
+           للموظف كم بقي له، أو أُغلقت فيُعتمد التأخير «بدون عذر» ويبقى في
+           الخصم. الرقم كان يظهر عارياً بلا إشارة إلى أن له مخرجاً في وقته. */
+        if (cls === 'late' && !latePerm) {
+          excusable = permWindowOpen(dateStr);
+          note += excusable ? ' · يمكن تقديم استئذان عنه' : ' · بدون عذر';
+        }
       } else {
         status = 'غائب'; cls = 'absent';
         if (latePerm)       note = `استئذان تأخير حتى ${latePerm.time || ''}`;
@@ -155,7 +166,7 @@ export function buildDailyStatus(cyc, users, requests, recs) {
       }
       if (shift.src === 'exception' && shift.exLabel) note = (note ? note + ' · ' : '') + shift.exLabel;
       else if (shift.src === 'dept')                  note = (note ? note + ' · ' : '') + 'وردية القسم';
-      rows.push({ u, dateStr, dow, shift, status, cls, note, firstIn, lastOut, secs, rec, openSess, lateMin });
+      rows.push({ u, dateStr, dow, shift, status, cls, note, firstIn, lastOut, secs, rec, openSess, lateMin, excusable });
     }
   });
   rows.sort((a, b) => (a.u.name || '').localeCompare(b.u.name || '') || (a.dateStr > b.dateStr ? 1 : -1));

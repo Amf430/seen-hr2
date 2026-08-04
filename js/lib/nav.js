@@ -46,15 +46,91 @@ function parseHash() {
 const hashFor = (page, arg) =>
   '#' + encodeURIComponent(page) + (arg ? '/' + encodeURIComponent(arg) : '');
 
-/* ── الانتقال لصفحة أخرى ──
-   الكتابة في الـ hash تُطلق hashchange، وهو من يُصدر الحدث — فلا ينتشر
-   العرض مرّتين. وإن لم يتغيّر العنوان (نفس الصفحة) نُصدره مباشرة. */
-export function go(page, arg = '') {
+/* ═══ مكدّس الرجوع ═══
+
+   ── لماذا نمسك مكدّساً بدل الاكتفاء بـ history.length ──
+   حين يُضاف النظام كأيقونة على الشاشة الرئيسية يفتحه المتصفح في وضع
+   standalone: بلا شريط عنوان وبلا زرّي «رجوع» و«تقدّم». فالموظف الذي يدخل
+   «خدماتي» أو «ملفي الوظيفي» يجد نفسه بلا طريق للخلف إلا القائمة الجانبية —
+   وهي أول ما لا يخطر على باله. الزرّ في الترويسة يعطيه المخرج المألوف.
+
+   و history.length لا يصلح دليلاً: يعدّ كل صفحة زارها التبويب قبل النظام
+   أصلاً، فيبقى الزرّ ظاهراً وهو يخرج المستخدم من التطبيق كلّه. المكدّس هنا
+   يعدّ تنقّلاتنا نحن وحدها.
+
+   ⚠️ يبقى المكدّس متوازياً مع تاريخ المتصفح خطوةً بخطوة: كل go() تدفع فيه
+   وتكتب مدخلاً في التاريخ، و goBack() تنادي history.back() فيرتدّ الاثنان
+   معاً. لذلك لا تدفع go({replace:true}) شيئاً — هي تستبدل مدخل التاريخ ولا
+   تضيف واحداً. */
+const backStack = [];
+/* الـ hashchange القادم مصدره go() لا زرّ المتصفح */
+let selfNav = false;
+
+export const backStackDepth = () => backStack.length;
+export const canGoBack = () => backStack.length > 0;
+
+/* الانتقال الفعلي: يكتب العنوان ويُصدر العرض. لا يمسّ المكدّس إطلاقاً —
+   من يناديه هو من يقرّر ما يفعله به. */
+function navTo(page, arg, replace) {
   currentPage = page;
   currentArg  = arg;
   const want = hashFor(page, arg);
-  if (location.hash !== want) location.hash = want;
-  else emit();
+  /* العنوان نفسه: لا hashchange سيقع، فنُصدر العرض بأنفسنا */
+  if (location.hash === want) { emit(); return; }
+  if (replace) {
+    /* replaceState لا تُطلق hashchange أيضاً — لا حاجة لرفع selfNav */
+    history.replaceState(null, '', location.pathname + location.search + want);
+    emit();
+    return;
+  }
+  selfNav = true;
+  location.hash = want;   /* hashchange هو من يُصدر العرض */
+}
+
+/* ── الانتقال لصفحة أخرى ──
+   replace: يستبدل مدخل التاريخ بدل أن يضيف واحداً. للتحويلات التي لا يصحّ
+   الرجوع إليها — صفحة يمنعها دور المستخدم مثلاً: لو دُفعت في المكدّس لأعادنا
+   الرجوعُ إليها، فيحوّلنا الحارس عنها من جديد، بلا مخرج. */
+export function go(page, arg = '', { replace = false } = {}) {
+  const from = { page: currentPage, arg: currentArg };
+  const same = location.hash === hashFor(page, arg);
+
+  /* ⚠️ الاستبدال إلى نفس صفحة قمّة المكدّس يطويهما في واحدة، فتبقى القمّة
+     مدخلاً وهمياً: التاريخ ما عاد فيه ما يُرجَع إليه، والمكدّس يزعم العكس.
+     هذا يقع في مسار حقيقي — الموظف يفتح صفحة يمنعها دوره وهو في الرئيسية،
+     فيدفع go() «الرئيسية» ثم يستبدلها حارسُ الراوتر بـ«الرئيسية» نفسها،
+     فيظهر زرّ رجوع يخرجه من التطبيق. نطويها هنا بدل أن نطاردها لاحقاً. */
+  if (replace) {
+    const top = backStack[backStack.length - 1];
+    if (top && top.page === page && top.arg === arg) backStack.pop();
+  } else if (!same) {
+    backStack.push(from);
+  }
+  navTo(page, arg, replace);
+}
+
+/* رجوع خطوة واحدة داخل النظام. المكدّس فارغ يعني أن هذه أول صفحة في هذه
+   الجلسة — كأن يفتح الموظف الأيقونة على رابط محفوظ — فنأخذه للرئيسية بدل
+   أن نُخرجه من التطبيق إلى ما كان قبله في التبويب. */
+export function goBack(fallback = 'home') {
+  const prev = backStack[backStack.length - 1];
+  if (!prev) { go(fallback, '', { replace: true }); return; }
+
+  /* الطريق المعتاد: history.back() ليبقى زرّا المتصفح على سطح المكتب
+     متّسقين معنا. الـ hashchange الناتج هو من يسحب القمّة — لا نسحبها هنا
+     وإلا سُحبت مرّتين. */
+  if (hashFor(prev.page, prev.arg) !== location.hash) { history.back(); return; }
+
+  /* المدخل السابق يحمل العنوان نفسه، فـ history.back() لن تُطلق hashchange
+     ولن يتحرّك شيء — الزرّ يبدو معطّلاً. نرجع بأنفسنا. */
+  backStack.pop();
+  navTo(prev.page, prev.arg, true);
+}
+
+/* يُنادى عند تسجيل الخروج: مكدّس المستخدم السابق لا يخصّ من يدخل بعده،
+   وزرّ الرجوع كان سيعيده لصفحة ليست له. */
+export function resetNav() {
+  backStack.length = 0;
 }
 
 /* إعادة عرض الصفحة الحالية — تحلّ محل نداءات render() المباشرة */
@@ -91,6 +167,16 @@ export function initFromHash(fallbackPage = 'home') {
 window.addEventListener('hashchange', () => {
   const { page, arg } = parseHash();
   if (!page) return;
+  if (selfNav) {
+    /* go() دفعت في المكدّس قبل الكتابة — لا شيء يُضاف هنا */
+    selfNav = false;
+  } else {
+    /* مصدره المتصفح: إن كانت الوجهة قمّة المكدّس فهو رجوع فنسحبها، وإلا فهو
+       تقدّم أو عنوان كُتب يدوياً فنُعامله كتنقّل جديد. */
+    const top = backStack[backStack.length - 1];
+    if (top && top.page === page && top.arg === arg) backStack.pop();
+    else backStack.push({ page: currentPage, arg: currentArg });
+  }
   currentPage = page;
   currentArg  = arg;
   emit();

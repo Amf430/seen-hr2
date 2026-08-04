@@ -12,8 +12,8 @@ import { openPalette, bindPaletteShortcut } from '../components/command-palette.
 import { bindBell, paintBell } from '../components/notif-panel.js';
 import { getMe, getRequests } from '../lib/state.js';
 import { navFor, PAGES, HOME_ADMIN, ORG_MANAGER } from '../config/pages.js';
-import { getPage, onNavigate } from '../lib/nav.js';
-import { canApprove, roleLabel } from '../lib/perms.js';
+import { getPage, onNavigate, goBack, canGoBack } from '../lib/nav.js';
+import { canApproveType, roleLabel } from '../lib/perms.js';
 import { hasChain, ownsCurrentStep } from '../lib/requests.js';
 
 export function paintIdentity() {
@@ -76,8 +76,15 @@ export function updateBadges() {
   paintBell();
 
   if (me.role !== 'admin' && me.role !== 'manager') return;
+  /* ⚠️ canApproveType لا canApprove — لازم تطابق ما تعدّه صفحة «بانتظار
+     موافقتك» في inbox.js، وهي تعدّ بـ canApproveType.
+
+     الفرق ليس شكلياً: canApprove تُرجع true لمدير القسم على طلبات الإجازة،
+     لكن الإجازة تُعدّل رصيد الموظف فيعتمدها الأدمن وحده. فكانت الشارة تقول
+     لمدير القسم «٤» ثم يفتح الصفحة فيجد ثلاثة وسطراً يشرح أن الإجازات ليست
+     له — رقم يعِد بعمل لا وجود له. */
   const pending = getRequests().filter((r) => r.status === 'pending' &&
-    (hasChain(r) ? ownsCurrentStep(r) : canApprove(r))).length;
+    (hasChain(r) ? ownsCurrentStep(r) : canApproveType(r))).length;
   const a = document.querySelector('#navLinks a[data-badge]');
   if (!a) return;
   a.querySelector('.badge')?.remove();
@@ -86,6 +93,17 @@ export function updateBadges() {
     b.setAttribute('aria-label', `${pending} طلب بانتظار المراجعة`);
     a.appendChild(b);
   }
+}
+
+/* ── زرّ الرجوع ──
+   يظهر في كل صفحة عدا الرئيسية، حتى حين يكون المكدّس فارغاً: الموظف الذي
+   فتح الأيقونة على صفحة محفوظة يحتاج مخرجاً بقدر من وصلها بالتنقّل، و
+   goBack() تأخذه للرئيسية في تلك الحالة. إخفاؤه عليه يعني حبسه في الصفحة. */
+export function paintBackBtn(pageId) {
+  const b = $('#backBtn');
+  if (!b) return;
+  b.hidden = pageId === 'home';
+  b.setAttribute('aria-label', canGoBack() ? 'رجوع للصفحة السابقة' : 'رجوع للرئيسية');
 }
 
 export function setPageHeader(pageId) {
@@ -128,6 +146,11 @@ export function initShellChrome() {
   };
 
   toggle.onclick = () => (sidebar.classList.contains('open') ? close() : open());
+
+  /* ⚠️ يُركَّب مرة واحدة هنا لا في كل عرض صفحة: الزرّ عنصر ثابت في الترويسة،
+     فإعادة ربطه مع كل تنقّل تُراكم لا شيء لكنها تُخفي أين رُبط فعلاً. */
+  const back = $('#backBtn');
+  if (back) back.onclick = () => goBack();
 
   /* ── البحث الموحّد ──
      الاختصار يُركَّب مرة واحدة هنا لا في كل عرض صفحة، وزر ظاهر بجواره لأن
