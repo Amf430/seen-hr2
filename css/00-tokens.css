@@ -1,0 +1,151 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   متغيّرات التصميم
+   ألوان الشركة مجمّدة — لا تُغيَّر. كل ما عداها (المقاسات والمسافات) قابل للضبط من هنا.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root{
+  /* ════════════════════════════════════════════════════════════════
+     1 · BRAND COLOR — FROZEN.
+     Byte-identical to index.html lines 13-24. Do not change, re-tint,
+     or add a new accent hue anywhere in this system.
+     ════════════════════════════════════════════════════════════════ */
+  --maroon:#240215;
+  --maroon-2:#6a063e;
+  --maroon-tint:#f9f2f6;
+  --gold:#b28764;
+  --paper:#faf7f4;
+  --card:#ffffff;
+  --ink:#2b2320;
+  --muted:#8a807a;
+  --line:#ece4de;
+  --green:#1f7a43; --green-bg:#e7f4ec;
+  --red:#b32626;   --red-bg:#fbeaea;
+  --amber:#c47b16; --amber-bg:#fdf3e3;
+
+  /* 1b · Status hues ALREADY PRESENT in the source, now named instead of
+     hard-coded. NOT new hues:
+       --info   = .pill.leave    (line 128) + bar 'إجازة' (1357)
+       --violet = .pill.missing  (line 131) + warning card (2565-2566)
+       --teal   = .pill.holiday  (line 132)
+       --neutral-bg = .pill.cancelled (124) / .pill.suspended (130) */
+  --info:#2c5aa0;    --info-bg:#e8eef7;
+  --violet:#7b2d8e;  --violet-bg:#f3e8f7;
+  --teal:#1f6f8b;    --teal-bg:#e8f1f7;
+  --neutral:#8a807a; --neutral-bg:#eeecea;
+
+  /* ════════════════════════════════════════════════════════════════
+     2 · DERIVED NEUTRALS — same warm brown family, no new hue.
+     ════════════════════════════════════════════════════════════════ */
+  --ink-2:#4a3f39;         /* secondary text · 8.9:1 on white */
+  --muted-strong:#6f645d;  /* MANDATORY for any muted text < 18px · 5.75:1
+                              (plain --muted is 3.75:1 = AA fail) */
+  --line-2:#f4eee9;        /* hairline inside cards */
+  --line-strong:#ddd2c9;   /* form control borders */
+  --paper-2:#f3ede8;       /* rails, inactive segment track */
+  --row-alt:#fcfaf8;       /* table zebra */
+  --row-hover:#f8f3ef;     /* table row hover (was #fdfbf9, line 115) */
+  --maroon-ink:#16010d;    /* gradient end, already used at line 38/172 */
+
+  /* ════════════════════════════════════════════════════════════════
+     3 · ALPHAS — elevation, scrims, on-dark surfaces
+     ════════════════════════════════════════════════════════════════ */
+  --a-ink-04:rgba(43,35,32,.04);
+  --a-ink-06:rgba(43,35,32,.06);
+  --a-ink-08:rgba(43,35,32,.08);
+  --a-ink-14:rgba(43,35,32,.14);
+  --a-maroon-08:rgba(36,2,21,.08);
+  --a-maroon-16:rgba(36,2,21,.16);
+  --a-maroon-24:rgba(36,2,21,.24);
+  --a-white-08:rgba(255,255,255,.08);
+  --a-white-12:rgba(255,255,255,.12);
+  --a-white-16:rgba(255,255,255,.16);
+  --a-white-40:rgba(255,255,255,.4);
+  --a-white-56:rgba(255,255,255,.56);
+  --a-white-80:rgba(255,255,255,.8);
+  --scrim:rgba(43,35,32,.55);
+
+  /* ════════════════════════════════════════════════════════════════
+     4 · TYPE — Tajawal 400/500/700/800 (already loaded, line 9)
+     Root stays 16px so 1rem = 16px and the rem math is honest.
+     ════════════════════════════════════════════════════════════════ */
+  --font:'Tajawal',system-ui,'Segoe UI',sans-serif;
+
+  --fs-micro:0.6875rem;   /* 11px */
+  --fs-caption:0.75rem;   /* 12px */
+  --fs-sm:0.8125rem;      /* 13px */
+  --fs-base:0.9375rem;    /* 15px */
+  --fs-md:1rem;           /* 16px */
+  --fs-lg:1.125rem;       /* 18px */
+  --fs-xl:1.3125rem;      /* 21px */
+  --fs-2xl:1.625rem;      /* 26px */
+  --fs-3xl:2rem;          /* 32px */
+  --fs-4xl:2.5rem;        /* 40px */
+
+  --lh-tight:1.2;         /* 32px+ numerals only */
+  --lh-heading:1.4;       /* 18-26px Arabic headings */
+  --lh-snug:1.6;          /* dense table cells, pills */
+  --lh-base:1.75;         /* Arabic body copy */
+  --lh-loose:1.9;         /* long help / legal paragraphs */
+
+  --fw-regular:400; --fw-medium:500; --fw-bold:700; --fw-black:800;
+  --ls-flat:0;            /* Arabic: ALWAYS 0 */
+  --ls-num:.02em;         /* digit-only runs (clock, money) */
+
+  /* ════════════════════════════════════════════════════════════════
+     5 · SPACING — 4px base
+     ════════════════════════════════════════════════════════════════ */
+  --sp-1:4px;  --sp-2:8px;  --sp-3:12px; --sp-4:16px; --sp-5:20px;
+  --sp-6:24px; --sp-7:28px; --sp-8:32px; --sp-10:40px; --sp-12:48px;
+  --sp-16:64px;
+
+  /* ════════════════════════════════════════════════════════════════
+     6 · DENSITY / LAYOUT
+     ════════════════════════════════════════════════════════════════ */
+  --control-h:40px; --control-h-sm:32px; --control-h-lg:48px;
+  --row-h:44px; --row-h-compact:36px;
+  --cell-py:12px; --cell-px:16px;
+  --cell-py-compact:8px; --cell-px-compact:10px;
+  --sidebar-w:264px;
+  --topbar-h:72px;
+  --content-max:1320px;
+  --content-pad:24px;
+  --card-pad:20px;
+  --table-min:760px;
+
+  /* ════════════════════════════════════════════════════════════════
+     7 · RADIUS
+     ════════════════════════════════════════════════════════════════ */
+  --r-xs:4px; --r-sm:6px; --r-md:8px; --r-lg:12px; --r-xl:16px;
+  --r-2xl:20px; --r-pill:999px;
+  --radius:12px;              /* legacy alias for line 26 */
+
+  /* ════════════════════════════════════════════════════════════════
+     8 · ELEVATION
+     ════════════════════════════════════════════════════════════════ */
+  --e-0:none;
+  --e-1:0 1px 2px var(--a-ink-04);
+  --e-2:0 1px 2px var(--a-ink-04),0 4px 12px var(--a-ink-08);
+  --e-3:0 2px 8px var(--a-ink-08),0 18px 40px var(--a-ink-14);
+  --e-4:0 32px 80px rgba(43,35,32,.32);
+  --e-hero:0 10px 30px var(--a-maroon-24);
+  --shadow:var(--e-1);        /* legacy alias for line 25 */
+
+  /* ════════════════════════════════════════════════════════════════
+     9 · FOCUS — the current file has NO focus-visible treatment
+     ════════════════════════════════════════════════════════════════ */
+  --focus:var(--maroon-2);
+  --focus-on-dark:#ffffff;
+  --focus-w:2px;
+  --focus-offset:2px;
+  --ring:0 0 0 3px var(--a-maroon-16);
+  --ring-danger:0 0 0 3px rgba(179,38,38,.18);
+  --ring-on-dark:0 0 0 3px var(--a-white-40);
+
+  /* ════════════════════════════════════════════════════════════════
+     10 · MOTION + STACKING
+     ════════════════════════════════════════════════════════════════ */
+  --dur-1:120ms; --dur-2:180ms; --dur-3:260ms;
+  --ease:cubic-bezier(.2,.6,.3,1);
+
+  --z-topbar:40; --z-scrim:55; --z-nav:60; --z-modal:100; --z-toast:200;
+}

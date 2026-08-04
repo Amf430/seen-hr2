@@ -1,0 +1,531 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /* ───────────── identity ─────────────
+       hasP() replaces sIn() on every write.
+       A stranger who self-signs-up has request.auth != null but NO users/ doc,
+       so hasP() is false and they can do nothing at all.
+       isActive() additionally blocks suspended employees at the database,
+       not just in the UI.                                                  */
+    function sIn()     { return request.auth != null; }
+    function myD()     { return /databases/$(database)/documents/users/$(request.auth.uid); }
+    function hasP()    { return sIn() && exists(myD()); }
+    function me()      { return get(myD()).data; }
+    function isActive(){ return hasP() && me().get('status','active') == 'active'; }
+    function isAdmin() { return isActive() && me().role == 'admin'; }
+    function isMgr()   { return isActive() && me().role == 'manager'; }
+    function myDept()  { return me().get('department',''); }
+
+    function d()       { return request.resource.data; }
+    function p()       { return resource.data; }
+    function only(k)   { return d().diff(p()).affectedKeys().hasOnly(k); }
+
+    /* a manager may only act inside their own, non-empty department */
+    function sameDept() {
+      return isMgr() && resource != null && myDept() != ''
+             && p().get('department','') == myDept();
+    }
+
+    /* ───────────── time ─────────────
+       request.time is UTC; the company runs on Riyadh time (UTC+3), so the
+       calendar date is computed after shifting. Used to stop an employee
+       fabricating an attendance record for a past date.                    */
+    function fresh(t) {
+      return t is timestamp
+             && t > request.time - duration.value(5,'m')
+             && t < request.time + duration.value(2,'m');
+    }
+    function pad(n)    { return n < 10 ? '0' + string(n) : string(n); }
+    function ymd(t)    { return string(t.year()) + '-' + pad(t.month()) + '-' + pad(t.day()); }
+    function ksa()     { return request.time + duration.value(3,'h'); }
+    function todayKsa(){ return ymd(ksa()); }
+    function yesterKsa(){ return ymd(ksa() - duration.value(24,'h')); }
+
+    /* ───────────── calendar dates ─────────────
+       'YYYY-MM-DD' strings sort lexicographically, so >= and <= compare dates
+       directly. For arithmetic they must become timestamps.
+
+       ymdTs() will ERROR on an impossible date such as '2026-13-45' — the
+       regex in isYmd() admits it but timestamp.date() rejects it. A rule that
+       errors DENIES, which is the safe direction, and && short-circuits so
+       ymdTs() is never reached unless isYmd() passed first.                 */
+    function isYmd(s) { return s is string && s.matches('^\\d{4}-\\d{2}-\\d{2}$'); }
+    function ymdTs(s) {
+      return timestamp.date(int(s.split('-')[0]), int(s.split('-')[1]), int(s.split('-')[2]));
+    }
+
+    /* ───────────── attendance sessions ─────────────
+       Rules cannot loop, and sessions is capped at 12, so the prefix check is
+       unrolled. `n <= i` short-circuits before the index is ever evaluated.  */
+    function oldN()    { return p().sessions.size(); }
+    function newN()    { return d().sessions.size(); }
+    function oldLast() { return p().sessions[oldN()-1]; }
+    function newLast() { return d().sessions[newN()-1]; }
+    function sameAt(i) { return d().sessions[i] == p().sessions[i]; }
+    function frozenBelow(n) {
+      return (n <=  0 || sameAt(0))  && (n <=  1 || sameAt(1))
+          && (n <=  2 || sameAt(2))  && (n <=  3 || sameAt(3))
+          && (n <=  4 || sameAt(4))  && (n <=  5 || sameAt(5))
+          && (n <=  6 || sameAt(6))  && (n <=  7 || sameAt(7))
+          && (n <=  8 || sameAt(8))  && (n <=  9 || sameAt(9))
+          && (n <= 10 || sameAt(10)) && (n <= 11 || sameAt(11));
+    }
+    function isOpen(s) { return !('out' in s) || s.out == null; }
+
+    /* ═════════════════════════ users ═════════════════════════ */
+    match /users/{uid} {
+      allow read: if isAdmin() || (sIn() && request.auth.uid == uid) || sameDept();
+
+      allow create: if isAdmin();
+
+      /* Self-update is pinned to a short allowlist. Role, salary, status,
+         balances, department, managerUid and every other field stay admin-only.
+
+         bioCredentials is the index of WebAuthn credential ids enrolled on this
+         employee's devices. It is deliberately writable by the employee: it is a
+         convenience index that stops duplicate enrollment across browsers, NOT
+         evidence of anything. Nothing in the app trusts its contents — the real
+         controls are the geofence and the fresh() timestamp rule below. Capped
+         at 5 so it cannot be used as free storage.
+
+         ⚠️ `phone` is NOT in this list and must never be. It is the login
+         identity — the employee signs in with it, and users are looked up by it.
+         Letting an employee rewrite it means seizing another account's handle or
+         locking themselves out of a password reset. Changing it stays a manual
+         admin act, because it has to be paired with an Auth-side change too.
+
+         The four contact fields below are the employee's own data, wrong more
+         often than any other field in the system, and worthless to an attacker.
+         Every one is capped: a self-writable string field with no ceiling is
+         free storage on someone else's bill. */
+      allow update: if (isAdmin() && docsOk())
+        || (isActive() && request.auth.uid == uid
+            && only(['mustChangePassword', 'bioCredentials',
+                     'personalEmail', 'address', 'emergencyName', 'emergencyPhone'])
+            && (!('mustChangePassword' in d().diff(p()).affectedKeys())
+                || d().mustChangePassword == false)
+            && (!('bioCredentials' in d().diff(p()).affectedKeys())
+                || (d().bioCredentials is list && d().bioCredentials.size() <= 5))
+            && selfContactOk());
+
+      /* ── documents ──
+         Metadata only: kind, number, expiry date, and a link to wherever the
+         file already lives. Firebase Storage needs the Blaze plan, so the file
+         itself is not ours to hold — but the expiry date is the part that
+         actually matters, and it is free to track.
+
+         ⚠️ `documents` is deliberately absent from the self-update allowlist
+         above. An employee who could rewrite their own iqama expiry could hide
+         an expired one — and an expired iqama is a fine on the company, not on
+         them. Writing it is an admin act.
+
+         Capped at 12 because this array rides on a doc that every dashboard
+         read pulls: unbounded, it is a cost on every page load, and a Firestore
+         doc dies at 1MB regardless. */
+      function docsOk() {
+        return !('documents' in d().diff(p()).affectedKeys())
+            || (d().documents is list && d().documents.size() <= 12);
+      }
+
+      /* Each field: right type, and short enough to be what it claims to be.
+         An absent key passes — the employee may clear a field by omitting it. */
+      function selfContactOk() {
+        let k = d().diff(p()).affectedKeys();
+        return (!('personalEmail' in k)
+                || (d().personalEmail is string && d().personalEmail.size() <= 120))
+            && (!('address' in k)
+                || (d().address is string && d().address.size() <= 200))
+            && (!('emergencyName' in k)
+                || (d().emergencyName is string && d().emergencyName.size() <= 80))
+            && (!('emergencyPhone' in k)
+                || (d().emergencyPhone is string && d().emergencyPhone.size() <= 20));
+      }
+
+      allow delete: if isAdmin();
+    }
+
+    /* ═════════════════════════ settings ═════════════════════════ */
+    match /settings/{doc} {
+      /* was sIn(): a signed-up stranger could read company GPS, payroll rules,
+         department list and every manager's uid.
+         isActive() and not hasP(): a suspended employee kept reading all of it,
+         which the emulator caught. Note users/{uid} self-read deliberately stays
+         at sIn() — the client must be able to read its own doc to DISCOVER it is
+         suspended and show the right message before signing itself out. */
+      allow read:  if isActive();
+      allow write: if isAdmin();
+    }
+
+    /* ═════════════════════════ requests ═════════════════════════ */
+
+    /* ───────────── leave: days must MATCH the range ─────────────
+       THE HOLE THIS CLOSES. The old rule only asked that `days` be a positive
+       int, and said nothing about startDate/endDate. The UI derives `days`
+       from the range via workingDaysBetween() — but the UI runs in the
+       employee's browser. From the console:
+
+           { type:'leave', startDate:'2026-01-01', endDate:'2026-12-31',
+             days: 1, deduct:true, leaveTypeId:'<annual>' }
+
+       On approval adjustBalance() subtracts ONE day, while computePayroll()
+       matches every date with  startDate <= d <= endDate  and pays the whole
+       year as approved leave. A full year of paid leave for one day of
+       balance.
+
+       The bond has to be TWO-SIDED, and the second side is the one that
+       matters. Rules cannot know which days are weekends or public holidays,
+       so neither side can be an equality:
+
+         upper  days - 1 <= span     days can never exceed the range it covers
+         lower  span <= days*2 + 7   the range can never dwarf the days claimed
+
+       The lower bound is deliberately loose. A leave of `days` working days
+       spans at most about days*7/5 calendar days on a five-day week, plus a
+       public holiday or two; days*2 + 7 clears that comfortably, so no honest
+       request is ever refused — while the attack above (1 day buying 365) is
+       impossible. Refusing a legitimate leave is worse than a loose ceiling.
+
+           days=1  → span <= 9      days=5  → span <= 17
+           days=21 → span <= 49     days=1 over 365  BLOCKED
+
+       `deduct` stays free-form on purpose — unpaid leave is legitimately
+       deduct:false (see seedSettings). It is not a security boundary; the
+       days/range bond is.                                                  */
+    function leaveOk() {
+      return isYmd(d().startDate) && isYmd(d().endDate)
+          && d().endDate >= d().startDate
+          && d().days is int && d().days > 0 && d().days <= 365
+          && d().leaveTypeId is string && d().leaveTypeId != ''
+          && ymdTs(d().startDate) + duration.value(d().days - 1, 'd') <= ymdTs(d().endDate)
+          && ymdTs(d().endDate) <= ymdTs(d().startDate) + duration.value(d().days * 2 + 7, 'd');
+    }
+
+    /* ───────────── permission: no rewriting the past ─────────────
+       `category` decides the payroll exemption:
+           latePerm  = category contains 'تأخير'  → late minutes waived
+           earlyPerm = category contains 'خروج'   → early-out minutes waived
+       It was an unvalidated client string on an unvalidated date, so an
+       employee could file a permission dated last month and a department
+       manager (who may approve permissions) could approve it — erasing a
+       deduction already earned, with nothing in the audit log tying the two.
+
+       THE WINDOW IS NOW 3 DAYS, not 14 — the owner's rule: a permission may
+       be filed for its own day or up to 3 days back. After that the case is
+       closed and the lateness / early departure stands WITHOUT excuse, i.e.
+       it keeps its payroll deduction.
+
+       Why a window has to exist at all: an approved permission erases the
+       late minutes from the payroll run. With no limit, an employee who sees
+       the deduction on their payslip can file a permission for a day early in
+       the cycle and undo it retroactively. The window forces the excuse to be
+       given while it can still be checked.
+
+       ⚠️ String comparison, not timestamp arithmetic. The old form was
+           ymdTs(d().date) >= ksa() - duration.value(14,'d')
+       which compares the date's MIDNIGHT against a cutoff carrying the
+       current time of day — so a request filed at 10:00 lost the whole
+       oldest day, and the effective window shrank by one. Comparing
+       'YYYY-MM-DD' strings is exact: they sort lexicographically.
+
+       ⚠️ Mirrored in js/lib/requests.js (PERM_BACKDATE_DAYS). Change both. */
+    /* ───────────── multi-step approval chain ─────────────
+
+       شكل الحقول على الطلب:
+         chain     : ['manager','admin']   ثابت يُنسخ من نوع الإجازة وقت الإنشاء
+         step      : 0                      الخطوة المنتظرة الآن
+         approvals : [{byUid,byName,step,at}]  إضافة فقط
+
+       ⚠️ اختيار تصميمي: الطلب بلا حقل chain يسلك المسار القديم حرفياً. لا
+       ترحيل بيانات، ولا طلب قائم يتغيّر معناه، والسلسلة تُفعَّل لكل نوع إجازة
+       على حدة من الإعدادات. هذا يجعل الميزة قابلة للتراجع بحذف حقل واحد.
+
+       ⚠️ chain لا يُعدَّل بعد الإنشاء أبداً — وإلا استطاع من هو في الخطوة
+       الأولى أن يقصّ الخطوات التي بعده ويعتمد الطلب وحده.                  */
+    function hasChain() {
+      return resource != null && 'chain' in p() && p().chain is list && p().chain.size() > 0;
+    }
+    function chainRole() { return p().chain[p().step]; }
+    function lastStep()  { return p().step + 1 >= p().chain.size(); }
+
+    /* من يملك الخطوة الحالية — ولا أحد يعتمد طلبه هو في أي خطوة */
+    function mayActNow() {
+      return p().status == 'pending'
+        && p().employeeUid != request.auth.uid
+        && ((chainRole() == 'admin'   && isAdmin())
+         || (chainRole() == 'manager' && sameDept()));
+    }
+
+    function chainStepOk() {
+      return mayActNow() && (
+        /* اعتماد الخطوة: تتقدّم واحدة، ويُضاف قيد واحد، ولا شيء آخر يتحرّك */
+        (d().step == p().step + 1
+          && d().approvals is list
+          && d().approvals.size() == p().approvals.size() + 1
+          && d().approvals[p().approvals.size()].byUid  == request.auth.uid
+          && d().approvals[p().approvals.size()].byName == me().name
+          && d().chain == p().chain
+          && d().status == (lastStep() ? 'approved' : 'pending')
+          && d().reviewedBy == me().name
+          && only(['step','approvals','status','reviewedBy','reviewedAt','rejectReason']))
+        ||
+        /* الرفض يوقف السلسلة كلها فوراً — لا تتقدّم الخطوة */
+        (d().status == 'rejected'
+          && d().step == p().step
+          && d().chain == p().chain
+          && d().reviewedBy == me().name
+          && d().rejectReason is string && d().rejectReason.size() > 0
+          && only(['status','rejectReason','reviewedBy','reviewedAt']))
+      );
+    }
+
+    function permOk() {
+      return isYmd(d().date)
+          && d().date >= ymd(ksa() - duration.value(3, 'd'))
+          && d().category in ['تأخير عن الدوام', 'خروج مبكر'];
+    }
+
+    match /requests/{id} {
+      allow read: if isAdmin()
+        || (sIn() && p().employeeUid == request.auth.uid)
+        || sameDept();
+
+      allow create: if isActive()
+        && d().employeeUid   == request.auth.uid
+        /* identity fields must match the profile — no impersonation in the
+           admin inbox, and no picking a friendlier department to be judged by */
+        && d().employeeName  == me().name
+        && d().get('department','')     == myDept()
+        && d().get('employeeEmpId','')  == me().get('empId','')
+        && d().type in ['permission','leave']
+        && d().status == 'pending'
+        && d().reviewedBy == '' && d().reviewedAt == null && d().rejectReason == ''
+        && d().createdAt == request.time
+        && (d().type == 'permission' ? permOk() : leaveOk())
+        /* السلسلة إن وُجدت تبدأ من الصفر وبلا اعتمادات مسبقة — لا يقدر الموظف
+           يُنشئ طلباً «مرّ على مديره» أصلاً. */
+        && (!('chain' in d()) || (
+             d().chain is list && d().chain.size() > 0 && d().chain.size() <= 4
+          && d().step == 0
+          && d().approvals is list && d().approvals.size() == 0))
+        /* kills the stored-XSS vector: javascript: / data: links can't be stored */
+        && (!('attachmentLink' in d()) || d().attachmentLink == ''
+            || d().attachmentLink.matches('^https?://[^\\s]+$'));
+
+      allow update: if
+        /* ── multi-step chain, when the request carries one ──
+           Requests WITHOUT a `chain` field fall through to the legacy paths
+           below and behave exactly as before. Nothing already in the database
+           changes meaning; the chain is opt-in per leave type. */
+        (hasChain() && chainStepOk())
+        /* ── legacy single-step: admin decides anything ── */
+        || (isAdmin() && !hasChain())
+        /* manager: permissions only, not their own, and ONLY the review fields.
+           Previously date/time were writable, which feeds the payroll exemption. */
+        || (!hasChain() && sameDept()
+            && p().type == 'permission'
+            /* ⚠️ الحالة السابقة لازم تكون «تحت المراجعة». بدونها يقدر المدير
+               يوافق على طلب سحبه الموظف بنفسه (cancelled ← approved) أو
+               يعيد فتح طلب مرفوض. */
+            && p().status == 'pending'
+            && p().employeeUid != request.auth.uid
+            && d().status in ['approved','rejected']
+            && d().reviewedBy == me().name
+            && only(['status','reviewedBy','reviewedAt','rejectReason']))
+        /* employee withdrawing their own pending request — works either way */
+        || (isActive() && p().employeeUid == request.auth.uid
+            && p().status == 'pending'
+            && d().status == 'cancelled'
+            && only(['status','reviewedAt']));
+
+      allow delete: if isAdmin();
+    }
+
+    /* ═════════════════════════ attendance (web self check-in) ═════════════════════════ */
+    match /attendance/{id} {
+      allow read: if isAdmin()
+        || (sIn() && (resource == null || p().employeeUid == request.auth.uid))
+        || sameDept();
+
+      allow create: if isActive()
+        && id == request.auth.uid + '_' + d().date
+        && d().employeeUid  == request.auth.uid
+        && d().employeeName == me().name
+        && d().get('department','') == myDept()
+        /* the claimed calendar date must be today (or yesterday, for a shift
+           that crosses midnight) in Riyadh time — no writing into the past */
+        && (d().date == todayKsa() || d().date == yesterKsa())
+        && d().source == 'web'
+        && d().sessions is list
+        && newN() == 1
+        && fresh(d().sessions[0].in)
+        && isOpen(d().sessions[0]);
+
+      allow update: if isActive()
+        && id == request.auth.uid + '_' + p().date
+        && p().employeeUid == request.auth.uid
+        && d().date == p().date
+        && d().employeeUid == p().employeeUid
+        && d().sessions is list
+        && newN() <= 12
+        && (
+          /* check IN: append exactly one open session, every prior one frozen,
+             and no earlier session may still be hanging open */
+          (newN() == oldN() + 1
+            && frozenBelow(oldN())
+            && (oldN() == 0 || !isOpen(oldLast()))
+            && fresh(newLast().in)
+            && isOpen(newLast()))
+          ||
+          /* check OUT: close the last session only. Previously any session
+             except sessions[0] could be silently rewritten. */
+          (newN() == oldN()
+            && oldN() > 0
+            && frozenBelow(oldN() - 1)
+            && isOpen(oldLast())
+            && newLast().in == oldLast().in
+            && newLast().out != null
+            && fresh(newLast().out)
+            && newLast().out > newLast().in)
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    /* ═════════════════════════ payroll runs ═════════════════════════
+
+       اعتماد المسير وتجميده.
+
+       ⚠️ لماذا هذه المجموعة ضرورة محاسبية لا تحسيناً:
+       المسير اليوم يُحسب لحظياً في كل فتح للصفحة من الورديات والإعدادات
+       الحالية. لو عدّل الأدمن وردية قسم بعد صرف الرواتب، تغيّر مسير الشهر
+       الماضي بأثر رجعي — والملف الذي صُرِف عليه لم يعد له أصل في النظام.
+
+       الحل: لقطة مجمّدة لكل دورة تُكتب مرة واحدة وقت الاعتماد، وتحمل الأرقام
+       النهائية والقواعد التي حُسبت بها. بعدها يعرض النظام اللقطة لا الحساب.
+
+       ⚠️ إضافة فقط حتى على الأدمن: الحذف والتعديل ممنوعان نهائياً. مسير
+       معتمَد يمكن «إلغاء اعتماده» بإنشاء وثيقة إلغاء، لا بمحو الأصل — تماماً
+       كسجل الحركات. تصحيح خطأ في مسير مصروف يكون بقيد تسوية لا بتزوير التاريخ. */
+    match /payrollRuns/{cycleKey} {
+      allow read: if isActive();
+      allow create: if isAdmin()
+        && d().cycleKey == cycleKey
+        && d().approvedBy == me().name
+        && d().approvedByUid == request.auth.uid
+        && d().approvedAt == request.time
+        && d().rows is list && d().rows.size() <= 500
+        && d().totals is map
+        && d().config is map;
+      allow update, delete: if false;
+    }
+
+    /* ═════════════════════════ attendance adjustments ═════════════════════
+
+       تصحيح يدوي موثَّق لسجل الحضور.
+
+       ⚠️ لماذا مجموعة مستقلة ولا تُعدَّل sessions مباشرة:
+       الجلسات الأصلية دليل. موظف نسي بصمة الانصراف يحتاج تصحيحاً، لكن السماح
+       للأدمن بإعادة كتابة sessions يعني أن كل سجل في النظام صار قابلاً
+       للتعديل بلا أثر — فيفقد السجل كله قيمته كدليل.
+
+       الآن: الأصل يبقى كما هو للأبد، والتصحيح قيد منفصل يُقرأ فوقه ويُعرض
+       بجانبه. من راجع السجل يرى الاثنين ويعرف من صحّح ولماذا.
+
+       إضافة فقط: لا تعديل ولا حذف حتى للأدمن. تصحيح خاطئ يُلغى بتصحيح مضادّ. */
+    match /attendanceAdjustments/{id} {
+      allow read: if isAdmin() || sameDept()
+        || (isActive() && resource != null && p().employeeUid == request.auth.uid);
+      allow create: if isAdmin()
+        && d().byUid == request.auth.uid
+        && d().byName == me().name
+        && d().at == request.time
+        && d().keys().hasOnly(['employeeUid','employeeName','date','coll','sessionIdx',
+                               'field','value','reason','byUid','byName','at'])
+        && d().coll in ['attendance','zkAttendance']
+        && d().field in ['in','out']
+        && d().sessionIdx is int && d().sessionIdx >= 0 && d().sessionIdx < 12
+        && isYmd(d().date)
+        /* السبب إلزامي — تصحيح بلا سبب لا يختلف عن التزوير */
+        && d().reason is string && d().reason.size() >= 3 && d().reason.size() <= 300
+        && d().value is timestamp;
+      allow update, delete: if false;
+    }
+
+    /* ═════════════════════════ attendance photos ═════════════════════════
+
+       صورة إثبات الموقع لمن يسجّل خارج نطاق فرعه أو بوضع «من أي مكان».
+
+       ⚠️ لماذا مجموعة مستقلة ولا تُخزَّن على وثيقة الحضور:
+         • حدّ وثيقة Firestore مليون بايت. صورة واحدة تبتلع ربعه، وسجل اليوم
+           قد يحمل ١٢ جلسة — فتُرفض الكتابة عند الجلسة الرابعة.
+         • وثيقة الحضور تُقرأ في كل لقطة لحظية وفي كل تقرير دورة. حملها
+           صوراً يعني تنزيل ميغابايتات لعرض جدول نصّي.
+         • الصور تُحذف بعد ثلاث دورات، ووثيقة الحضور تبقى للأبد.
+
+       ⚠️ لا Firebase Storage هنا عمداً: Storage صار يشترط خطة Blaze
+       المدفوعة. الصورة تُضغط في المتصفح إلى JPEG بعرض ٦٤٠ وجودة ٠٫٥
+       (‏~٤٠ كيلوبايت) وتُخزَّن base64 — فيبقى النظام على الخطة المجانية.
+
+       الحدّ ٢٥٠ ألف حرف: يتّسع لصورة مضغوطة بأربعة أضعاف الحجم المتوقّع،
+       ويمنع استعمال المجموعة تخزيناً مجانياً.
+
+       إضافة فقط: الموظف يكتب ولا يقرأ ولا يعدّل ولا يحذف — فلا يقدر يستبدل
+       صورة أمس بصورة اليوم، ولا يتصفّح صور زملائه.                        */
+    match /attendancePhotos/{id} {
+      allow read: if isAdmin() || sameDept();
+      allow create: if isActive()
+        && id.split('_')[0] == request.auth.uid       /* uid_YYYY-MM-DD_idx */
+        && d().employeeUid == request.auth.uid
+        /* ⚠️ الأقواس إلزامية: && تربط أقوى من ||، فبدونها يصير الشرط كله
+           «أو تاريخه أمس» — أي بابٌ مفتوح لأي كتابة بتاريخ الأمس. */
+        && (d().date == todayKsa() || d().date == yesterKsa())
+        && d().at == request.time
+        && d().keys().hasOnly(['employeeUid','employeeName','department','date',
+                               'sessionIdx','kind','photo','lat','lng','acc','at'])
+        && d().kind in ['in','out']
+        && d().sessionIdx is int && d().sessionIdx >= 0 && d().sessionIdx < 12
+        && d().photo is string
+        && d().photo.matches('^data:image/jpeg;base64,[A-Za-z0-9+/=]+$')
+        && d().photo.size() <= 250000;
+      allow update, delete: if isAdmin();
+    }
+
+    /* ═════════════════════════ ZKTeco device log ═════════════════════════
+       Written only by zk_bridge.py through the Admin SDK, which bypasses
+       these rules. Payroll reads this collection and nothing else.          */
+    match /zkAttendance/{id} {
+      allow read: if isAdmin()
+        || (sIn() && (resource == null || p().employeeUid == request.auth.uid))
+        || sameDept();
+      allow write: if false;
+    }
+
+    match /bridge/{doc} {
+      allow read:  if isAdmin();
+      allow write: if false;
+    }
+
+    /* ═════════════════════════ audit log ═════════════════════════
+       Append-only, and now only staff can append. Every logAction() call in
+       the app sits behind an admin/manager action, so employees never need
+       write access — which removes the flood vector entirely. byName is
+       pinned to the caller's real name, so entries can't be attributed to
+       someone else.                                                         */
+    match /auditLog/{id} {
+      allow read: if isAdmin();
+
+      allow create: if (isAdmin() || isMgr())
+        && d().byUid  == request.auth.uid
+        && d().byName == me().name
+        && d().at == request.time
+        && d().keys().hasOnly(['action','detail','byName','byUid','at'])
+        && d().action is string && d().action.size() <= 100
+        && d().detail is string && d().detail.size() <= 500;
+
+      allow update, delete: if false;
+    }
+
+    /* anything not matched above is denied */
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "seen-hr2-rules-test",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "npm run test:pure && npm run test:rules",
+    "test:pure": "node org.test.mjs && node documents.test.mjs && node nav.test.mjs && node notifications.test.mjs && node biometric.test.mjs && node permission-window.test.mjs",
+    "test:org": "node org.test.mjs",
+    "test:docs": "node documents.test.mjs",
+    "test:nav": "node nav.test.mjs",
+    "test:rules": "firebase emulators:exec --only firestore --project seen-hr2-test \"node rules.test.mjs\"",
+    "test:notif": "node notifications.test.mjs",
+    "test:bio": "node biometric.test.mjs",
+    "test:perm": "node permission-window.test.mjs"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.0",
+    "firebase": "^12.0.0",
+    "firebase-tools": "^14.0.0"
+  }
+}

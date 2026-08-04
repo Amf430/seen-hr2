@@ -1,0 +1,399 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   طبقة التطبيق — الأصناف التي يُصدرها الجافاسكربت فعلاً.
+
+   سبب وجود هذا الملف: نظام التصميم كُتب بأسماء BEM، والكود كُتب بأسماء أخرى،
+   فبقيت 38 فئة بلا أي تنسيق — تظهر الصفحة بلا شكل. هذا الملف يسدّ الفجوة
+   ويُحمَّل أخيراً.
+
+   كل القيم تعتمد على متغيّرات نظام التصميم، مع قيمة احتياطية بعدها حتى لا
+   ينكسر شيء لو تغيّر اسم متغيّر. ولا لون خارج لوحة الشركة.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── ألوان نصية دلالية ── */
+.text-green  { color: var(--green) }
+.text-red    { color: var(--red) }
+.text-violet { color: var(--violet, #7b2d8e) }
+.text-muted, .muted { color: var(--muted-strong, #6f645d) }
+.mono, .num  { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1 }
+.mono        { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .02em }
+
+/* دخول/خروج في الجداول يقرآن كعمودين متقابلين */
+td.num.text-green, td.num.text-red { font-weight: var(--fw-bold, 700) }
+
+/* ── أشرطة الأزرار ── */
+.btn-bar {
+  display: flex; gap: var(--sp-2, 8px); flex-wrap: wrap;
+  margin-block-start: var(--sp-4, 14px);
+}
+
+/* ── عناوين داخل الصفحة ── */
+.section-title {
+  font-size: var(--fs-md, 1rem); font-weight: var(--fw-bold, 700);
+  color: var(--maroon); margin-block: var(--sp-5, 18px) var(--sp-3, 10px);
+}
+
+/* ── بطاقة ترويسة (بروفايل الموظف) ── */
+.hero-card {
+  background: linear-gradient(135deg, var(--maroon) 0%, var(--maroon-ink, #16010d) 100%);
+  color: #fff; border: none; border-radius: var(--r-lg, 16px);
+  padding: var(--sp-6, 22px); margin-block-end: var(--sp-5, 18px);
+  box-shadow: var(--e-2, 0 8px 24px rgba(36, 2, 21, .12));
+}
+.hero-card__name { font-size: var(--fs-2xl, 1.375rem); font-weight: 800; line-height: 1.4 }
+.hero-card__meta { font-size: var(--fs-sm, .8125rem); opacity: .85; margin-block-start: 3px }
+.hero-card__sub  { font-size: var(--fs-caption, .75rem); opacity: .7; margin-block-start: 2px }
+.hero-card .pill { background: rgba(255,255,255,.16); color: #fff }
+
+/* شريط الدورة في لوحة القيادة */
+.period-band__side { text-align: start }
+
+/* ── حقول ونماذج ── */
+.form-section {
+  border-block-start: 1px solid var(--line);
+  padding-block-start: var(--sp-4, 14px);
+  margin-block-start: var(--sp-4, 14px);
+}
+.form-section:first-of-type { border-block-start: none; padding-block-start: 0; margin-block-start: 0 }
+.form-section__title {
+  font-size: var(--fs-sm, .8125rem); font-weight: var(--fw-bold, 700);
+  color: var(--maroon); margin-block-end: var(--sp-3, 10px);
+  letter-spacing: .01em;
+}
+.field--btn { display: flex; align-items: flex-end }
+.field--btn .btn { inline-size: 100% }
+
+.search-input, .select-lg, .inline-input {
+  font-family: inherit; color: var(--ink);
+  border: 1.5px solid var(--line-strong, #ddd2c9);
+  border-radius: var(--r-md, 11px); background: var(--card);
+  transition: border-color .15s;
+}
+.search-input:focus, .select-lg:focus, .inline-input:focus {
+  outline: none; border-color: var(--maroon);
+}
+.search-input {
+  padding: var(--sp-3, 11px) var(--sp-4, 14px);
+  font-size: var(--fs-base, .9375rem);
+  min-inline-size: 220px; flex: 1; max-inline-size: 340px;
+}
+.select-lg {
+  inline-size: 100%; max-inline-size: 360px;
+  padding: var(--sp-3, 12px) var(--sp-4, 14px);
+  font-size: var(--fs-base, .9375rem);
+  margin-block-start: var(--sp-3, 10px);
+}
+.inline-input { padding: var(--sp-2, 8px); font-size: var(--fs-sm, .8125rem) }
+.inline-input[type="time"] { min-inline-size: 7.5em }
+
+.preview-box {
+  background: var(--maroon-tint); color: var(--ink-2, #4a3f39);
+  border-radius: var(--r-md, 10px); padding: var(--sp-3, 10px) var(--sp-4, 12px);
+  font-size: var(--fs-sm, .8125rem); inline-size: 100%;
+}
+
+/* ── مربّعات اختيار الفروع ── */
+.checkbox-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: var(--sp-2, 8px); margin-block-start: var(--sp-2, 6px);
+}
+.checkbox {
+  display: flex; align-items: center; gap: var(--sp-2, 8px);
+  padding: var(--sp-2, 9px) var(--sp-3, 11px);
+  border: 1.5px solid var(--line); border-radius: var(--r-md, 10px);
+  background: var(--card); cursor: pointer;
+  font-size: var(--fs-sm, .8125rem);
+  transition: border-color .15s, background .15s;
+}
+.checkbox:hover { border-color: var(--maroon); background: var(--maroon-tint) }
+.checkbox:focus-within { outline: 2px solid var(--maroon); outline-offset: 2px }
+.checkbox input { inline-size: 16px; block-size: 16px; accent-color: var(--maroon); cursor: pointer }
+
+/* ── الشرائح ── */
+.chip__x, .chip__act {
+  background: none; border: none; cursor: pointer; padding: 0 4px;
+  font-size: var(--fs-md, 1rem); line-height: 1; color: var(--muted-strong, #6f645d);
+  border-radius: 6px;
+}
+.chip__x:hover  { color: var(--red) }
+.chip__act:hover { color: var(--maroon) }
+.chip__x:focus-visible, .chip__act:focus-visible { outline: 2px solid var(--maroon); outline-offset: 1px }
+
+/* ── صفوف مختصرة ── */
+.list-row__sub {
+  font-size: var(--fs-caption, .75rem); color: var(--muted-strong, #6f645d);
+  margin-block-start: 2px;
+}
+
+/* ── الجداول ── */
+.payroll-table { min-inline-size: 1180px }
+tr.row-clickable { cursor: pointer }
+tr.row-clickable:hover td { background: var(--row-hover, #f8f3ef) }
+tr.row-total td {
+  background: var(--maroon-tint); font-weight: 800;
+  border-block-start: 2px solid var(--line-strong, #ddd2c9);
+}
+
+/* ── نافذة منبثقة ── */
+.modal-body {
+  font-size: var(--fs-base, .9375rem); line-height: 1.9;
+  margin-block-end: var(--sp-4, 14px); color: var(--ink-2, #4a3f39);
+}
+
+/* ── الشريط الجانبي: أسماء بقيت من النسخة القديمة ── */
+.logo {
+  display: flex; align-items: center; gap: var(--sp-3, 12px);
+  padding: var(--sp-5, 20px) var(--sp-4, 16px);
+  border-block-end: 1px solid var(--a-white-08, rgba(255,255,255,.08));
+}
+.logo b    { font-size: var(--fs-base, .9375rem); display: block; color: #fff; font-weight: 700 }
+.logo span { font-size: var(--fs-caption, .75rem); color: var(--a-white-56, rgba(255,255,255,.56)) }
+
+/* عنوان المجموعة — الكود يُصدر شرطة واحدة، ونظام التصميم عرّف شرطتين */
+.nav-group-title {
+  font-size: var(--fs-caption, .75rem); font-weight: var(--fw-bold, 700);
+  color: var(--a-white-56, rgba(255,255,255,.56));
+  padding: 0 var(--sp-3, 12px) var(--sp-2, 8px);
+  margin-block-start: var(--sp-4, 16px);
+}
+.nav-group + .nav-group-title,
+.nav-group-title + .nav-group { margin-block-start: var(--sp-2, 8px) }
+.nav-label { flex: 1; min-inline-size: 0 }
+
+.dev-credit--dark { color: var(--a-white-40, rgba(255,255,255,.4)) }
+
+/* أيقونة التنبيه في لوحة القيادة — الكود يُصدر __icon، والتصميم عرّف __ic */
+.alert-item__icon { font-size: var(--fs-lg, 1.125rem); line-height: 1 }
+.alert-item__go   { margin-inline-start: auto; opacity: .5 }
+
+/* ── الشاشة الجانبية على الجوال ──
+   الكود يبدّل .show على السجادة؛ نظام التصميم كتبها على body.nav-open.
+   ندعم الاثنين حتى لا تعتمد الحركة على أيهما فاز. */
+.nav-scrim {
+  position: fixed; inset: 0; z-index: 55;
+  background: var(--scrim, rgba(43,35,32,.55));
+  opacity: 0; pointer-events: none; visibility: hidden;
+  transition: opacity .24s ease, visibility .24s;
+}
+.nav-scrim.show { opacity: 1; pointer-events: auto; visibility: visible }
+@media (min-width: 861px) { .nav-scrim { display: none } }
+
+@media (max-width: 860px) {
+  /* ⚠️ لا تُضِف هنا قاعدة مثل html[dir="rtl"] .sidebar — وزنها (0,2,1) يتغلّب
+     على .sidebar.open ذات الوزن (0,2,0)، فلا تنفتح القائمة أبداً. حصل هذا
+     فعلاً. الصفحة دائماً rtl، فالقاعدة الواحدة تكفي. */
+  /* ⚠️ الصفحة rtl، فـ inset-inline-start هو الحافة اليمنى — وهذه هي الجهة
+     التي يجب أن يخرج منها الدرج. استخدام inset-inline-end يضعه على اليسار،
+     ثم يدفعه translateX(100%) لليمين فيظهر شريط ضيّق في المنتصف. حصل فعلاً.
+     ملاحظة: translateX فيزيائي دائماً ولا يتبع الاتجاه، فموجبه يمين دوماً. */
+  /* مواضع فيزيائية صراحةً (right/left) وليست منطقية: القاعدة الأساسية في
+     02-layout.css تضبط خصائص منطقية أخرى، والخلط بينهما جعل الدرج يتجاوز
+     حافة الشاشة فيُقصّ نصف النص. التطبيق rtl دائماً، فلا حاجة للتجريد. */
+  .sidebar {
+    position: fixed;
+    top: 0; bottom: 0; right: 0; left: auto;
+    inline-size: min(300px, 86vw);
+    z-index: 60; transform: translateX(100%);
+    transition: transform .24s ease;
+    overflow-y: auto; overscroll-behavior: contain;
+    box-shadow: -8px 0 32px rgba(0, 0, 0, .28);
+  }
+  .sidebar.open { transform: translateX(0) }
+  .menu-toggle { display: inline-flex; align-items: center; justify-content: center }
+  .nav-scrim {
+    position: fixed; inset: 0; z-index: 55;
+    background: var(--scrim, rgba(43,35,32,.55));
+    opacity: 0; pointer-events: none; visibility: hidden;
+    transition: opacity .22s ease, visibility .22s;
+  }
+  .content { padding: var(--sp-4, 16px) }
+  .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+  .grid.cols-3 { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+}
+
+@media (max-width: 560px) {
+  .grid.cols-4, .grid.cols-3, .grid.cols-2 { grid-template-columns: 1fr }
+  .form-row { grid-template-columns: 1fr }
+  .search-input { max-inline-size: none }
+  .hero-card__name { font-size: var(--fs-xl, 1.25rem) }
+}
+
+/* الجداول تتمرّر داخل حاويتها — الصفحة نفسها لا تتمرّر أفقياً أبداً.
+   ⚠️ لا تستعمل overflow-x:hidden هنا: تجعل body حاوية تمرير فيتعطّل
+   position:sticky للترويسة. 01-base.css يستعمل clip وهو الصحيح — يقصّ بلا
+   إنشاء حاوية تمرير. */
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch }
+
+/* ── بطاقة الطلب ── */
+.request-card__title {
+  font-weight: 800; color: var(--maroon);
+  font-size: var(--fs-md, 1rem); line-height: 1.5;
+}
+.request-card__sub {
+  color: var(--muted-strong, #6f645d);
+  font-size: var(--fs-sm, .8125rem); margin-block-start: 2px;
+}
+.request-card .detail-list { margin-block-start: var(--sp-3, 12px) }
+.detail-line--total {
+  border-block-start: 2px solid var(--line-strong, #ddd2c9);
+  padding-block-start: var(--sp-3, 12px); font-weight: 800;
+}
+.detail-line--total .v { font-size: var(--fs-lg, 1.125rem) }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   قفل التمرير — النافذة المنبثقة والقائمة الجانبية
+
+   المشكلة التي كانت: .modal فيها max-block-size مع overflow:hidden، فالمحتوى
+   الأطول من الشاشة يُقصّ ولا يتمرّر — فيتمرّر خلفه الصفحة نفسها. الآن جسم
+   النافذة وحده يتمرّر، والصفحة خلفه مقفلة تماماً.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* الصفحة خلف النافذة أو القائمة لا تتحرّك إطلاقاً */
+body.is-locked {
+  overflow: hidden;
+  touch-action: none;
+}
+
+.overlay {
+  align-items: flex-start;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: var(--sp-4, 16px);
+}
+
+.modal {
+  margin-block: auto;               /* يتوسّط رأسياً، ويعلو للأعلى إذا طال */
+  max-block-size: none;             /* الارتفاع يحدّه جسم النافذة، لا هي */
+}
+
+/* جسم النافذة هو الوحيد الذي يتمرّر */
+.modal__body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  max-block-size: calc(100dvh - 15rem);
+  padding-inline: var(--sp-6, 22px);
+  padding-block: var(--sp-2, 6px) var(--sp-4, 14px);
+}
+.modal__head {
+  position: sticky; inset-block-start: 0; z-index: 2;
+  background: var(--card);
+  padding: var(--sp-5, 18px) var(--sp-6, 22px) var(--sp-3, 10px);
+  border-block-end: 1px solid var(--line-2, #f4eee9);
+}
+.modal__head h3 { margin: 0 }
+.modal__foot {
+  position: sticky; inset-block-end: 0; z-index: 2;
+  background: var(--card);
+  padding: var(--sp-4, 14px) var(--sp-6, 22px) var(--sp-5, 18px);
+  border-block-start: 1px solid var(--line-2, #f4eee9);
+  display: flex; gap: var(--sp-3, 10px);
+}
+.modal__foot .btn { flex: 1; justify-content: center }
+
+@media (max-width: 560px) {
+  /* النافذة بارتفاع الشاشة بالضبط — لا أقل ولا أكثر.
+     min-block-size كانت تجعلها تطول بطول محتواها، فتنزل أزرار «حفظ/إلغاء»
+     تحت حافة الشاشة ولا يوصلها الإبهام. الآن الجسم وحده يتمدّد ويتمرّر،
+     والترويسة والأزرار مثبّتتان أعلى وأسفل. */
+  .overlay { padding: 0; align-items: stretch; overflow: hidden }
+  .modal {
+    max-inline-size: none; inline-size: 100%;
+    block-size: 100dvh; min-block-size: 0;
+    border-radius: 0; margin: 0;
+  }
+  .modal__body {
+    max-block-size: none;
+    flex: 1 1 auto; min-block-size: 0;
+    overflow-y: auto; overscroll-behavior: contain;
+  }
+  /* الأزرار قريبة من الإبهام، وفوق شريط المتصفح السفلي */
+  .modal__foot { padding-block-end: max(var(--sp-5, 18px), env(safe-area-inset-bottom)) }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ⚠️ iOS يكبّر الصفحة تلقائياً عند التركيز على أي حقل خطّه أصغر من 16px،
+   ولا يرجّعها. مقياس النظام يعطي 15px، فكان الموظف يفتح شاشة الدخول على
+   آيفون فتقفز الصفحة وتتزحزح — من أول حقل يلمسه.
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (pointer: coarse) {
+  input, select, textarea,
+  .field input, .field select, .field textarea,
+  .search-input, .select-lg, .inline-input {
+    font-size: 16px;
+  }
+  /* أهداف لمس لا تقل عن 44px */
+  /* ⚠️ .topbar__back هنا مع .menu-toggle لا وحده: الزرّان متجاوران في أول
+     الشريط، ومقاسان مختلفان جنب بعضهما يبدوان خطأً — وهذا الزرّ بالذات
+     يُلمس بالإبهام في وضع standalone حيث لا بديل عنه. */
+  .btn, .nav a, .chip__x, .chip__act, .menu-toggle { min-block-size: 44px }
+  /* مربّع: min-inline-size هنا وحده — تعميمها على .btn يمدّ كل زرّ ضيق */
+  .topbar__back { min-block-size: 44px; min-inline-size: 44px }
+  .btn.sm { min-block-size: 40px }
+  .actions-cell .btn { min-block-size: 40px }
+}
+
+/* ── ذيل الشريط الجانبي ──
+   الترميز يستعمل .foot/.who/.role وزرّاً بلا صنف، ونظام التصميم عرّف
+   .sidebar__foot. النتيجة كانت «تسجيل الخروج» نصاً أبيض عارياً ملتصقاً
+   بحافة الشاشة وبشريط الإيماءات في iOS. */
+.sidebar .foot {
+  flex: none; margin-block-start: auto;
+  padding: var(--sp-3, 12px) var(--sp-4, 16px) max(var(--sp-4, 16px), env(safe-area-inset-bottom));
+  border-block-start: 1px solid var(--a-white-12, rgba(255,255,255,.12));
+}
+.sidebar .foot .who  { color: #fff; font-weight: var(--fw-bold, 700); font-size: var(--fs-sm, .8125rem) }
+.sidebar .foot .role { color: var(--a-white-56, rgba(255,255,255,.56)); font-size: var(--fs-caption, .75rem);
+                       margin-block-end: var(--sp-3, 10px) }
+.sidebar .foot #logoutBtn {
+  inline-size: 100%; min-block-size: 40px;
+  border-radius: var(--r-md, 10px);
+  background: var(--a-white-12, rgba(255,255,255,.12));
+  border: 1px solid var(--a-white-16, rgba(255,255,255,.16));
+  color: #fff; font-weight: var(--fw-bold, 700); font-size: var(--fs-sm, .8125rem);
+  cursor: pointer; transition: background .15s;
+}
+.sidebar .foot #logoutBtn:hover { background: var(--a-white-16, rgba(255,255,255,.2)) }
+
+/* شعار الدرج — .logo .brand-mark لا يطابق أياً من قاعدتي التصميم */
+.logo .brand-mark {
+  inline-size: 42px; block-size: 42px; flex: none;
+  border-radius: var(--r-md, 12px);
+  background: var(--a-white-16, rgba(255,255,255,.16)); color: #fff;
+  font-size: var(--fs-lg, 1.125rem); font-weight: 800;
+  display: grid; place-items: center;
+}
+
+/* زر الحضور الكبير يملأ عرض البطاقة */
+.btn--xl { inline-size: 100%; justify-content: center; margin-block-start: var(--sp-3, 10px) }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   شعار الشركة — يحلّ محلّ حرف «س» في كل موضع.
+
+   ⚠️ .brand-mark الأصلية تُصمَّم مربّعاً ملوّناً يحمل حرفاً: خلفية، ووزن خط،
+   و place-items للتوسيط. كلها لا معنى لها لصورة، وبعضها يضرّ — الخلفية
+   تُحيط الشعار الشفّاف بمربّع، فيبدو ملصقاً لا مدمجاً. لذا تُلغى صراحةً
+   للنسخة المصوّرة بدل الاعتماد على أن الصورة ستغطّيها.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.brand-mark--img{
+  background:none !important;
+  box-shadow:none !important;
+  border-radius:0 !important;
+  object-fit:contain;
+  /* الرمز الأبيض على العنّابي الداكن — بلا خلفية ولا إطار */
+  inline-size:38px; block-size:38px;
+}
+
+/* شاشتا الدخول وتغيير كلمة المرور: اللوقو كاملاً بنصّه */
+.brand-logo{
+  display:block;
+  inline-size:auto;
+  max-inline-size:210px;
+  block-size:auto;
+  margin:0 auto var(--sp-5);
+}
+/* ⚠️ ارتفاع اللوقو يقارب عرضه (1814×1833)، فبلا سقف يدفع الحقول خارج
+   الشاشة على جوال قصير. */
+@media (max-height:720px){
+  .brand-logo{max-inline-size:150px;margin-block-end:var(--sp-4)}
+}
