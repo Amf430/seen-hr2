@@ -809,6 +809,23 @@ label.btn{cursor:pointer}
    «أرسِل الصورة» يظهر قبل التقاط أي صورة. */
 .btn[hidden]{display:none}
 
+/* ── لوحة أفضل المنتظمين ──
+   ⚠️ النسبة على حافة السطر بخطّ جدولي: الأرقام تحت بعضها تُقارَن بلمحة،
+   وهذا كل الغرض من لوحة تحفيز. */
+.tp-list{display:flex;flex-direction:column;gap:var(--sp-2);margin-block-start:var(--sp-3)}
+.tp-row{display:flex;align-items:center;gap:var(--sp-3);
+  padding:var(--sp-2) var(--sp-3);border:1px solid var(--line);
+  border-radius:var(--r-md);background:var(--card)}
+.tp-row.is-me{border-color:var(--maroon);background:var(--maroon-tint)}
+.tp-medal{font-size:20px;line-height:1;flex:none;inline-size:26px;text-align:center}
+.tp-who{display:flex;flex-direction:column;min-inline-size:0;flex:1}
+.tp-who b{font-size:var(--fs-sm);color:var(--ink);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tp-who small{font-size:var(--fs-micro);color:var(--muted-strong)}
+.tp-you{font-size:var(--fs-micro);color:var(--maroon);font-weight:var(--fw-bold)}
+.tp-rate{flex:none;font-size:var(--fs-lg);font-weight:var(--fw-bold);color:var(--maroon);
+  font-variant-numeric:tabular-nums}
+
 /* ── لوحة استهلاك الصور ── */
 .usage{display:flex;align-items:center;gap:var(--sp-4);flex-wrap:wrap}
 .usage__bar{flex:1;min-inline-size:160px;block-size:8px;background:var(--paper-2);

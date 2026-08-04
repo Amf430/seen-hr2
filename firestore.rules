@@ -166,6 +166,23 @@ service cloud.firestore {
     }
 
     /* ═════════════════════════ settings ═════════════════════════ */
+    /* ───────────── weekly punctuality board ─────────────
+       A tiny published document: rank, name, department, percentage. The admin
+       computes it (they already read everyone's attendance) and every active
+       employee reads it — that is the whole point, it is a motivation board.
+
+       The alternative was letting employees read each other's attendance so
+       each browser could compute it. That is a large privacy hole to pay for a
+       leaderboard, so the board is published instead and the raw records stay
+       exactly as locked as before.
+
+       Nothing sensitive lands here: no salary, no dates, no uids. Whatever is
+       written is what is already shown on the screen.                        */
+    match /leaderboard/{doc} {
+      allow read:  if isActive();
+      allow write: if isAdmin();
+    }
+
     match /settings/{doc} {
       /* was sIn(): a signed-up stranger could read company GPS, payroll rules,
          department list and every manager's uid.

@@ -19,7 +19,10 @@ import { fetchAttendance } from '../lib/attendance.js';
 import { canApprove } from '../lib/perms.js';
 import { go, isStale } from '../lib/nav.js';
 import { setProfileUid } from '../lib/state.js';
-import { workforce, todayAttendance, contracts, payrollSummary, requestPulse, actionItems } from '../lib/hr-stats.js';
+import { workforce, todayAttendance, contracts, payrollSummary, requestPulse, actionItems,
+         weeklyPunctuality, weekWindow } from '../lib/hr-stats.js';
+import { publishLeaderboard, readLeaderboard } from '../lib/leaderboard.js';
+import { topPunctualCard } from '../components/top-punctual.js';
 import { expiringDocs, kindLabel } from '../lib/documents.js';
 import { card, grid, stat, empty, tableWrap, sectionHead, button, bar, pulseBand } from '../lib/ui.js';
 import { miniRow } from '../components/request-card.js';
@@ -106,12 +109,17 @@ export async function render(view, token) {
 
   /* ═══ الجلب المتأخر ═══ */
   const today = ymd(new Date());
-  let todayRecs = [], zk = [];
+  let todayRecs = [], zk = [], weekWeb = [], weekZk = [];
   try {
     const cur = { start: new Date(today + 'T00:00:00'), end: new Date(today + 'T23:59:59') };
-    [todayRecs, zk] = await Promise.all([
+    /* ⚠️ نافذة الأسبوع تُجلب كاملةً من المصدرين: لوحة المنتظمين تحسب
+       «أيّهما أبكر»، ولا يكفيها سجل اليوم من الجوال ولا دورة الجهاز وحدها. */
+    const wk = weekWindow();
+    [todayRecs, zk, weekWeb, weekZk] = await Promise.all([
       fetchAttendance(cur, 'attendance').catch(() => []),
-      fetchAttendance(cyc, 'zkAttendance').catch(() => [])
+      fetchAttendance(cyc, 'zkAttendance').catch(() => []),
+      fetchAttendance(wk, 'attendance').catch(() => []),
+      fetchAttendance(wk, 'zkAttendance').catch(() => [])
     ]);
   } catch (e) { console.error(e); }
   if (isStale(token)) return;
@@ -132,6 +140,30 @@ export async function render(view, token) {
      اللحظة — أرقام تبدو معقولة فلا يشكّ فيها أحد. */
   const wf2 = contracts(staff);
   const w2  = workforce(staff);
+
+  /* ── أفضل المنتظمين أسبوعياً ──
+     الأدمن يحسبها هنا لأنه الوحيد الذي يقرأ سجلات الجميع، ثم ينشرها في
+     وثيقة صغيرة يقرأها الموظفون في رئيسيتهم. بلا هذا النشر تخرج اللوحة
+     فارغة عند كل موظف — قاعدة zkAttendance تسمح له بسجلاته هو فقط.
+
+     ⚠️ النشر لا يُعطّل اللوحة إن فشل: بطاقة تحفيز لا تستحق أن تُسقط لوحة
+     القيادة كلها، فنعرض المحسوب محلياً ونمضي. */
+  const punc = weeklyPunctuality(staff, weekZk, weekWeb, reqs);
+  if (punc.board.length) {
+    publishLeaderboard({ board: punc.board, window: punc.window, minDays: punc.minDays })
+      .catch((e) => console.error('publish leaderboard', e));
+  }
+  readLeaderboard().then((data) => {
+    /* المنشور أولاً ليطابق ما يراه الموظف بالضبط؛ وإن لم يُنشر بعد فالمحسوب */
+    const card = topPunctualCard(data || {
+      top: punc.board.slice(0, 3).map((x, i) => ({ rank: i + 1, name: x.name,
+        department: x.department, rate: x.rate, days: x.counted })),
+      from: ymd(punc.window.start), to: ymd(punc.window.end), minDays: punc.minDays, at: new Date()
+    });
+    /* نفس السبب: #view لا يُستبدل، فـ isConnected لا يكشف إعادة العرض */
+    if (isStale(token)) return;
+    if (card) view.appendChild(card);
+  });
 
   /* ── شريط النبض النهائي: الحضور الحيّ يتصدّر ── */
   const ta = todayAttendance(staff, todayRecs, reqs);

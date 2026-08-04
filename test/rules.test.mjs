@@ -240,6 +240,20 @@ await check('opening 2 sessions at once',             false, () => setDoc(doc(em
    فبلا هذه القراءة يفقد الموظف تاريخه، ويعتبره المسير غياباً ويخصم عليه.
    والخطر المقابل أن يقرأ موظفٌ تاريخ غيره — فالقراءة مربوطة بـ previousUids
    على ملف القارئ نفسه، وهو حقل لا يكتبه إلا الأدمن. */
+/* ═══ لوحة المنتظمين — تُقرأ للجميع وتُكتب للأدمن ═══
+   الوثيقة الوحيدة التي يقرأها كل الموظفين عن زملائهم. وهي مقصودة: لوحة
+   تحفيز. والبديل كان فتح سجلات الحضور للجميع ليحسبها كل متصفح — ثمن باهظ
+   لا يُدفع للوحة. فتبقى السجلات مقفلة كما هي، ولا يُنشر إلا ما يُعرض. */
+console.log('\n\x1b[1m═══ 5أ. لوحة المنتظمين ═══\x1b[0m');
+await check('employee reads the board',               true,  () => getDoc(doc(emp, 'leaderboard/weekly')));
+await check('manager reads the board',                true,  () => getDoc(doc(mgr, 'leaderboard/weekly')));
+await check('admin publishes the board',              true,  () => setDoc(doc(admin, 'leaderboard/weekly'), { top: [], at: serverTimestamp() }));
+await check('employee publishes the board',           false, () => setDoc(doc(emp, 'leaderboard/weekly'), { top: [{ name: 'أنا', rate: 100 }] }));
+await check('manager publishes the board',            false, () => setDoc(doc(mgr, 'leaderboard/weekly'), { top: [] }));
+await check('suspended employee reads the board',     false, () => getDoc(doc(susp, 'leaderboard/weekly')));
+await check('stranger reads the board',               false, () => getDoc(doc(stranger, 'leaderboard/weekly')));
+await check('anon reads the board',                   false, () => getDoc(doc(anon, 'leaderboard/weekly')));
+
 console.log('\n\x1b[1m═══ 5ب. المعرّفات السابقة ═══\x1b[0m');
 await check('employee reads own zk history under a previous uid', true,
   () => getDoc(doc(emp, 'zkAttendance/oldEmpU_2026-06-01')));
