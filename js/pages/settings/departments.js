@@ -33,7 +33,7 @@ export async function render(view, token) {
 
     const wrap = tableWrap(`
       <table class="tight">
-        <thead><tr><th>القسم</th><th>المدير</th><th>الورديات</th><th>الموظفون</th><th></th></tr></thead>
+        <thead><tr><th>القسم</th><th>المدير</th><th>الورديات</th><th class="num">الموظفون</th><th></th></tr></thead>
         <tbody></tbody>
       </table>`);
     const tb = wrap.querySelector('tbody');

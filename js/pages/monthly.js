@@ -60,7 +60,7 @@ export function render(view) {
     if (!list.length) c.appendChild(empty('لا توجد طلبات في هذه الدورة', 'inbox'));
     else c.appendChild(tableWrap(`
       <table>
-        <thead><tr><th>الموظف</th><th>النوع</th><th>التصنيف</th><th>التاريخ</th><th>الأيام</th><th>الحالة</th></tr></thead>
+        <thead><tr><th>الموظف</th><th>النوع</th><th>التصنيف</th><th class="num">التاريخ</th><th class="num">الأيام</th><th>الحالة</th></tr></thead>
         <tbody>${list.map((r) => `<tr>
           <td><b>${esc(r.employeeName)}</b></td>
           <td>${r.type === 'permission' ? 'استئذان' : 'إجازة'}</td>

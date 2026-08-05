@@ -125,7 +125,12 @@ export const pill = (cls, text) => `<span class="pill pill--dot ${esc(cls)}">${e
 /* ═══════════════════ قائمة إجراءات الصف ═══════════════════
 
    items: [{ label, ico, danger, onClick }] — و null يصير فاصلاً.
-   تُغلق بالضغط خارجها أو بـ Escape، وتُعيد التركيز للزر بعد الإغلاق.       */
+   تُغلق بالضغط خارجها أو بـ Escape، وتُعيد التركيز للزر بعد الإغلاق.
+
+   ⚠️ القائمة تُعلَّق على <body> لا داخل الصف: حاوية الجدول .table-wrap
+   عندها overflow، فالقائمة المرسومة داخلها تُقصّ عند حافتها — وآخر موظف
+   في اللستة كان يظهر منها سطر واحد فقط. ولأنها خارج الجدول صار موضعها
+   يُحسب بـ position:fixed، وتنقلب لأعلى الزر إذا ضاقت المسافة تحته.      */
 export function rowMenu(items) {
   const wrap = el('div', 'rowmenu');
   const btn  = el('button', 'rowmenu__btn', icon('more'));
@@ -134,15 +139,40 @@ export function rowMenu(items) {
   btn.setAttribute('aria-expanded', 'false');
   wrap.appendChild(btn);
 
+  const GAP = 4, EDGE = 8;
   let pop = null;
+
   const close = () => {
     if (!pop) return;
     pop.remove(); pop = null;
     btn.setAttribute('aria-expanded', 'false');
     document.removeEventListener('click', onDoc, true);
     document.removeEventListener('keydown', onKey);
+    window.removeEventListener('scroll', place, true);
+    window.removeEventListener('resize', place);
   };
-  const onDoc = (e) => { if (!wrap.contains(e.target)) close(); };
+
+  /* الصف قد يُحذف والقائمة مفتوحة (بحث، إعادة رسم) — لا نترك قائمة يتيمة.
+     وكذلك لو مرّر المستخدم حتى خرج الصف من الشاشة: القائمة ثابتة الموضع،
+     فلولا الإغلاق لبقيت معلّقة في الهواء بلا الصف الذي تخصّه. */
+  const place = () => {
+    if (!pop) return;
+    if (!btn.isConnected) { close(); return; }
+    const r = btn.getBoundingClientRect();
+    if (r.bottom < 0 || r.top > window.innerHeight) { close(); return; }
+    const w = pop.offsetWidth, h = pop.offsetHeight;
+    const below = window.innerHeight - r.bottom - GAP;
+    const flip  = below < h && r.top - GAP > below;
+    let top  = flip ? r.top - GAP - h : r.bottom + GAP;
+    top = Math.max(EDGE, Math.min(top, window.innerHeight - h - EDGE));
+    /* المحاذاة من طرف الزرّ الأقرب لحافة الصفحة — يمين في الواجهة العربية */
+    let left = r.right - w;
+    left = Math.max(EDGE, Math.min(left, window.innerWidth - w - EDGE));
+    pop.style.top  = top + 'px';
+    pop.style.left = left + 'px';
+  };
+
+  const onDoc = (e) => { if (!wrap.contains(e.target) && !pop?.contains(e.target)) close(); };
   const onKey = (e) => { if (e.key === 'Escape') { close(); btn.focus(); } };
 
   btn.onclick = (e) => {
@@ -157,11 +187,15 @@ export function rowMenu(items) {
       b.onclick = () => { close(); it.onClick(); };
       pop.appendChild(b);
     }
-    wrap.appendChild(pop);
+    document.body.appendChild(pop);
+    place();
     btn.setAttribute('aria-expanded', 'true');
     pop.querySelector('button')?.focus();
     document.addEventListener('click', onDoc, true);
     document.addEventListener('keydown', onKey);
+    /* capture: التمرير داخل .table-wrap لا يصعد إلى window بلا هذا */
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
   };
   return wrap;
 }

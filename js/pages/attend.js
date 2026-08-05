@@ -62,7 +62,7 @@ export async function render(view, token) {
 
   host.appendChild(tableWrap(`
     <table class="tight">
-      <thead><tr><th>التاريخ</th><th>اليوم</th><th>المكان</th><th>دخول</th><th>خروج</th><th>الجلسات</th><th>الساعات</th></tr></thead>
+      <thead><tr><th class="num">التاريخ</th><th>اليوم</th><th>المكان</th><th class="num">دخول</th><th class="num">خروج</th><th class="num">الجلسات</th><th class="num">الساعات</th></tr></thead>
       <tbody>${mine.map((r) => {
         const ss = sessionsOf(r);
         const last = ss[ss.length - 1];

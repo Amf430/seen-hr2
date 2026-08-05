@@ -75,7 +75,7 @@ export async function render(view, token) {
         const dc = card('فروق ظهرت بعد الاعتماد', 'الأرقام أدناه محسوبة الآن — المعتمَد هو ما في اللقطة.', 'alert');
         dc.appendChild(tableWrap(`
           <table class="tight">
-            <thead><tr><th>الموظف</th><th>المعتمَد</th><th>المحسوب الآن</th><th>الفرق</th></tr></thead>
+            <thead><tr><th>الموظف</th><th class="money">المعتمَد</th><th class="money">المحسوب الآن</th><th class="money">الفرق</th></tr></thead>
             <tbody>${drift.map((d) => `<tr>
               <td><b>${esc(d.name)}</b></td>
               <td class="money">${d.was != null ? money(d.was) : '—'}</td>
@@ -127,9 +127,9 @@ export async function render(view, token) {
     const wrap = tableWrap(`
       <table class="tight payroll-table">
         <thead><tr>
-          <th>الموظف</th><th>القسم</th><th>الراتب</th><th>قيمة الساعة</th>
-          <th>أيام العمل</th><th>حضور</th><th>غياب</th><th>إجازة مدفوعة</th><th>بدون راتب</th>
-          <th>تأخير</th><th>خروج مبكر</th><th>خصم ساعات</th><th>خصم غياب</th><th>إجمالي الخصم</th><th>المستحق</th>
+          <th>الموظف</th><th>القسم</th><th class="money">الراتب</th><th class="money">قيمة الساعة</th>
+          <th class="num">أيام العمل</th><th class="num">حضور</th><th class="num">غياب</th><th class="num">إجازة مدفوعة</th><th class="num">بدون راتب</th>
+          <th class="num">تأخير</th><th class="num">خروج مبكر</th><th class="money">خصم ساعات</th><th class="money">خصم غياب</th><th class="money">إجمالي الخصم</th><th class="money">المستحق</th>
         </tr></thead>
         <tbody></tbody>
       </table>`);
