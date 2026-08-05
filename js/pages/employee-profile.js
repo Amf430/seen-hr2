@@ -121,7 +121,8 @@ export async function render(view, token) {
 
     const mine = recs;
     const reqs = getRequests().filter((r) => r.employeeUid === u.id);
-    const rows = buildDailyStatus(cyc, [u], reqs, mine);
+    /* بروفايل الموظف لا يفتحه إلا الأدمن أو مدير القسم — التعويض يظهر هنا */
+    const rows = buildDailyStatus(cyc, [u], reqs, mine, { compensate: true });
     /* ⚠️ computePayroll تُسقط دور admin عمداً (لا مسير للأدمن)، فتُرجع مصفوفة
        فارغة حين يكون هذا البروفايل لأدمن — و [0] عندها undefined. كان الوصول
        إلى pay.lateMin بعدها يرمي فتنهار الصفحة كلها إلى «تعذّر عرض هذه

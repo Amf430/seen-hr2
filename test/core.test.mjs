@@ -16,7 +16,8 @@
 
 import { setSettings, setMe } from '../js/lib/state.js';
 import { resolveShift, shiftHours, shiftWindowFor, shiftText,
-         workingDaysBetween, LATE_GRACE_MIN } from '../js/lib/shifts.js';
+         workingDaysBetween, compensableMin,
+         LATE_GRACE_MIN, LATE_COMP_MAX_MIN } from '../js/lib/shifts.js';
 import { haversine, nearestBranch, geoRuleFor, branchesOf, activeBranches,
          REMOTE_BRANCH_ID } from '../js/lib/geo.js';
 import { canApprove, canApproveType, hasChain, chainStep, isLastStep,
@@ -276,6 +277,31 @@ eq('ويوم ٢٥ يغلق التي قبلها',  '2026-07-26', ymd(cycleOf('202
 eq('ومنتصف الشهر داخل دورة الشهر السابق', '2026-07-26', ymd(cycleOf('2026-08-10').start));
 eq('وأول يناير يعود لديسمبر السابق',      '2025-12-26', ymd(cycleOf('2026-01-05').start));
 eq('ونهاية الدورة هي ٢٥ من الشهر التالي', '2026-08-25', ymd(cycleOf('2026-08-10').end));
+
+/* ═════════════════════ ٩. تعويض التأخير ═════════════════════
+   خاصية داخلية للأدمن: من تأخّر ثم بقي بعد نهاية ورديته تُقاصّ دقائقه بحدّ
+   ساعة. هذه الدالة تقرّر كم يُخصم من راتب الموظف — فحدودها تُختبر واحداً واحداً. */
+group('٩. تعويض التأخير بالبقاء بعد الوردية');
+
+/* وردية ٢٠٢٦-٠٨-٠٢ (الأحد) ٠٨:٠٠–١٦:٠٠ */
+const cWin = shiftWindowFor(new Date('2026-08-02T00:00:00'), WEEK[0]);
+const outAt = (hm) => new Date('2026-08-02T' + hm + ':00');
+
+eq('تأخر ٦٠ د وبقي ٦٠ د → يُعوَّض كاملاً', 60, compensableMin(60, outAt('17:00'), cWin));
+eq('تأخر ٣٠ د وبقي ٦٠ د → التعويض بقدر التأخير لا أكثر', 30, compensableMin(30, outAt('17:00'), cWin));
+eq('تأخر ٦٠ د وبقي ٣٠ د → التعويض بقدر البقاء', 30, compensableMin(60, outAt('16:30'), cWin));
+
+/* ⚠️ سقف الساعة: بدونه يصير الدوام مفتوحاً — من تأخّر ٣ ساعات وبقي ٣ لا يُخصم عليه شيء */
+eq('تأخر ١٨٠ د وبقي ١٨٠ د → السقف ساعة والباقي تأخير', 60, compensableMin(180, outAt('19:00'), cWin));
+eq('تأخر ٩٠ د وبقي ٩٠ د → ٦٠ تعويضاً و٣٠ تبقى', 60, compensableMin(90, outAt('17:30'), cWin));
+
+eq('انصرف في وقته → لا تعويض',        0, compensableMin(60, outAt('16:00'), cWin));
+eq('انصرف مبكراً → لا تعويض',          0, compensableMin(60, outAt('15:00'), cWin));
+eq('لم يتأخر أصلاً → لا تعويض',        0, compensableMin(0,  outAt('19:00'), cWin));
+eq('بلا بصمة انصراف → لا تعويض',       0, compensableMin(60, null, cWin));
+eq('بلا وردية محدّدة → لا تعويض',      0, compensableMin(60, outAt('19:00'), null));
+eq('تأخير سالب (خطأ حساب) → صفر لا سالب', 0, compensableMin(-30, outAt('19:00'), cWin));
+eq('السقف المعلن ساعة واحدة', 60, LATE_COMP_MAX_MIN);
 
 console.log(`\n\x1b[1m═══ النتيجة: ${pass} ناجح، ${fail} فاشل ═══\x1b[0m`);
 process.exit(fail ? 1 : 0);

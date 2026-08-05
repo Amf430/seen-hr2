@@ -15,9 +15,8 @@
 
 import { getSettings } from './state.js';
 import { ymd } from './dates.js';
-import { tsToDate } from './format.js';
-import { resolveShift, shiftHours, shiftWindowFor } from './shifts.js';
-import { sessionsOf, workedSecs, lastOutOf, recFor } from './attendance.js';
+import { resolveShift, shiftHours, shiftWindowFor, compensableMin } from './shifts.js';
+import { sessionsOf, dayBounds, recFor } from './attendance.js';
 
 export function payrollConfig() {
   return { hoursPerDay: 8, daysPerMonth: 30, graceMinutes: 0, ...(getSettings().payroll || {}) };
@@ -40,8 +39,8 @@ export function computePayroll(cyc, users, requests, recs) {
     const salary = Number(u.salary) || 0;
     const dayRate = cfg.daysPerMonth > 0 ? salary / cfg.daysPerMonth : 0;
     const hourRate = cfg.hoursPerDay > 0 ? dayRate / cfg.hoursPerDay : 0;
-    let reqH = 0, workH = 0, lateMin = 0, earlyMin = 0, exemptMin = 0;
-    let absentDays = 0, unpaidDays = 0, paidLeaveDays = 0, missingOut = 0, presentDays = 0, lateDays = 0, workDays = 0;
+    let reqH = 0, workH = 0, lateMin = 0, earlyMin = 0, exemptMin = 0, compMin = 0;
+    let absentDays = 0, unpaidDays = 0, paidLeaveDays = 0, missingOut = 0, presentDays = 0, lateDays = 0, workDays = 0, compDays = 0;
     const details = [];
 
     /* ⚠️ لا يُحاسَب الموظف على أيام قبل مباشرته.
@@ -81,8 +80,10 @@ export function computePayroll(cyc, users, requests, recs) {
          كاملاً عن كل واحد. راجع restoreAccess في users.js. */
       const rec = recFor(recMap, u, dateStr);
       const ss = sessionsOf(rec);
-      const firstIn = ss.length ? tsToDate(ss[0].in) : null;
-      const lastOut = lastOutOf(ss);
+      /* ⚠️ حدّا اليوم لا مزاوجة الجلسات: بصمة مكرّرة أو منسيّة كانت تقلب دور
+         كل بصمة بعدها، فتصير بصمة الانصراف «دخولاً» مفتوحاً — يُحسب اليوم
+         «نسيان بصمة الخروج» ويُخصم على خروج مبكر لم يقع. انظر dayBounds. */
+      const { firstIn, lastOut, spanSecs } = dayBounds(ss);
 
       if (!firstIn) {
         absentDays++;
@@ -91,11 +92,16 @@ export function computePayroll(cyc, users, requests, recs) {
       }
       presentDays++;
       const win = shiftWindowFor(d, sh);
-      let lm = 0, em = 0, ex = 0, flag = '';
+      let lm = 0, em = 0, ex = 0, cm = 0, flag = '';
       if (win) {
         const rawLate = Math.max(0, Math.round((firstIn - win.start) / 60000) - (cfg.graceMinutes || 0));
         if (latePerm) { ex += rawLate; }        /* استئذان معتمد → معفى */
-        else          { lm = rawLate; }
+        else {
+          /* تعويض التأخير ببقائه بعد نهاية الوردية، بحدّ ساعة — انظر
+             compensableMin. الاستئذان المعتمد يُعفي أصلاً فلا يحتاج تعويضاً. */
+          cm = compensableMin(rawLate, lastOut, win);
+          lm = rawLate - cm;
+        }
         if (!lastOut) {
           flag = 'نسيان بصمة الخروج'; missingOut++;
         } else {
@@ -105,17 +111,16 @@ export function computePayroll(cyc, users, requests, recs) {
         }
       }
       if (lm > 0) lateDays++;
+      if (cm > 0) { compMin += cm; compDays++; }
       lateMin += lm; earlyMin += em; exemptMin += ex;
-      /* الساعات المحتسبة: الفعلية، وعند نسيان الانصراف نحسب المطلوب ناقص التأخير.
-         ⚠️ `until` أُضيف هنا: لو بقيت جلسة في منتصف اليوم مفتوحة بينما أُغلقت
-         جلسة بعدها (وارد في zkAttendance — يكتبه الجسر عبر Admin SDK متجاوزاً
-         القواعد التي تفرض الترتيب)، كانت المفتوحة تُحتسب حتى اللحظة فتنفخ
-         «ساعات فعلية». الخصم لا يتأثر — total يُبنى على الدقائق والأيام لا على
-         workH — لكن الرقم المعروض في المسير كان خاطئاً. */
-      workH += lastOut
-        ? (workedSecs(ss, win ? win.end.getTime() : null).secs / 3600)
-        : Math.max(0, need - (lm / 60));
-      details.push({ dateStr, dow, status: flag || (lm > 0 ? 'متأخر' : 'حاضر'), lm, em, ex,
+      /* الساعات المحتسبة: مدى اليوم من أول بصمة لآخرها، وعند نسيان الانصراف
+         نحسب المطلوب ناقص التأخير.
+         ⚠️ كانت مجموع الجلسات المزدوجة، وهي غير موثوقة: بصمة زائدة تقلب دور
+         ما بعدها فتظهر ساعات لا علاقة لها بالواقع (٥٧ دقيقة ليوم كامل). */
+      workH += lastOut ? (spanSecs / 3600) : Math.max(0, need - (lm / 60));
+      details.push({ dateStr, dow,
+                     status: flag || (lm > 0 ? 'متأخر' : (cm > 0 ? 'حاضر — عُوِّض التأخير' : 'حاضر')),
+                     lm, em, ex, cm,
                      ded: ((lm + em) / 60) * hourRate, need, in: firstIn, out: lastOut });
     }
 
@@ -125,7 +130,7 @@ export function computePayroll(cyc, users, requests, recs) {
     const total = dedHours + dedAbsent + dedUnpaid;
     return { u, salary, dayRate, hourRate, cfg,
              workDays, presentDays, lateDays, absentDays, unpaidDays, paidLeaveDays, missingOut,
-             reqH, workH, lateMin, earlyMin, exemptMin,
+             reqH, workH, lateMin, earlyMin, exemptMin, compMin, compDays,
              dedHours, dedAbsent, dedUnpaid, total, net: Math.max(0, salary - total), details };
   }).sort((a, b) => (a.u.name || '').localeCompare(b.u.name || ''));
 }

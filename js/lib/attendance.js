@@ -10,7 +10,8 @@
 import { db, doc, getDoc, collection, query, where, getDocs } from './firebase.js';
 import { ymd, AR_DAYS } from './dates.js';
 import { tsToDate } from './format.js';
-import { resolveShift, shiftWindowFor, MISSING_OUT_AFTER_MIN, LATE_GRACE_MIN } from './shifts.js';
+import { resolveShift, shiftWindowFor, compensableMin,
+         MISSING_OUT_AFTER_MIN, LATE_GRACE_MIN } from './shifts.js';
 /* ⚠️ لا دورة استيراد: requests.js لا يستورد هذا الملف ولا شيء في شجرته
    (state / perms / dom / audit / dates / firebase) يصل إليه. */
 import { permWindowOpen } from './requests.js';
@@ -79,6 +80,45 @@ export function lastOutOf(sessions) {
   return null;
 }
 
+/* ═══ حدّا اليوم — أول بصمة وآخر بصمة ═══
+
+   الجهاز يسجّل بصمات لا جلسات، والجسر يزاوجها بالتناوب: بصمة تفتح جلسة
+   والتالية تقفلها (bridge/zk_bridge.py — push_punch). فبصمة واحدة زائدة أو
+   ناقصة تقلب دور كل ما بعدها لبقية اليوم.
+
+   الحالة الواقعية: موظف بصم ٠٩:٥٠ دخولاً، ثم بصم ١٠:٤٧، ثم نسي أنه بصم
+   فبصم ١٨:٠٠ عند انصرافه. التناوب قرأ ١٨:٠٠ «دخولاً» جديداً بقي مفتوحاً،
+   فظهر اليوم بـ«نسيان بصمة الخروج» وخروجه المسجَّل ١٠:٤٧ — وساعاته ٥٧ دقيقة.
+
+   فيُقرأ اليوم بحدّيه: أبكر بصمة دخولاً وأحدث بصمة خروجاً، أياً كان موقعها
+   في الجلسات. الجلسات تبقى كما كتبها الجهاز — `zkAttendance` سجل لا يُعدَّل
+   (`allow write: if false`) والتصحيح في القراءة وحدها، فينسحب على السجلات
+   القديمة أيضاً بلا أي كتابة.
+
+   ⚠️ الثمن المقصود: فترة الخروج في منتصف اليوم لم تعد تُطرح من الساعات
+   المعروضة — اليوم صار مدىً واحداً من أول بصمة لآخرها. وهذا لا يمسّ الخصم:
+   الخصم مبني على دقائق التأخير والخروج المبكر لا على الساعات.
+
+   ⚠️ بصمة واحدة في اليوم كلّه تبقى دخولاً بلا خروج، فنسيان الانصراف
+   الحقيقي ما زال يُكتشف. */
+export function dayBounds(sessions) {
+  let first = null, last = null;
+  for (const s of sessions) {
+    for (const key of ['in', 'out']) {
+      const t = tsToDate(s[key]);
+      if (!t) continue;
+      if (!first || t < first) first = t;
+      if (!last  || t > last)  last  = t;
+    }
+  }
+  return {
+    firstIn: first,
+    lastOut: (first && last && last > first) ? last : null,
+    /* المدى بالثواني — صفر ما لم يوجد حدّان */
+    spanSecs: (first && last && last > first) ? (last - first) / 1000 : 0
+  };
+}
+
 /* ── سجلات الموظف نفسه ──
    ⚠️ لا تستعمل fetchAttendance هنا. هي تستعلم بالتاريخ فقط، وقاعدة القراءة
    تسمح للموظف بسجلاته هو فقط — وFirestore يرفض الاستعلام كاملاً ما لم يكن
@@ -133,8 +173,13 @@ export function flattenSessions(recs) {
   return rows;
 }
 
-/* ═══ الحالة اليومية (حاضر/متأخر/غائب/إجازة) مع ربط الاستئذان — منقولة حرفياً ═══ */
-export function buildDailyStatus(cyc, users, requests, recs) {
+/* ═══ الحالة اليومية (حاضر/متأخر/غائب/إجازة) مع ربط الاستئذان — منقولة حرفياً ═══
+
+   ⚠️ opts.compensate: تعويض التأخير ببقاء الموظف بعد الوردية. مُطفأ افتراضياً
+   عمداً — شاشة «أدائي» ولوحة المنتظمين يراهما الموظف، وتعويضٌ يظهر فيهما يكشف
+   الخاصية. لا تُشغّله إلا من شاشة لا يفتحها إلا الأدمن. */
+export function buildDailyStatus(cyc, users, requests, recs, opts = {}) {
+  const compensate = !!opts.compensate;
   const recMap = {}; recs.forEach((r) => { recMap[r.employeeUid + '_' + r.date] = r; });
   const emps = users.filter((u) => u.role !== 'admin');
   const now = new Date();
@@ -156,13 +201,15 @@ export function buildDailyStatus(cyc, users, requests, recs) {
       const earlyPerm = perms.find((p) => (p.category || '').includes('خروج'));
       const rec = recFor(recMap, u, dateStr);
       const sessions = sessionsOf(rec);
-      const firstIn = sessions.length ? tsToDate(sessions[0].in) : null;
-      const lastOut = lastOutOf(sessions);
-      const openSess = sessions.some((s) => !s.out);
+      /* اليوم بحدّيه لا بمزاوجة الجلسات — انظر dayBounds */
+      const { firstIn, lastOut, spanSecs } = dayBounds(sessions);
+      const openSess = !!firstIn && !lastOut;
       const win = shiftWindowFor(d, shift);
-      /* الجلسة المفتوحة تُقصّ عند نهاية الوردية بدل أن تعدّ حتى الآن */
-      const { secs } = workedSecs(sessions, win ? win.end.getTime() : null);
-      let status, cls, note = '', lateMin = 0, excusable = false;
+      /* المدى من أول بصمة لآخرها. وبلا بصمة خروج تُقصّ الجلسة المفتوحة عند
+         نهاية الوردية بدل أن تعدّ حتى الآن. */
+      const secs = lastOut ? spanSecs
+                           : workedSecs(sessions, win ? win.end.getTime() : null).secs;
+      let status, cls, note = '', lateMin = 0, compMin = 0, excusable = false;
       if (leave) { status = 'إجازة: ' + (leave.categoryLabel || ''); cls = 'leave'; }
       else if (firstIn) {
         /* نسيان بصمة الخروج: جلسة مفتوحة ومضى أكثر من ساعتين على نهاية الوردية */
@@ -175,8 +222,17 @@ export function buildDailyStatus(cyc, users, requests, recs) {
           if (allowedBase) {
             const grace = new Date(allowedBase.getTime() + LATE_GRACE_MIN * 60000);
             if (firstIn > grace) {
-              lateMin = Math.round((firstIn - allowedBase) / 60000);
-              status = 'متأخر'; cls = 'late'; note = `تأخر ${lateMin} د`;
+              const rawLate = Math.round((firstIn - allowedBase) / 60000);
+              compMin = compensate ? compensableMin(rawLate, lastOut, win) : 0;
+              lateMin = rawLate - compMin;
+              if (lateMin > 0) {
+                status = 'متأخر'; cls = 'late';
+                note = compMin ? `تأخر ${lateMin} د بعد تعويض ${compMin} د` : `تأخر ${lateMin} د`;
+              } else {
+                /* التعويض غطّى التأخير كاملاً — يوم حاضر، والملاحظة للأدمن وحده */
+                status = 'حاضر'; cls = 'present';
+                note = `عوّض تأخير ${rawLate} د ببقائه بعد الدوام`;
+              }
             } else { status = 'حاضر'; cls = 'present'; }
           } else { status = 'حاضر'; cls = 'present'; }
         }
@@ -197,7 +253,7 @@ export function buildDailyStatus(cyc, users, requests, recs) {
       }
       if (shift.src === 'exception' && shift.exLabel) note = (note ? note + ' · ' : '') + shift.exLabel;
       else if (shift.src === 'dept')                  note = (note ? note + ' · ' : '') + 'وردية القسم';
-      rows.push({ u, dateStr, dow, shift, status, cls, note, firstIn, lastOut, secs, rec, openSess, lateMin, excusable });
+      rows.push({ u, dateStr, dow, shift, status, cls, note, firstIn, lastOut, secs, rec, openSess, lateMin, compMin, excusable });
     }
   });
   rows.sort((a, b) => (a.u.name || '').localeCompare(b.u.name || '') || (a.dateStr > b.dateStr ? 1 : -1));

@@ -22,6 +22,26 @@ export const GRACE_AFTER_END_MIN = 120;
 /* دقائق السماح قبل احتساب التأخير في التقرير اليومي */
 export const LATE_GRACE_MIN = 15;
 
+/* ═══ تعويض التأخير — داخلي للأدمن ═══
+
+   من تأخّر ثم بقي بعد نهاية ورديته: تُقاصّ دقائق بقائه بدقائق تأخيره، بحدّ
+   أقصى ساعة. ما فوق الساعة يبقى تأخيراً يُخصم عليه. من تأخّر ٩٠ د وبقي ٩٠ د
+   يُعوَّض ٦٠ ويبقى عليه ٣٠.
+
+   ⚠️ ثابت في الكود لا في `settings`: وثيقة الإعدادات يقرأها كل موظف نشط
+   (firestore.rules — `allow read: if isActive()`)، فوضع الحدّ فيها يكشف وجود
+   الخاصية لمن يقرأ بياناته من الـAPI مباشرة.
+
+   ⚠️ ولا يُطبَّق هذا في شاشات الموظف. buildDailyStatus لا تعوّض إلا إذا
+   طُلب منها صراحةً، والطلب من شاشات الأدمن وحدها. */
+export const LATE_COMP_MAX_MIN = 60;
+
+export function compensableMin(lateMin, lastOut, win) {
+  if (!(lateMin > 0) || !lastOut || !win) return 0;
+  const over = Math.round((lastOut - win.end) / 60000);
+  return Math.max(0, Math.min(lateMin, over, LATE_COMP_MAX_MIN));
+}
+
 export function deptOf(name) {
   if (!name) return null;
   return (getSettings().departments || []).find((d) => d.name === name) || null;
