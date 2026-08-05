@@ -25,7 +25,7 @@ export function render(view) {
   if (!rows.length) c.appendChild(empty('لا بيانات'));
   else c.appendChild(tableWrap(`
     <table>
-      <thead><tr><th>الموظف</th><th>عدد الطلبات</th></tr></thead>
+      <thead><tr><th>الموظف</th><th class="num">عدد الطلبات</th></tr></thead>
       <tbody>${rows.map(([n, k]) => `<tr><td>${esc(n)}</td><td class="num"><b>${k}</b></td></tr>`).join('')}</tbody>
     </table>`));
   view.appendChild(c);
@@ -41,7 +41,7 @@ export function render(view) {
     const cc = card('الطلبات حسب التصنيف', null, 'tag');
     cc.appendChild(tableWrap(`
       <table>
-        <thead><tr><th>التصنيف</th><th>العدد</th></tr></thead>
+        <thead><tr><th>التصنيف</th><th class="num">العدد</th></tr></thead>
         <tbody>${catRows.map(([n, k]) => `<tr><td>${esc(n)}</td><td class="num"><b>${k}</b></td></tr>`).join('')}</tbody>
       </table>`));
     view.appendChild(cc);

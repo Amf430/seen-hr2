@@ -20,7 +20,7 @@ export async function render(view, token) {
 
   host.appendChild(tableWrap(`
     <table>
-      <thead><tr><th>الحركة</th><th>التفاصيل</th><th>بواسطة</th><th>الوقت</th></tr></thead>
+      <thead><tr><th>الحركة</th><th>التفاصيل</th><th>بواسطة</th><th class="num">الوقت</th></tr></thead>
       <tbody>${logs.map((l) => `<tr>
         <td><b>${esc(l.action)}</b></td>
         <td>${esc(l.detail)}</td>

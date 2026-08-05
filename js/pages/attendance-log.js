@@ -153,7 +153,7 @@ export async function render(view, token, opt) {
       };
       const wrap = tableWrap(`
         <table>
-          <thead><tr><th>الموظف</th><th>الرقم الوظيفي</th><th>التاريخ</th><th>اليوم</th><th>الحالة</th><th>دخول</th><th>خروج</th><th>الساعات</th><th>ملاحظة</th></tr></thead>
+          <thead><tr><th>الموظف</th><th class="num">الرقم الوظيفي</th><th class="num">التاريخ</th><th>اليوم</th><th>الحالة</th><th class="num">دخول</th><th class="num">خروج</th><th class="num">الساعات</th><th>ملاحظة</th></tr></thead>
           <tbody>${rows.map((r, i) => {
             const can = sessionsOf(r.rec).length > 0;
             return `<tr${can ? ` data-daily="${i}" class="is-clickable"` : ''}>
@@ -182,7 +182,7 @@ export async function render(view, token, opt) {
          الشاشة لا يمسّ ملفات المالك الجاهزة. */
       const wrap = tableWrap(`
         <table>
-          <thead><tr><th>الموظف</th><th>الرقم الوظيفي</th><th>التاريخ</th><th>اليوم</th><th>#</th><th>الفرع</th><th>دخول</th><th>خروج</th><th>المدة</th>${
+          <thead><tr><th>الموظف</th><th class="num">الرقم الوظيفي</th><th class="num">التاريخ</th><th>اليوم</th><th class="num">#</th><th>الفرع</th><th class="num">دخول</th><th class="num">خروج</th><th class="num">المدة</th>${
             opt.isDevice ? '' : '<th>الموقع</th><th>إثبات</th>'}<th>المصدر</th></tr></thead>
           <tbody>${rows.map((row, i) => {
             const s = row.s || {};

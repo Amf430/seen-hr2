@@ -151,7 +151,7 @@ export async function render(view, token) {
     dc.appendChild(sectionHead({ text: 'يوماً بيوم', icon: 'list' }));
     dc.appendChild(tableWrap(`
       <table class="tight">
-        <thead><tr><th>التاريخ</th><th>اليوم</th><th>الحالة</th><th>دخول</th><th>خروج</th><th>الساعات</th><th>ملاحظة</th></tr></thead>
+        <thead><tr><th class="num">التاريخ</th><th>اليوم</th><th>الحالة</th><th class="num">دخول</th><th class="num">خروج</th><th class="num">الساعات</th><th>ملاحظة</th></tr></thead>
         <tbody>${[...rows].reverse().map((r) => `<tr>
           <td class="num">${esc(r.dateStr)}</td>
           <td>${AR_DAYS[r.dow]}</td>
@@ -217,7 +217,7 @@ function sourceCard(title, ico, recs, desc) {
   c.appendChild(g);
   c.appendChild(tableWrap(`
     <table class="tight">
-      <thead><tr><th>التاريخ</th><th>أول دخول</th><th>آخر خروج</th><th>جلسات</th><th>الساعات</th></tr></thead>
+      <thead><tr><th class="num">التاريخ</th><th class="num">أول دخول</th><th class="num">آخر خروج</th><th class="num">جلسات</th><th class="num">الساعات</th></tr></thead>
       <tbody>${body}</tbody>
     </table>`));
   return c;

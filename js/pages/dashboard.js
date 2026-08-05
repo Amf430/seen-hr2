@@ -199,7 +199,7 @@ export async function render(view, token) {
       button('كل السجل', 'btn sm ghost', () => go('attendance'))));
     lc.appendChild(tableWrap(`
       <table class="tight">
-        <thead><tr><th>الموظف</th><th>القسم</th><th>منذ</th></tr></thead>
+        <thead><tr><th>الموظف</th><th>القسم</th><th class="num">منذ</th></tr></thead>
         <tbody>${ta.insideNow.slice(0, 10).map((x) => `<tr>
           <td><b>${esc(x.u.name)}</b></td>
           <td>${esc(x.u.department || '—')}</td>
@@ -253,7 +253,7 @@ export async function render(view, token) {
     const dc = card('مستندات تحتاج تجديداً', null, 'alert');
     dc.appendChild(tableWrap(`
       <table class="tight">
-        <thead><tr><th>الموظف</th><th>المستند</th><th>ينتهي</th><th>الحالة</th></tr></thead>
+        <thead><tr><th>الموظف</th><th>المستند</th><th class="num">ينتهي</th><th>الحالة</th></tr></thead>
         <tbody>${[...ds.expired, ...ds.soon].slice(0, 12).map((x) => `<tr>
           <td><b>${esc(x.u.name)}</b><div class="cell-sub">${esc(x.u.department || '—')}</div></td>
           <td>${esc(kindLabel(x.d.kind))}</td>
@@ -274,7 +274,7 @@ export async function render(view, token) {
     const cc = card('عقود تحتاج متابعة', null, 'doc');
     cc.appendChild(tableWrap(`
       <table class="tight">
-        <thead><tr><th>الموظف</th><th>القسم</th><th>ينتهي</th><th>الحالة</th></tr></thead>
+        <thead><tr><th>الموظف</th><th>القسم</th><th class="num">ينتهي</th><th>الحالة</th></tr></thead>
         <tbody>${[...wf2.expired, ...wf2.soon].slice(0, 12).map((x) => `<tr>
           <td><b>${esc(x.u.name)}</b></td>
           <td>${esc(x.u.department || '—')}</td>
