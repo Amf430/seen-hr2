@@ -27,7 +27,7 @@
 import { setSettings } from '../../js/lib/state.js';
 import { cycleOf, ymd } from '../../js/lib/dates.js';
 import { computePayroll, isUnpaidLeave, payrollConfig } from '../../js/lib/payroll.js';
-import { buildDailyStatus, sessionsOf, workedSecs, lastOutOf } from '../../js/lib/attendance.js';
+import { buildDailyStatus, sessionsOf, workedSecs, lastOutOf, dayBounds } from '../../js/lib/attendance.js';
 import { compress } from '../../js/lib/photo.js';
 import { permWindowOpen, permOldestDate } from '../../js/lib/requests.js';
 
@@ -339,8 +339,79 @@ group('٨. الجلسات المتعددة وحساب الساعات');
 eq('سجل فارغ = بلا جلسات', 0, sessionsOf(null).length);
 eq('وبلا خروج أخير',      null, lastOutOf([]));
 
-/* ══════════════════ ٩. ضغط الصورة ══════════════════ */
-group('٩. ضغط صورة إثبات الموقع');
+/* ══════════════════ ٩. البصمة الزائدة وتعويض التأخير ══════════════════ */
+group('٩. حدّا اليوم — وتعويض التأخير');
+
+/* الأحد ٢٠٢٦-٠٦-٠٧ داخل الدورة، وورديته ٠٨:٠٠–١٦:٠٠ */
+const D = '2026-06-07';
+
+/* بصمات خام كما يكتبها الجسر: التناوب يقفل جلسة ويفتح التي بعدها.
+   punches('09:50','10:47','18:00') = الحالة الواقعية — بصم، ثم نسي أنه بصم
+   فجرّب ثانية، ثم بصم انصرافه. الثالثة صارت «دخولاً» مفتوحاً. */
+function punches(dateStr, ...hms) {
+  const sessions = [];
+  hms.forEach((hm) => {
+    const open = sessions.length && !sessions[sessions.length - 1].out;
+    if (open) sessions[sessions.length - 1].out = at(dateStr, hm);
+    else      sessions.push({ in: at(dateStr, hm), out: null });
+  });
+  return { employeeUid: 'e1', date: dateStr, sessions };
+}
+
+const odd = punches(D, '09:50', '10:47', '18:00');
+eq('الجسر فعلاً يترك الجلسة الأخيرة مفتوحة', 2, odd.sessions.length);
+eq('و dayBounds تقرأ حدّيه من الجلسات نفسها', ['09:50','18:00'],
+   (() => { const b = dayBounds(sessionsOf(odd));
+            return [b.firstIn.toTimeString().slice(0,5), b.lastOut.toTimeString().slice(0,5)]; })());
+eq('ومزاوجة الجلسات وحدها ترجع ١٠:٤٧ خروجاً', '10:47',
+   lastOutOf(sessionsOf(odd)).toTimeString().slice(0, 5));
+
+/* ── القراءة بالحدّين تصلحها ── */
+const oddDay = buildDailyStatus(CYC, [EMP], [], fullMonth({ [D]: odd }))
+  .find((r) => r.dateStr === D);
+eq('أول بصمة هي الدخول',            '09:50', oddDay.firstIn.toTimeString().slice(0, 5));
+eq('وآخر بصمة هي الخروج لا ١٠:٤٧',  '18:00', oddDay.lastOut.toTimeString().slice(0, 5));
+eq('فلا «نسيان بصمة الخروج»',        false,  oddDay.openSess);
+eq('والساعات مدى اليوم لا ٥٧ دقيقة', 8.1667, Math.round((oddDay.secs / 3600) * 1e4) / 1e4);
+
+/* بصمة واحدة في اليوم كلّه تبقى نسياناً حقيقياً */
+const oneDay = buildDailyStatus(CYC, [EMP], [], fullMonth({ [D]: punches(D, '08:00') }))
+  .find((r) => r.dateStr === D);
+eq('بصمة واحدة → لا خروج',           null, oneDay.lastOut);
+eq('وتبقى جلسة مفتوحة',              true, oneDay.openSess);
+
+/* ── المسير: الخصم يختفي مع البصمة الثالثة ── */
+const oddPay = runPayroll(fullMonth({ [D]: odd }));
+eq('لا خصم خروج مبكر على يوم انصرف فيه ١٨:٠٠', 0, oddPay.earlyMin);
+eq('ولا يُعدّ يوماً بلا بصمة انصراف',           0, oddPay.missingOut);
+
+/* ── التعويض ── */
+/* تأخر ساعة (٠٩:٠٠ بدل ٠٨:٠٠) وبقي ساعة (١٧:٠٠ بدل ١٦:٠٠) */
+const compPay = runPayroll(fullMonth({ [D]: rec(D, '09:00', '17:00') }));
+eq('تأخر ٦٠ د وبقي ٦٠ د → لا تأخير يُخصم', 0,  compPay.lateMin);
+eq('وتُسجَّل ٦٠ د تعويضاً',                60, compPay.compMin);
+eq('ويوم واحد معوَّض',                     1,  compPay.compDays);
+eq('ولا خصم ساعات على الدورة',             0,  Math.round(compPay.dedHours));
+
+/* تأخر ساعتين وبقي ساعتين → يُعوَّض ٦٠ ويبقى ٦٠ */
+const capPay = runPayroll(fullMonth({ [D]: rec(D, '10:00', '18:00') }));
+eq('السقف ساعة — الباقي تأخير',  60, capPay.lateMin);
+eq('والتعويض ٦٠ لا ١٢٠',         60, capPay.compMin);
+eq('فيُخصم عن ساعة واحدة فقط', 37.5, Math.round(capPay.dedHours * 100) / 100);
+
+/* ⚠️ الأهم: شاشة الموظف لا تعوّض. لو ظهر التعويض في «أدائي» عرف بالخاصية. */
+const empView = buildDailyStatus(CYC, [EMP], [], fullMonth({ [D]: rec(D, '09:00', '17:00') }))
+  .find((r) => r.dateStr === D);
+eq('«أدائي» يبقى متأخراً — التعويض مطفأ افتراضياً', 'late', empView.cls);
+eq('ولا يذكر التعويض في الملاحظة', false, /تعويض|عوّض/.test(empView.note));
+
+const admView = buildDailyStatus(CYC, [EMP], [], fullMonth({ [D]: rec(D, '09:00', '17:00') }),
+                                 { compensate: true }).find((r) => r.dateStr === D);
+eq('وشاشة الأدمن تعوّضه فيصير حاضراً', 'present', admView.cls);
+eq('وتشرح السبب للأدمن',               true, /عوّض/.test(admView.note));
+
+/* ══════════════════ ١٠. ضغط الصورة ══════════════════ */
+group('١٠. ضغط صورة إثبات الموقع');
 /* ⚠️ onload لا img.decode(): decode() على صورة خارج المستند قد لا تُحسم
    أبداً في كروم، فتتعلّق المجموعة بلا خطأ ولا نتيجة. */
 const loadImg = (src) => new Promise((res, rej) => {
