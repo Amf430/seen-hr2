@@ -159,7 +159,7 @@ function treeTable(nodes, users, q) {
   const wrap = tableWrap(`
     <table>
       <thead><tr>
-        <th>الموظف</th><th>القسم</th><th>يتبعه</th><th>الحالة</th><th>الصلاحية</th><th></th>
+        <th>الموظف</th><th>القسم</th><th class="num">يتبعه</th><th>الحالة</th><th>الصلاحية</th><th></th>
       </tr></thead>
       <tbody></tbody>
     </table>`);

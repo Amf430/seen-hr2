@@ -82,7 +82,7 @@ export function render(view) {
     }
     const w = tableWrap(`
       <table class="tight">
-        <thead><tr><th>التاريخ</th><th>اليوم</th><th>النوع</th><th>الدوام</th><th>الوصف</th><th></th></tr></thead>
+        <thead><tr><th class="num">التاريخ</th><th>اليوم</th><th>النوع</th><th class="num">الدوام</th><th>الوصف</th><th></th></tr></thead>
         <tbody></tbody>
       </table>`);
     const tb = w.querySelector('tbody');

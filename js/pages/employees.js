@@ -43,8 +43,8 @@ export async function render(view, token) {
     const wrap = tableWrap(`
       <table>
         <thead><tr>
-          <th>الاسم</th><th>الرقم الوظيفي</th><th>القسم</th>
-          ${isAdmin ? '<th>الراتب</th>' : ''}
+          <th>الاسم</th><th class="num">الرقم الوظيفي</th><th>القسم</th>
+          ${isAdmin ? '<th class="money">الراتب</th>' : ''}
           <th>الحضور</th><th>انتهاء العقد</th><th>المستندات</th><th>الحالة</th><th>الصلاحية</th><th></th>
         </tr></thead>
         <tbody></tbody>
@@ -163,7 +163,7 @@ async function openReclaim(u, after) {
   }
 
   body.innerHTML = `<table class="tight"><thead><tr>
-      <th>المعرّف السابق</th><th>الاسم وقتها</th><th>عدد السجلات</th><th>من</th><th>إلى</th></tr></thead>
+      <th class="num">المعرّف السابق</th><th>الاسم وقتها</th><th class="num">عدد السجلات</th><th class="num">من</th><th class="num">إلى</th></tr></thead>
     <tbody>${res.found.map((f) => `<tr>
       <td class="num" style="font-size:11px">${esc(f.uid)}</td>
       <td>${esc(f.name || '—')}</td>

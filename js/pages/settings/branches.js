@@ -44,7 +44,7 @@ export function render(view) {
 
     const wrap = tableWrap(`
       <table>
-        <thead><tr><th>الفرع</th><th>الإحداثيات</th><th>النطاق</th><th>الموظفون المقيّدون به</th><th>الحالة</th><th></th></tr></thead>
+        <thead><tr><th>الفرع</th><th class="num">الإحداثيات</th><th class="num">النطاق</th><th class="num">الموظفون المقيّدون به</th><th>الحالة</th><th></th></tr></thead>
         <tbody></tbody>
       </table>`);
     const tb = wrap.querySelector('tbody');
