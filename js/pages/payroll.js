@@ -1,6 +1,6 @@
 import { el, esc, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
-import { getUsers, getRequests } from '../lib/state.js';
+import { getUsers, getRequests, getMe } from '../lib/state.js';
 import { refreshUsers } from '../lib/users.js';
 import { recentCyclesList, ymd } from '../lib/dates.js';
 import { money, hhmm, fmtDT } from '../lib/format.js';
@@ -138,7 +138,7 @@ export async function render(view, token) {
     rowsPay.forEach((r) => {
       const tr = el('tr', 'row-clickable');
       tr.innerHTML = `
-        <td><b>${esc(r.u.name)}</b>${r.missingOut ? ` <span class="pill pill--dot missing">${r.missingOut} بلا انصراف</span>` : ''}</td>
+        <td><b>${esc(r.u.name)}</b>${r.missingOut ? ` <span class="pill pill--dot missing">${r.missingOut} بلا انصراف</span>` : ''}${compBadge(r)}</td>
         <td>${esc(r.u.department || '—')}</td>
         <td class="money">${r.salary ? money(r.salary) : '<span class="text-red">—</span>'}</td>
         <td class="money">${money(r.hourRate)}</td>
@@ -203,4 +203,15 @@ function confirmApprove(cyc, rowsPay) {
       rerender();
     }
   });
+}
+
+/* ═══ شارة التعويض — للأدمن وحده ═══
+
+   المطلوب أن يبقى الموظف غير عالم بالخاصية. مدير القسم يفتح بروفايل موظفيه،
+   فتُقصر الشارة على دور admin وحده. الأرقام نفسها (دقائق التأخير بعد التعويض)
+   يراها المدير كما هي — بلا ما يسمّي له السبب. */
+function compBadge(r) {
+  if (!r.compMin || getMe().role !== 'admin') return '';
+  return ` <span class="pill pill--dot present" title="عُوِّض تأخيره ببقائه بعد الدوام — ${r.compDays} يوم">` +
+         `تعويض ${esc(hhmm(r.compMin))}</span>`;
 }

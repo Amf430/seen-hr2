@@ -80,7 +80,8 @@ export async function render(view, token, opt) {
   };
 
   function dailyRows(cyc) {
-    let rows = buildDailyStatus(cyc, getUsers(), getRequests(), recs);
+    /* صفحة أدمن — التعويض يُطبَّق هنا ولا يُطبَّق في «أدائي» عند الموظف */
+    let rows = buildDailyStatus(cyc, getUsers(), getRequests(), recs, { compensate: true });
     if (ddEmp.value)  rows = rows.filter((r) => r.u.id === ddEmp.value);
     if (inDate.value) rows = rows.filter((r) => r.dateStr === inDate.value);
     if (ddStat.value) rows = rows.filter((r) => r.cls === ddStat.value);
