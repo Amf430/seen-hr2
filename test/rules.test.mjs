@@ -929,6 +929,41 @@ await check('employee reads ANOTHER acknowledgement', false,
 await check('admin reads every acknowledgement',      true,
   () => getDocs(collection(admin, 'announcements/an1/acks')));
 
+/* ═══ 14. رصيد الإجازات (المرحلة ٨) ═══
+
+   ⚠️⚠️ أخطر حقول في النظام. `leavePolicy` تحدّد كم يستحقّ الموظف،
+   و`leaveUsed` كم استهلك، و`balances` العدّاد القديم. موظف يكتب أياً منها
+   على نفسه يمنح نفسه إجازةً لا يستحقّها — والاكتشاف يأتي بعد أن يكون أخذها.
+
+   الحارس هو قائمة only([...]) المغلقة في match /users. هذه الاختبارات تحرس
+   القائمة من أن يوسّعها أحد لاحقاً بلا انتباه. */
+console.log('\n\x1b[1m═══ 14. LEAVE BALANCE FIELDS ═══\x1b[0m');
+
+await check('⚠️ employee sets own leavePolicy',        false,
+  () => selfContact({ leavePolicy: { annual: { annualDays: 99 } } }));
+await check('⚠️ employee lowers own leaveUsed',        false,
+  () => selfContact({ leaveUsed: { annual: 0 } }));
+await check('⚠️ employee raises own balances',         false,
+  () => selfContact({ balances: { annual: 99 } }));
+await check('employee smuggles leaveUsed w/ address',  false,
+  () => selfContact({ address: 'x', leaveUsed: { annual: 0 } }));
+await check('manager edits leavePolicy of own dept',   false,
+  () => updateDoc(doc(mgr, 'users/empU'), { leavePolicy: { annual: { annualDays: 30 } } }));
+await check('manager lowers leaveUsed of own dept',    false,
+  () => updateDoc(doc(mgr, 'users/empU'), { leaveUsed: { annual: 0 } }));
+
+await check('admin sets a leave policy',               true,
+  () => updateDoc(doc(admin, 'users/empU'),
+    { leavePolicy: { annual: { annualDays: 21, openingBalance: 5, accrualMode: 'monthly' } } }));
+await check('admin writes leaveUsed',                  true,
+  () => updateDoc(doc(admin, 'users/empU'), { leaveUsed: { annual: 3 } }));
+
+/* السياسة الافتراضية تعيش في settings — أدمن فقط، والقاعدة قائمة */
+await check('employee writes leavePolicyDefaults',     false,
+  () => updateDoc(doc(emp, 'settings/config'), { leavePolicyDefaults: { annual: { annualDays: 99 } } }));
+await check('admin writes leavePolicyDefaults',        true,
+  () => updateDoc(doc(admin, 'settings/config'), { leavePolicyDefaults: { annual: { annualDays: 21 } } }));
+
 console.log(`\n\x1b[1m═══ RESULT: ${pass} passed, ${fail} failed ═══\x1b[0m`);
 if (failures.length) { console.log('\nFAILURES:'); failures.forEach((f) => console.log('  • ' + f)); }
 await env.cleanup();

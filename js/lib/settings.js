@@ -12,7 +12,7 @@ const REF = () => doc(db, 'settings', 'config');
    اثنين منها ولا تمسّ البقية. */
 const KEYS = ['permissionReasons', 'leaveTypes', 'approvers', 'departments', 'hrTicketCategories',
               'dateExceptions', 'branches', 'payroll', 'company', 'shifts',
-              'shiftPlans', 'defaultShiftPlanId'];
+              'shiftPlans', 'defaultShiftPlanId', 'leavePolicyDefaults'];
 
 /* القيم الافتراضية تُدمج تحت المحفوظ، فأي مفتاح جديد نضيفه لاحقاً لا يحتاج
    ترحيل بيانات — يظهر بقيمته الافتراضية حتى يحفظ الأدمن. */
@@ -30,7 +30,9 @@ const DEFAULTS = {
   /* ⚠️ فارغة عمداً: shiftPlansOf() في shifts.js تُركّب خطة واحدة في الذاكرة
      من `shifts` حين تكون هذه فارغة، فيشتغل النظام يوم النشر بلا ترحيل. */
   shiftPlans: [],
-  defaultShiftPlanId: ''
+  defaultShiftPlanId: '',
+  /* سياسة إجازات افتراضية لكل نوع — غيابها يعني الشكل القديم */
+  leavePolicyDefaults: {}
 };
 
 export async function loadSettings() {

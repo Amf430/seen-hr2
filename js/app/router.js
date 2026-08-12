@@ -33,6 +33,7 @@ import * as teamTasks     from '../pages/team-tasks.js';
 import * as taskPage      from '../pages/task.js';
 import * as tasksAnalytics from '../pages/tasks-analytics.js';
 import * as announcementsPage from '../pages/announcements.js';
+import * as leavePolicy   from '../pages/settings/leave-policy.js';
 import * as attendanceLog  from '../pages/attendance-log.js';
 import * as payroll        from '../pages/payroll.js';
 import * as monthly        from '../pages/monthly.js';
@@ -62,6 +63,7 @@ const RENDERERS = {
   task:           taskPage.render,
   'tasks-analytics': tasksAnalytics.render,
   announcements:  announcementsPage.render,
+  'set-leave-policy': leavePolicy.render,
   attendance:     (v, t) => attendanceLog.render(v, t, { coll: 'attendance',   isDevice: false }),
   zklog:          (v, t) => attendanceLog.render(v, t, { coll: 'zkAttendance', isDevice: true  }),
   payroll:        payroll.render,

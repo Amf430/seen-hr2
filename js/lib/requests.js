@@ -108,6 +108,21 @@ function nextBalances(userData, r, sign) {
   return bal;
 }
 
+/* ═══ المستهلك المعتمَد (المرحلة ٨) ═══
+
+   ⚠️ الاتجاه معكوس عن balances: هنا الاعتماد **يزيد** المستهلك، وهناك
+   **ينقص** المتبقّي. فـ sign=-1 (خصم من الرصيد) يعني +days على المستهلك.
+   خلط الاتجاهين يعطي موظفاً ضعف رصيده أو صفراً — لذلك الطرح صريح هنا.
+
+   ⚠️ ولا Math.max(0) على الاستهلاك: المستهلك السالب مستحيل منطقياً، ووجوده
+   يعني خطأً في مكان آخر يجب أن يظهر لا أن يُقصّ عند الصفر فيُخفى. */
+function nextLeaveUsed(userData, r, sign) {
+  const used = { ...((userData && userData.leaveUsed) || {}) };
+  const cur = Number(used[r.leaveTypeId] || 0);
+  used[r.leaveTypeId] = Math.max(0, cur - sign * (Number(r.days) || 0));
+  return used;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    مراجعة طلب — تغيير الحالة وتعديل الرصيد في معاملة واحدة.
 
@@ -137,7 +152,19 @@ async function reviewRequest(r, { from, to, sign, fields }) {
     /* ── الكتابات ── */
     tx.update(rref, { status: to, ...fields });
     if (needsBalance && usnap && usnap.exists()) {
-      tx.update(uref, { balances: nextBalances(usnap.data(), r, sign) });
+      /* ⚠️ الحقلان معاً في **نفس المعاملة** — مرحلة انتقالية مقصودة.
+         `balances` هو ما تقرؤه الشاشات القديمة، و`leaveUsed` هو ما يقرؤه
+         النموذج الجديد (leave-balance.js). كتابة أحدهما دون الآخر تجعل
+         شاشتين تعرضان رقمين مختلفين لنفس الموظف في نفس اللحظة.
+
+         ولا تُفصَل عن تغيير الحالة أبداً — اقرأ التعليق فوق هذه الدالة:
+         الفصل كان يترك طلباً معتمَداً برصيد لم يُخصم.
+
+         الحذف يكون بعد تحوّل كل الشاشات، في تنظيف منفصل ومقصود. */
+      tx.update(uref, {
+        balances:  nextBalances(usnap.data(), r, sign),
+        leaveUsed: nextLeaveUsed(usnap.data(), r, sign)
+      });
     }
   });
 }

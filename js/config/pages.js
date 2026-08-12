@@ -26,6 +26,7 @@ export const PAGES = {
   task:          { title: 'تفاصيل المهمة',          hint: 'الحالة والقائمة الفرعية والمحادثة' },
   'tasks-analytics': { title: 'تحليلات المهام',     hint: 'أرقام المهام لكل قسم وموظف بجانب أرقام الحضور' },
   announcements: { title: 'الإعلانات',             hint: 'رسائل الموارد البشرية للموظفين' },
+  'set-leave-policy': { title: 'سياسة الإجازات',   hint: 'المستحقّ السنوي والاستحقاق التدريجي والترحيل' },
   org:           { title: 'الهيكل التنظيمي',        hint: 'من يتبع من — الشجرة الإدارية كاملة' },
   attendance:    { title: 'الحضور من الجوال',      hint: 'تسجيل ذاتي بالموقع الجغرافي — فرز باليوم أو بالموظف' },
   zklog:         { title: 'سجل جهاز البصمة',       hint: 'سجل مستقل قادم من جهاز ZKTeco — لا يعدّله أحد' },
@@ -126,7 +127,8 @@ export const NAV_GROUPS = [
   { group: 'الإعدادات', items: [
     { id: 'set-branches', icon: 'pin', label: 'الفروع ونطاق الحضور',        roles: ['admin'] },
     { id: 'set-shifts',   icon: 'clock', label: 'الورديات والعطل',            roles: ['admin'] },
-    { id: 'set-requests', icon: 'tag', label: 'أنواع الطلبات والاعتمادات',  roles: ['admin'] }
+    { id: 'set-requests', icon: 'tag', label: 'أنواع الطلبات والاعتمادات',  roles: ['admin'] },
+    { id: 'set-leave-policy', icon: 'calendar', label: 'سياسة الإجازات', roles: ['admin'] }
   ]}
 ];
 
