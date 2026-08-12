@@ -1063,6 +1063,86 @@ await check('⚠️ admin edits a written adjustment',      false,
 await check('⚠️ admin deletes a written adjustment',    false,
   () => deleteDoc(doc(admin, 'attendanceAdjustments/fix1')));
 
+/* ═══ 16. تفويض المهام (المرحلة ٧-و) ═══
+
+   ⚠️ التفويض **إضافة لا استبدال**: المندوب يقرأ ويحدّث، والمكلَّف الأصلي
+   يبقى على المهمة ويظل يقرؤها — وسجل «من نفّذ فعلاً» يبقى صحيحاً.
+
+   ⚠️ و`delegatedUntil` **لا تُفرض من القاعدة**: لا مؤقّت على السيرفر ولا
+   ساعة في القواعد غير request.time. الواجهة تتجاهل المنتهي، والمدير يلغيه.
+   الحارس الحقيقي أن المدير وحده يقدر يضبط الحقل أصلاً. */
+console.log('\n\x1b[1m═══ 16. TASK DELEGATION ═══\x1b[0m');
+
+/* ⚠️ emp2U عُلّق في القسم ٦ (`admin suspends an employee`)، و isActive()
+   تقطع كل شيء على المعلَّق — فلا يقرأ مهمة فُوِّضت له ولو بالاسم. نُعيد
+   تفعيله هنا لأن هذا القسم يختبر التفويض لا التعليق.
+
+   ⚠️ والحالة المشتركة بين أقسام هذا الملف تُدار بالترتيب صراحةً لا بالحظ:
+   قسمٌ يعتمد على حالة أرساها قسم قبله يسقط بلا أن يكون في الكود عيب. */
+await env.withSecurityRulesDisabled(async (c) =>
+  updateDoc(doc(c.firestore(), 'users/emp2U'), { status: 'active' }));
+
+await check('manager creates a task to delegate',     true,
+  () => setDoc(doc(mgr, 'tasks/dg1'), task()));
+await check('manager delegates to another member',    true,
+  () => updateDoc(doc(mgr, 'tasks/dg1'),
+    { delegatedToUid: 'emp2U', delegatedToName: 'خالد', delegatedByUid: 'mgrU', delegatedUntil: '2026-12-31' }));
+
+/* المندوب يقرأ ويحدّث */
+await check('delegate reads the task',                true,  () => getDoc(doc(emp2, 'tasks/dg1')));
+await check('delegate moves it forward',              true,
+  () => updateDoc(doc(emp2, 'tasks/dg1'), { status: 'in_progress', progress: 20 }));
+await check('delegate posts in the thread',           true,
+  () => setDoc(doc(emp2, 'tasks/dg1/messages/dm1'), msg({ authorUid: 'emp2U', authorName: 'خالد' })));
+
+/* ⚠️ والمكلَّف الأصلي لم يفقد شيئاً */
+await check('⚠️ original assignee still reads it',     true,  () => getDoc(doc(emp, 'tasks/dg1')));
+await check('⚠️ original assignee still updates it',   true,
+  () => updateDoc(doc(emp, 'tasks/dg1'), { progress: 30 }));
+
+/* والمندوب لا يرث صلاحيات المدير */
+await check('delegate cannot approve it',             false,
+  () => updateDoc(doc(emp2, 'tasks/dg1'), { status: 'done' }));
+await check('delegate cannot rewrite the title',      false,
+  () => updateDoc(doc(emp2, 'tasks/dg1'), { title: 'عنوان آخر' }));
+/* ⚠️ ولا يفوّض المهمة لنفسه ولا لغيره — الحقل بيد المدير وحده */
+await check('⚠️ delegate re-delegates the task',       false,
+  () => updateDoc(doc(emp2, 'tasks/dg1'), { delegatedToUid: 'empU' }));
+/* ⚠️ القيمة لازم تختلف عن الحالية وإلا كان التغيير صفراً و only() تمرّ على
+   مجموعة مفاتيح فارغة — فيبدو الاختبار ناجحاً وهو لم يختبر شيئاً. كُشف
+   حين مرّ هذا السطر وهو يكتب نفس القيمة المضبوطة قبله بسطرين. */
+await check('⚠️ assignee re-points the delegation',    false,
+  () => updateDoc(doc(emp, 'tasks/dg1'), { delegatedToUid: 'mgrU' }));
+await check('⚠️ assignee clears the delegation',       false,
+  () => updateDoc(doc(emp, 'tasks/dg1'), { delegatedToUid: '' }));
+await check('⚠️ assignee extends delegatedUntil',      false,
+  () => updateDoc(doc(emp, 'tasks/dg1'), { delegatedUntil: '2099-01-01' }));
+
+/* بعد إلغاء التفويض يعود المندوب غريباً */
+await check('manager clears the delegation',          true,
+  () => updateDoc(doc(mgr, 'tasks/dg1'), { delegatedToUid: '', delegatedToName: '', delegatedUntil: '' }));
+await check('former delegate can no longer update',   false,
+  () => updateDoc(doc(emp2, 'tasks/dg1'), { progress: 90 }));
+
+/* ═══ الحقول الجديدة في المرحلة ٧ ═══ */
+await check('assignee logs time entries',             true,
+  () => updateDoc(doc(emp, 'tasks/dg1'), { timeEntries: [{ start: 1, end: 2, secs: 60 }], actualSecs: 60 }));
+await check('assignee sets blockedByTaskIds',         false,
+  () => updateDoc(doc(emp, 'tasks/dg1'), { blockedByTaskIds: ['tk1'] }));
+await check('manager sets blockedByTaskIds',          true,
+  () => updateDoc(doc(mgr, 'tasks/dg1'), { blockedByTaskIds: ['tk1'] }));
+await check('task created with 6 blockers',           false,
+  () => setDoc(doc(mgr, 'tasks/dg2'),
+    task({ blockedByTaskIds: ['a', 'b', 'c', 'd', 'e', 'f'] })));
+await check('manager archives a task',                true,
+  () => updateDoc(doc(mgr, 'tasks/dg1'), { status: 'archived', archivedAt: serverTimestamp() }));
+
+/* ⚠️ والقالب يعيش في settings — أدمن فقط */
+await check('manager writes taskTemplates',           false,
+  () => updateDoc(doc(mgr, 'settings/config'), { taskTemplates: [{ id: 'x', title: 'y' }] }));
+await check('admin writes taskTemplates',             true,
+  () => updateDoc(doc(admin, 'settings/config'), { taskTemplates: [{ id: 'x', title: 'y', active: true }] }));
+
 console.log(`\n\x1b[1m═══ RESULT: ${pass} passed, ${fail} failed ═══\x1b[0m`);
 if (failures.length) { console.log('\nFAILURES:'); failures.forEach((f) => console.log('  • ' + f)); }
 await env.cleanup();

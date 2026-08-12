@@ -13,9 +13,10 @@ import { el, esc, toast } from '../lib/dom.js';
 import { getMe } from '../lib/state.js';
 import { ymdKsa } from '../lib/dates.js';
 import { fmtDT } from '../lib/format.js';
-import { getTask, watchMessages, postMessage, moveTask, updateTask } from '../lib/tasks.js';
-import { roleFor, dueStateOf, checklistPct, allowedMoves,
-         STATUS_AR, PRIORITY_AR } from '../lib/task-flow.js';
+import { getTask, watchMessages, postMessage, moveTask, updateTask,
+         startTimer, stopTimer } from '../lib/tasks.js';
+import { roleFor, dueStateOf, checklistPct, allowedMoves, timeSummary,
+         blockersOf, delegationActive, STATUS_AR, PRIORITY_AR } from '../lib/task-flow.js';
 import { trackSubscription } from '../lib/lifecycle.js';
 import { isStale, go, getPageArg } from '../lib/nav.js';
 import { card, empty, sectionHead, button, loading, callout, detailLine, bar } from '../lib/ui.js';
@@ -104,6 +105,58 @@ export async function render(view, token) {
       cc.appendChild(row);
     });
     view.appendChild(cc);
+  }
+
+  /* ── ٧-د · سجل الوقت الفعلي ──
+     ⚠️ يُعرض للمدير والموظف معاً، **ولا يدخل تقييم أحد**. تحويل دقّة التقدير
+     إلى درجة يجعل الناس تضخّم تقديراتها، فتفقد الرقم ومهارة التقدير معاً.
+     مكتوب في الشاشة نفسها لا في تعليق فقط. */
+  const ts = timeSummary(t);
+  if (who === 'assignee' || ts.entries) {
+    const tc = card('');
+    tc.appendChild(sectionHead({ text: 'الوقت الفعلي', icon: 'clock' }));
+    tc.appendChild(el('div', 'detail-list', [
+      detailLine('المسجَّل', `${ts.actualHours} ساعة (${ts.entries} مدخلة)`),
+      detailLine('المقدَّر', ts.estimateHours ? `${ts.estimateHours} ساعة` : '—'),
+      detailLine('النسبة', ts.pct === null ? '— (بلا تقدير)' : `${ts.pct}%`)
+    ].join('')));
+    if (who === 'assignee' && t.status === 'in_progress') {
+      const btn = button(ts.hasOpenEntry ? 'أوقف العدّاد' : 'ابدأ العدّاد',
+        'btn sm' + (ts.hasOpenEntry ? ' danger' : ''), async () => {
+          btn.disabled = true;
+          try {
+            if (ts.hasOpenEntry) await stopTimer(t); else await startTimer(t);
+            go('task', t.id);
+          } catch (e) {
+            console.error(e);
+            toast(e.message === 'timer-cap' ? 'بلغت الحدّ الأقصى للمدخلات' : 'تعذّر تحديث العدّاد', 'err');
+            btn.disabled = false;
+          }
+        });
+      tc.appendChild(btn);
+      if (ts.atCap) tc.appendChild(el('p', 'help', 'بلغت ٥٠ مدخلة — الحدّ الأقصى.'));
+    }
+    tc.appendChild(el('p', 'help',
+      'يُعرض لك ولمديرك معاً، ولا يدخل في تقييمك. الغرض مقارنة المقدَّر بالفعلي لتحسين التقدير لا لمحاسبة أحد.'));
+    view.appendChild(tc);
+  }
+
+  /* ── ٧-هـ · الاعتماديات ──
+     ⚠️ إرشاد إداري لا قيد أمني: لا يمكن فرضها في قاعدة (تحتاج get() لكل
+     مانع، وهي قراءة مفوترة على كل كتابة). لا أحد يتضرّر مالياً من تجاوزها. */
+  if ((t.blockedByTaskIds || []).length) {
+    view.appendChild(callout('warn', 'هذه المهمة تنتظر مهامّ أخرى',
+      'ابدأها بعد إنجاز ما يسبقها. هذا تنبيه تنظيمي — النظام لا يمنعك.'));
+  }
+
+  /* ── ٧-و · التفويض ── */
+  if (t.delegatedToUid) {
+    const live = delegationActive(t, today);
+    view.appendChild(callout(live ? 'info' : 'warn',
+      live ? `مفوَّضة إلى ${t.delegatedToName || ''}` : 'تفويض منتهٍ',
+      live
+        ? `${t.delegatedUntil ? 'حتى ' + t.delegatedUntil + '. ' : ''}المكلَّف الأصلي ما زال على المهمة — التفويض إضافة لا استبدال.`
+        : `انتهى في ${t.delegatedUntil}. النظام بلا خادم فلا يلغيه تلقائياً — يلغيه المدير من لوحة القسم.`));
   }
 
   /* ── نقل الحالة ── */

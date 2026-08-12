@@ -20,7 +20,8 @@ import {
 import { getMe } from './state.js';
 import { ymdKsa } from './dates.js';
 import { logAction } from './audit.js';
-import { ACTIVE_STATUSES, STATUS_AR } from './task-flow.js';
+import { ACTIVE_STATUSES, STATUS_AR, duePeriodsFor, timeSummary,
+         dueForArchive } from './task-flow.js';
 
 const COLL = 'tasks';
 const ref  = (id) => doc(db, COLL, id);
@@ -185,6 +186,119 @@ export async function allTasks(statuses = null) {
   if (statuses) parts.push(where('status', 'in', statuses));
   const snap = await getDocs(query(...parts));
   return snap.docs.map((d) => normalizeTask(d.id, d.data()));
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   المرحلة ٧ — الكتابة
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ═══ ٧-أ · توليد المهام المتكرّرة ═══
+
+   ⚠️ يُنادى عند فتح لوحة المدير. لا خادم عندنا، فهذه هي اللحظة الوحيدة
+   المتاحة. والصحّة كلها على المعرّف الحتمي في createTaskWithId: مديران
+   يفتحان في نفس الثانية يكتبان نفس المعرّف فتنتج وثيقة واحدة.
+
+   ⚠️ الفشل صامت عمداً: توليد مهمة متكرّرة ليس ما فتح المدير الشاشة لأجله،
+   وتحويل خطأ فيه إلى شاشة خطأ يحجب عنه لوحته كلها. يُسجَّل في console
+   ويمضي. */
+export async function generateRecurring(templates, dept, today) {
+  const mine = (templates || []).filter((t) =>
+    t.active !== false && t.recurrence &&
+    (!t.departments || !t.departments.length || t.departments.includes(dept)));
+  if (!mine.length) return 0;
+
+  let made = 0;
+  for (const tpl of mine) {
+    const periods = duePeriodsFor(tpl, today);
+    for (const p of periods) {
+      try {
+        const ok = await createTaskWithId(p.id, {
+          title: tpl.title, description: tpl.description || '',
+          departments: [dept],
+          assigneeUid: tpl.assigneeUid || '', assigneeName: tpl.assigneeName || '',
+          startDate: p.startDate, dueDate: p.dueDate,
+          priority: tpl.priority || 'normal',
+          estimateHours: Number(tpl.estimateHours) || 0,
+          tags: tpl.tags || [], checklist: tpl.checklist || [],
+          /* أثرٌ يربط النسخة بقالبها — للتحليلات ولتفسير وجودها */
+          fromTemplateId: tpl.id
+        });
+        if (ok) made++;
+      } catch (e) { console.error('recurring', tpl.id, p.id, e); }
+    }
+  }
+  return made;
+}
+
+/* ═══ ٧-د · سجل الوقت ═══
+
+   ⚠️ مدخلة مفتوحة واحدة كحدّ أقصى. اثنتان مفتوحتان تعنيان وقتاً محسوباً
+   مرتين على نفس الساعة — والرقم الذي يُقارَن بالتقدير يفقد معناه. */
+export async function startTimer(task) {
+  const s = timeSummary(task);
+  if (s.hasOpenEntry) throw new Error('timer-already-open');
+  if (s.atCap) throw new Error('timer-cap');
+  const entries = [...(task.timeEntries || []), { start: Date.now(), end: null, secs: 0, note: '' }];
+  await updateDoc(ref(task.id), { timeEntries: entries });
+}
+
+export async function stopTimer(task, note = '') {
+  const entries = [...(task.timeEntries || [])];
+  const i = entries.findIndex((e) => e.start && !e.end);
+  if (i < 0) throw new Error('no-open-timer');
+  const end = Date.now();
+  entries[i] = { ...entries[i], end, secs: Math.max(0, Math.round((end - entries[i].start) / 1000)),
+                 note: String(note || '').slice(0, 200) };
+  await updateDoc(ref(task.id), {
+    timeEntries: entries,
+    actualSecs: entries.reduce((a, e) => a + (Number(e.secs) || 0), 0)
+  });
+}
+
+/* ═══ ٧-و · التفويض ═══
+   ⚠️ المدير وحده يضبطه — قاعدة التحديث تمنع المكلَّف من لمس هذه الحقول
+   (خارج قائمة only([...]) الخاصة به). */
+export const delegateTask = (id, toUid, toName, untilYmd) =>
+  updateDoc(ref(id), {
+    delegatedToUid: toUid || '', delegatedToName: toName || '',
+    delegatedByUid: getMe().id, delegatedUntil: untilYmd || ''
+  });
+
+export const clearDelegation = (id) =>
+  updateDoc(ref(id), { delegatedToUid: '', delegatedToName: '', delegatedByUid: '', delegatedUntil: '' });
+
+/* ═══ ٧-ح · الأرشفة ═══
+
+   ⚠️ دفعة محدودة عند فتح اللوحة — لا حلقة تكتب مئة وثيقة فتُبطئ الشاشة
+   وتستهلك حصّة الكتابة المجانية. والفشل صامت لنفس علّة التوليد أعلاه.
+
+   ⚠️ ولا حذف إطلاقاً: المؤرشفة مادة التحليلات التاريخية. */
+export async function archiveDueTasks(tasks, today, max = 20) {
+  const due = dueForArchive(tasks, today, max);
+  let n = 0;
+  for (const t of due) {
+    try { await updateDoc(ref(t.id), { status: 'archived', archivedAt: serverTimestamp() }); n++; }
+    catch (e) { console.error('archive', t.id, e); }
+  }
+  return n;
+}
+
+export const archiveTask = (id) =>
+  updateDoc(ref(id), { status: 'archived', archivedAt: serverTimestamp() });
+
+/* ═══ ٧-ب · حفظ مهمة قائمة كقالب ═══
+   ⚠️ أسرع طريق لبناء مكتبة قوالب حقيقية — المكتبة التي يكتبها أحدهم مرة
+   ولا يفتحها أحد لا تُستعمل. */
+export function taskAsTemplate(task) {
+  return {
+    title: task.title, description: task.description || '',
+    checklist: task.checklist || [], tags: task.tags || [],
+    assigneeUid: task.assigneeUid || '', assigneeName: task.assigneeName || '',
+    priority: task.priority || 'normal',
+    estimateHours: Number(task.estimateHours) || 0,
+    departments: task.departments || [],
+    dueOffsetDays: 3, recurrence: null, active: true
+  };
 }
 
 export { STATUS_AR };

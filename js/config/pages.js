@@ -25,8 +25,10 @@ export const PAGES = {
   'team-tasks':  { title: 'مهام القسم',             hint: 'تكليف ومتابعة واعتماد مهام موظفي قسمك' },
   task:          { title: 'تفاصيل المهمة',          hint: 'الحالة والقائمة الفرعية والمحادثة' },
   'tasks-analytics': { title: 'تحليلات المهام',     hint: 'أرقام المهام لكل قسم وموظف بجانب أرقام الحضور' },
+  'tasks-archive': { title: 'أرشيف المهام',       hint: 'المنجزة منذ ٣٠ يوماً — بحث بالعنوان والموظف والتقييم' },
   announcements: { title: 'الإعلانات',             hint: 'رسائل الموارد البشرية للموظفين' },
   'set-leave-policy': { title: 'سياسة الإجازات',   hint: 'المستحقّ السنوي والاستحقاق التدريجي والترحيل' },
+  'set-task-templates': { title: 'قوالب المهام',  hint: 'قوالب جاهزة ومهام متكرّرة تُولَّد تلقائياً' },
   org:           { title: 'الهيكل التنظيمي',        hint: 'من يتبع من — الشجرة الإدارية كاملة' },
   attendance:    { title: 'الحضور من الجوال',      hint: 'تسجيل ذاتي بالموقع الجغرافي — فرز باليوم أو بالموظف' },
   zklog:         { title: 'سجل جهاز البصمة',       hint: 'سجل مستقل قادم من جهاز ZKTeco — لا يعدّله أحد' },
@@ -107,6 +109,7 @@ export const NAV_GROUPS = [
        أخرى قبل أن تقيّد استعلامها وتنشر فهرسها — وإلا شاشة فارغة بخطأ صلاحيات. */
     { id: 'team-perf', icon: 'chart', label: 'أداء القسم',      roles: ['admin', 'manager'] },
     { id: 'team-tasks', icon: 'check', label: 'مهام القسم',    roles: ['admin', 'manager'] },
+    { id: 'tasks-archive', icon: 'archive', label: 'أرشيف المهام', roles: ['admin', 'manager'] },
     { id: 'tasks-analytics', icon: 'chart', label: 'تحليلات المهام', roles: ['admin'] },
     { id: 'announcements', icon: 'megaphone', label: 'الإعلانات', roles: ['admin'] },
     { id: 'org',       icon: 'network', label: 'الهيكل التنظيمي', roles: ['admin'] },
@@ -128,7 +131,8 @@ export const NAV_GROUPS = [
     { id: 'set-branches', icon: 'pin', label: 'الفروع ونطاق الحضور',        roles: ['admin'] },
     { id: 'set-shifts',   icon: 'clock', label: 'الورديات والعطل',            roles: ['admin'] },
     { id: 'set-requests', icon: 'tag', label: 'أنواع الطلبات والاعتمادات',  roles: ['admin'] },
-    { id: 'set-leave-policy', icon: 'calendar', label: 'سياسة الإجازات', roles: ['admin'] }
+    { id: 'set-leave-policy', icon: 'calendar', label: 'سياسة الإجازات', roles: ['admin'] },
+    { id: 'set-task-templates', icon: 'check', label: 'قوالب المهام', roles: ['admin'] }
   ]}
 ];
 

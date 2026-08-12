@@ -9,11 +9,13 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import { el, esc, toast, openModal, uid } from '../lib/dom.js';
-import { getMe, getUsers } from '../lib/state.js';
+import { getMe, getUsers, getSettings, getRequests } from '../lib/state.js';
 import { ymdKsa } from '../lib/dates.js';
-import { tasksForDept, createTask, moveTask, updateTask } from '../lib/tasks.js';
+import { tasksForDept, createTask, moveTask, updateTask,
+         generateRecurring, archiveDueTasks, delegateTask } from '../lib/tasks.js';
 import { sortTasks, dueStateOf, managerPulse, isStaleTask, roleFor,
-         nextStepFor, STATUS_AR, PRIORITY_AR } from '../lib/task-flow.js';
+         nextStepFor, tasksHittingLeave, leaveCovering, isBlocked, blockersOf,
+         STATUS_AR, PRIORITY_AR } from '../lib/task-flow.js';
 import { isStale, go } from '../lib/nav.js';
 import { isAdmin } from '../lib/perms.js';
 import { card, grid, stat, tableWrap, sectionHead, button, loading, callout } from '../lib/ui.js';
@@ -61,6 +63,15 @@ export async function render(view, token) {
     host.appendChild(loading('جارٍ تحميل مهام القسم…'));
     const dept = currentDept();
 
+    /* ⚠️ التوليد والأرشفة قبل القراءة، ونتيجتهما لا تُعطّل الشاشة.
+       هذه هي اللحظة الوحيدة المتاحة بلا خادم — ومع ذلك ليست ما فتح المدير
+       الشاشة لأجله، فخطأٌ فيها يُسجَّل ويمضي ولا يحجب لوحته. */
+    let generated = 0;
+    try {
+      generated = await generateRecurring(getSettings().taskTemplates || [], dept, today);
+    } catch (e) { console.error('recurring', e); }
+    if (isStale(token)) return;
+
     let tasks;
     try { tasks = await tasksForDept(dept); }
     catch (e) {
@@ -73,8 +84,26 @@ export async function render(view, token) {
     }
     if (isStale(token)) return;
 
+    /* الأرشفة التلقائية: دفعة محدودة من المنجزة منذ ٣٠ يوماً */
+    try {
+      const done = await tasksForDept(dept, ['done']);
+      const n = await archiveDueTasks(done, today);
+      if (n) tasks = await tasksForDept(dept);
+    } catch (e) { console.error('archive', e); }
+    if (isStale(token)) return;
+
     host.innerHTML = '';
     const pulse = managerPulse(tasks, today);
+    if (generated) host.appendChild(callout('info',
+      `وُلِّدت ${generated} مهمة متكرّرة`,
+      'المهام المتكرّرة تُنشأ عند فتح هذه اللوحة — بتاريخ استحقاقها الصحيح، فقد تظهر متأخرة إن لم يفتحها أحد في وقتها.'));
+
+    /* ⚠️ ٧-ج — أهم بند في المرحلة: مهمة يستحقّ موعدها ومسؤولها في إجازة
+       معتمَدة. التنبيه **قبل** أن تسقط، لا بعد أسبوع. */
+    const hitting = tasksHittingLeave(tasks, getRequests());
+    if (hitting.length) host.appendChild(callout('warn',
+      `${hitting.length} مهمة يستحقّ موعدها ومسؤولها في إجازة`,
+      hitting.map((h) => `«${h.task.title}» — ${h.task.assigneeName} حتى ${h.leave.endDate}`).join(' · ')));
 
     /* ⚠️ الترتيب مقصود: المنسيّة أولاً لأنها الوحيدة التي لا يذكّر بها أحد */
     const g = grid(3);
@@ -131,13 +160,20 @@ export async function render(view, token) {
     sortTasks(list, today).forEach((t) => {
       const due = dueStateOf(t, today);
       const stale = isStaleTask(t, today);
+      const blockers = blockersOf(t, tasks);
+      const blocked = blockers.length > 0;
+      const onLeave = t.dueDate ? leaveCovering(getRequests(), t.assigneeUid, t.dueDate) : null;
       const tr = el('tr', '');
       tr.innerHTML = `
         <td><b>${esc(t.title)}</b>
           <div class="cell-sub">${esc(PRIORITY_AR[t.priority] || '')}${
             stale ? ' · <span class="text-red">بلا حراك</span>' : ''}${
-            t.needsImprovement ? ' · <span class="text-amber">يحتاج تحسين</span>' : ''}</div></td>
-        <td>${esc(t.assigneeName || '—')}</td>
+            t.needsImprovement ? ' · <span class="text-amber">يحتاج تحسين</span>' : ''}${
+            blocked ? ` · <span class="text-amber">محجوبة بـ ${esc(blockers[0].title)}</span>` : ''}${
+            t.fromTemplateId ? ' · <span class="cell-sub">متكرّرة</span>' : ''}</div></td>
+        <td>${esc(t.assigneeName || '—')}${
+          t.delegatedToUid ? `<div class="cell-sub">مفوَّضة إلى ${esc(t.delegatedToName || '')}</div>` : ''}${
+          onLeave ? `<div class="cell-sub text-amber">في إجازة حتى ${esc(onLeave.endDate)}</div>` : ''}</td>
         <td><span class="pill pill--dot ${t.status === 'review' ? 'pending' : ''}">${esc(STATUS_AR[t.status])}</span></td>
         <td class="num ${due.kind === 'overdue' ? 'text-red' : ''}">${esc(due.text || t.dueDate || '—')}</td>`;
       const td = el('td', '');
@@ -148,6 +184,8 @@ export async function render(view, token) {
         acts.appendChild(button('اعتماد', 'btn sm', () => openApprove(t)));
         acts.appendChild(button('يحتاج تحسين', 'btn sm ghost', () => openImprove(t)));
       }
+      acts.appendChild(button(t.delegatedToUid ? 'التفويض' : 'تفويض', 'btn sm ghost',
+        () => openDelegate(t)));
       acts.appendChild(button('فتح', 'btn sm ghost', () => go('task', t.id)));
       td.appendChild(acts);
       tr.appendChild(td);
@@ -205,6 +243,44 @@ export async function render(view, token) {
         await moveTask(t, 'in_progress', { managerNote: note.slice(0, 500) });
         m.close(); toast('أُعيدت للتنفيذ', 'ok'); await draw();
       } catch (e) { console.error(e); toast('تعذّر', 'err'); }
+    };
+  }
+
+  /* ── ٧-و · التفويض أثناء الإجازة ──
+     ⚠️ التفويض **إضافة لا استبدال**: المكلَّف الأصلي يبقى على المهمة ويظل
+     يقرؤها، وسجل «من نفّذ فعلاً» يبقى صحيحاً في التحليلات.
+
+     ⚠️ و`delegatedUntil` لا تُفرض من القاعدة — لا مؤقّت على السيرفر. الواجهة
+     تتجاهل المنتهي، والمدير يلغيه من هنا. مكتوب في النافذة للمدير نفسه. */
+  function openDelegate(t) {
+    const dept = currentDept();
+    /* المندوب من نفس القسم وحده، وليس المكلَّف نفسه */
+    const cands = staffOf(dept).filter((u) => u.id !== t.assigneeUid);
+    const m = openModal(`
+      <h3>تفويض: ${esc(t.title)}</h3>
+      ${t.delegatedToUid ? `<div class="callout callout--info">
+        <b>مفوَّضة حالياً إلى ${esc(t.delegatedToName || '')}</b>
+        <div class="help">${t.delegatedUntil ? 'حتى ' + esc(t.delegatedUntil) : 'بلا تاريخ انتهاء'}</div></div>` : ''}
+      <div class="field"><label for="dgWho">المندوب</label>
+        <select id="dgWho"><option value="">— بلا تفويض —</option>
+          ${cands.map((u) => `<option value="${esc(u.id)}"${
+            t.delegatedToUid === u.id ? ' selected' : ''}>${esc(u.name)}</option>`).join('')}</select>
+        <div class="help">من قسمك وحده. المكلَّف الأصلي يبقى على المهمة ويظل يراها — التفويض إضافة لا استبدال.</div></div>
+      <div class="field"><label for="dgUntil">حتى تاريخ (اختياري)</label>
+        <input id="dgUntil" type="date" value="${esc(t.delegatedUntil || '')}">
+        <div class="help">⚠️ النظام بلا خادم، فلا شيء يُلغي التفويض تلقائياً في موعده. الواجهة تتجاهله بعد هذا التاريخ، وتقدر تلغيه من هنا.</div></div>
+      <div class="row">
+        <button class="btn ghost" id="dgCancel">إلغاء</button>
+        <button class="btn" id="dgOk">حفظ</button>
+      </div>`);
+    m.$('#dgCancel').onclick = m.close;
+    m.$('#dgOk').onclick = async () => {
+      const who = m.$('#dgWho').value;
+      const person = cands.find((u) => u.id === who);
+      try {
+        await delegateTask(t.id, who, person ? person.name : '', m.$('#dgUntil').value);
+        m.close(); toast(who ? 'فُوِّضت المهمة' : 'أُلغي التفويض', 'ok'); await draw();
+      } catch (e) { console.error(e); toast('تعذّر الحفظ', 'err'); }
     };
   }
 

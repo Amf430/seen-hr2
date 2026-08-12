@@ -11,7 +11,15 @@
 import {
   allowedMoves, canMove, roleFor, nextStepFor, dueStateOf, daysBetweenYmd,
   isStaleTask, sortTasks, boardColumns, managerPulse, taskAnalytics,
-  analyticsBy, checklistPct, STATUS_AR, ACTIVE_STATUSES, STALE_DAYS
+  analyticsBy, checklistPct, STATUS_AR, ACTIVE_STATUSES, STALE_DAYS,
+  /* المرحلة ٧ */
+  duePeriodsFor, recurringTaskId, isoWeekKey, MAX_BACKFILL_DAYS,
+  leaveCovering, tasksHittingLeave,
+  timeSummary, MAX_TIME_ENTRIES,
+  blockersOf, isBlocked, MAX_BLOCKERS,
+  delegationActive, effectiveAssignees,
+  withDepartments, MAX_DEPARTMENTS,
+  shouldArchive, dueForArchive, searchArchive, ARCHIVE_AFTER_DAYS
 } from '../js/lib/task-flow.js';
 
 let pass = 0, fail = 0;
@@ -206,6 +214,182 @@ group('٩. القائمة الفرعية');
 eq('نصفها منجز', 50, checklistPct(T({ checklist: [{ done: true }, { done: false }] })));
 eq('كلها منجزة', 100, checklistPct(T({ checklist: [{ done: true }] })));
 eq('⚠️ بلا قائمة → null لا صفر (الصفر يُقرأ «لم يبدأ»)', null, checklistPct(T()));
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   المرحلة ٧ — التوسعات الثماني
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ═══════════ ١٠. المهام المتكرّرة (٧-أ) ═══════════
+
+   ⚠️ لا خادم، فالتوليد يحدث عند فتح اللوحة. والصحّة كلها على **المعرّف
+   الحتمي**: مديران يفتحان في نفس الثانية → نفس المعرّف → وثيقة واحدة. */
+group('١٠. المهام المتكرّرة — المعرّف الحتمي');
+
+const TPL = (over = {}) => ({
+  id: 'w1', title: 'تقرير أسبوعي', active: true,
+  recurrence: { type: 'weekly', dow: 0, dueOffsetDays: 3 }, ...over
+});
+
+eq('المعرّف يجمع القالب والفترة', 'tpl_w1_2026-W33', recurringTaskId('w1', '2026-W33'));
+eq('⚠️ ونداؤه مرتين يعطي نفس المعرّف — لا ازدواج',
+   recurringTaskId('w1', '2026-W33'), recurringTaskId('w1', '2026-W33'));
+
+/* أسبوعي: الأحد (dow=0). ٢٠٢٦-٠٨-١٢ أربعاء، فآخر أحد هو ٠٩ أغسطس. */
+/* ⚠️ ٢٠٢٦-٠٨-١٢ أربعاء، والنافذة تبدأ ١٣ يوليو. فالآحاد داخلها أربعة:
+   ١٩ و٢٦ يوليو، و٢ و٩ أغسطس. (١٢ يوليو أحدٌ لكنه خارج النافذة بيوم.) */
+const weekly = duePeriodsFor(TPL(), TODAY);
+eq('يولّد آحاد النافذة الأربعة', 4, weekly.length);
+eq('والاستحقاق = تاريخ الفترة + الإزاحة',
+   { startDate: '2026-08-09', dueDate: '2026-08-12' },
+   (() => { const x = weekly[weekly.length - 1]; return { startDate: x.startDate, dueDate: x.dueDate }; })());
+/* ⚠️ الاستحقاق من تاريخ الفترة لا من تاريخ التوليد — مهمة الأحد التي
+   وُلِّدت الأربعاء متأخرة فعلاً ولا تُمنح مهلة جديدة. */
+eq('⚠️ أقدم فترة تُولَّد باستحقاقها القديم (١٩ يوليو + ٣)',
+   '2026-07-22', weekly[0].dueDate);
+
+eq('⚠️ ما وُلِّد سابقاً لا يُعاد', 3,
+   duePeriodsFor(TPL(), TODAY, new Set([recurringTaskId('w1', isoWeekKey(new Date('2026-08-09T00:00:00')))])).length);
+
+/* ⚠️ سقف الثلاثين يوماً: من عاد من إجازة شهرين لا يجد تسعين مهمة.
+   والعدد ٣١ لا ٣٠ لأن الطرفين محسوبان: من ١٣ يوليو إلى ١٢ أغسطس ضمناً. */
+eq('⚠️ التوليد الرجعي محدود بنافذة الثلاثين يوماً', 31,
+   duePeriodsFor(TPL({ recurrence: { type: 'daily', dueOffsetDays: 0 } }), TODAY).length);
+eq('والسقف قابل للتضييق', 8,
+   duePeriodsFor(TPL({ recurrence: { type: 'daily', dueOffsetDays: 0 } }), TODAY, new Set(), 7).length);
+
+eq('القالب المعطَّل لا يولّد شيئاً', 0, duePeriodsFor(TPL({ active: false }), TODAY).length);
+eq('القالب بلا تكرار لا يولّد شيئاً',  0, duePeriodsFor(TPL({ recurrence: null }), TODAY).length);
+eq('نوع تكرار مجهول لا يولّد شيئاً',   0, duePeriodsFor(TPL({ recurrence: { type: 'كل شروق' } }), TODAY).length);
+
+/* شهري */
+const monthly = duePeriodsFor(TPL({ recurrence: { type: 'monthly', dayOfMonth: 1, dueOffsetDays: 5 } }), TODAY);
+eq('الشهري يولّد فترة واحدة في نافذة الثلاثين', 1, monthly.length);
+eq('ومفتاحها بالسنة والشهر', '2026-08', monthly[0].periodKey);
+
+/* مفتاح الأسبوع عبر حدود السنة */
+eq('أسبوع ISO يعبر رأس السنة صحيحاً', '2026-W01', isoWeekKey(new Date('2026-01-01T00:00:00')));
+
+/* ═══════════ ١١. ربط المهمة بالغياب (٧-ج) ═══════════ */
+group('١١. المهمة يستحقّ موعدها ومسؤولها في إجازة');
+
+const leaves = [
+  { type: 'leave', status: 'approved', employeeUid: 'u1', startDate: '2026-08-10', endDate: '2026-08-18' },
+  { type: 'leave', status: 'pending',  employeeUid: 'u2', startDate: '2026-08-10', endDate: '2026-08-18' },
+  { type: 'permission', status: 'approved', employeeUid: 'u3', date: '2026-08-12' }
+];
+eq('إجازة معتمَدة تغطّي اليوم', true, !!leaveCovering(leaves, 'u1', '2026-08-12'));
+eq('⚠️ والمعلَّقة لا تُحسب — لم تُعتمد بعد', null, leaveCovering(leaves, 'u2', '2026-08-12'));
+eq('والاستئذان ليس إجازة', null, leaveCovering(leaves, 'u3', '2026-08-12'));
+eq('خارج المدى لا يُحسب', null, leaveCovering(leaves, 'u1', '2026-08-20'));
+
+const hits = tasksHittingLeave([
+  T({ id: 'a', status: 'in_progress', assigneeUid: 'u1', dueDate: '2026-08-13' }),
+  T({ id: 'b', status: 'in_progress', assigneeUid: 'u1', dueDate: '2026-08-25' }),
+  T({ id: 'c', status: 'done',        assigneeUid: 'u1', dueDate: '2026-08-13' })
+], leaves);
+eq('مهمة واحدة تصطدم بالإجازة', 1, hits.length);
+eq('وهي الصحيحة', 'a', hits[0].task.id);
+eq('⚠️ والمنجزة خارج التنبيه — لا فائدة من تحذير عمّا انتهى', true,
+   !hits.some((h) => h.task.id === 'c'));
+
+/* ═══════════ ١٢. سجل الوقت الفعلي (٧-د) ═══════════ */
+group('١٢. الوقت الفعلي مقابل المقدَّر');
+
+eq('بلا مدخلات → أصفار',
+   { entries: 0, actualHours: 0, pct: null },
+   (() => { const s = timeSummary(T()); return { entries: s.entries, actualHours: s.actualHours, pct: s.pct }; })());
+
+const timed = T({ estimateHours: 4, timeEntries: [{ secs: 7200 }, { secs: 3600 }] });
+eq('المجموع ثلاث ساعات', 3, timeSummary(timed).actualHours);
+eq('ونسبته من المقدَّر ٧٥٪',  75, timeSummary(timed).pct);
+/* ⚠️ بلا تقدير لا نسبة — نسبة بلا مرجع رقم بلا معنى */
+eq('⚠️ بلا تقدير → null لا صفر', null, timeSummary(T({ timeEntries: [{ secs: 3600 }] })).pct);
+eq('المدخلة المفتوحة تُكتشف', true, timeSummary(T({ timeEntries: [{ start: 1, end: null }] })).hasOpenEntry);
+eq('والمغلقة لا', false, timeSummary(T({ timeEntries: [{ start: 1, end: 2, secs: 60 }] })).hasOpenEntry);
+eq('السقف خمسون مدخلة', 50, MAX_TIME_ENTRIES);
+eq('وبلوغه يُعلَن', true,
+   timeSummary(T({ timeEntries: Array.from({ length: 50 }, () => ({ secs: 1 })) })).atCap);
+
+/* ═══════════ ١٣. الاعتماديات (٧-هـ) ═══════════
+
+   ⚠️ إرشاد إداري لا قيد أمني — لا يمكن فرضها في قاعدة (تحتاج get() لكل
+   مانع، وهي قراءة مفوترة على كل كتابة). */
+group('١٣. الاعتماديات — إرشاد لا قيد');
+
+const all = [
+  T({ id: 'x', status: 'done' }),
+  T({ id: 'y', status: 'in_progress' }),
+  T({ id: 'z', status: 'archived' })
+];
+eq('المانع المنجز لا يمنع', 0, blockersOf(T({ blockedByTaskIds: ['x'] }), all).length);
+eq('والمؤرشف كذلك',        0, blockersOf(T({ blockedByTaskIds: ['z'] }), all).length);
+eq('والجاري يمنع',          1, blockersOf(T({ blockedByTaskIds: ['y'] }), all).length);
+eq('ومعرّف لمهمة محذوفة يُتجاهَل', 0, blockersOf(T({ blockedByTaskIds: ['ghost'] }), all).length);
+eq('isBlocked تلخّصها', true, isBlocked(T({ blockedByTaskIds: ['y', 'x'] }), all));
+eq('بلا موانع → غير محجوبة', false, isBlocked(T(), all));
+eq('السقف خمسة موانع', 5, MAX_BLOCKERS);
+
+/* ═══════════ ١٤. التفويض أثناء الإجازة (٧-و) ═══════════ */
+group('١٤. التفويض — إضافة لا استبدال');
+
+eq('بلا تفويض → غير نشط', false, delegationActive(T(), TODAY));
+eq('تفويض بلا نهاية → نشط', true, delegationActive(T({ delegatedToUid: 'u9' }), TODAY));
+eq('تفويض ينتهي اليوم → ما زال نشطاً', true,
+   delegationActive(T({ delegatedToUid: 'u9', delegatedUntil: TODAY }), TODAY));
+/* ⚠️ delegatedUntil لا تُفرض من القاعدة — الواجهة تتجاهل المنتهي */
+eq('⚠️ تفويض منتهٍ أمس → تتجاهله الواجهة', false,
+   delegationActive(T({ delegatedToUid: 'u9', delegatedUntil: '2026-08-11' }), TODAY));
+
+eq('⚠️ المكلَّف الأصلي يبقى مع المندوب لا يُستبدل',
+   ['u1', 'u9'], effectiveAssignees(T({ delegatedToUid: 'u9' }), TODAY));
+eq('والتفويض المنتهي لا يضيف أحداً',
+   ['u1'], effectiveAssignees(T({ delegatedToUid: 'u9', delegatedUntil: '2026-01-01' }), TODAY));
+eq('وتفويض لنفس الشخص لا يكرّره',
+   ['u1'], effectiveAssignees(T({ delegatedToUid: 'u1' }), TODAY));
+
+/* ═══════════ ١٥. الأقسام المشتركة (٧-ز) ═══════════ */
+group('١٥. المشاركة بين قسمين');
+
+eq('المفردة تتبع أول المصفوفة',
+   { departments: ['المبيعات', 'المالية'], department: 'المبيعات' },
+   (() => { const t = withDepartments(T(), ['المبيعات', 'المالية']);
+            return { departments: t.departments, department: t.department }; })());
+eq('المكرّر يُزال', ['المبيعات'], withDepartments(T(), ['المبيعات', 'المبيعات']).departments);
+eq('والفارغ يُزال',  ['المبيعات'], withDepartments(T(), ['المبيعات', '', null]).departments);
+eq('والسقف ثلاثة أقسام', 3,
+   withDepartments(T(), ['أ', 'ب', 'ج', 'د']).departments.length);
+eq('وقائمة فارغة تترك المفردة فارغة', '', withDepartments(T(), []).department);
+
+/* ═══════════ ١٦. الأرشيف (٧-ح) ═══════════ */
+group('١٦. الأرشفة والبحث');
+
+eq('الحدّ ثلاثون يوماً', 30, ARCHIVE_AFTER_DAYS);
+eq('منجزة قبل ٣١ يوماً → تُؤرشف', true,
+   shouldArchive(T({ status: 'done', doneAtYmd: '2026-07-12' }), TODAY));
+eq('منجزة أمس → لا',              false,
+   shouldArchive(T({ status: 'done', doneAtYmd: '2026-08-11' }), TODAY));
+eq('⚠️ والجارية لا تُؤرشف مهما طالت', false,
+   shouldArchive(T({ status: 'in_progress', doneAtYmd: '2026-01-01' }), TODAY));
+eq('ومنجزة بلا تاريخ إنجاز لا تُؤرشف', false,
+   shouldArchive(T({ status: 'done' }), TODAY));
+
+eq('الدفعة محدودة حتى لا تُكتب مئة وثيقة عند فتح اللوحة', 2,
+   dueForArchive([
+     T({ id: '1', status: 'done', doneAtYmd: '2026-01-01' }),
+     T({ id: '2', status: 'done', doneAtYmd: '2026-01-02' }),
+     T({ id: '3', status: 'done', doneAtYmd: '2026-01-03' })
+   ], TODAY, 2).length);
+
+const arch = [
+  T({ id: 'a', title: 'تقرير المبيعات', assigneeUid: 'u1', managerRating: 5, doneAtYmd: '2026-06-01' }),
+  T({ id: 'b', title: 'جرد المخزن',     assigneeUid: 'u2', managerRating: 3, doneAtYmd: '2026-07-01' })
+];
+eq('البحث بالعنوان',        1, searchArchive(arch, { text: 'مبيعات' }).length);
+eq('والبحث بلا حساسية حالة', 1, searchArchive(arch, { text: 'المبيعات' }).length);
+eq('والفلترة بالموظف',      1, searchArchive(arch, { uid: 'u2' }).length);
+eq('والفلترة بالتقييم',     1, searchArchive(arch, { minRating: 4 }).length);
+eq('والفلترة بالمدى',       1, searchArchive(arch, { from: '2026-06-15' }).length);
+eq('وبلا فلتر يرجع الكل',   2, searchArchive(arch, {}).length);
 
 console.log(`\n\x1b[1m═══ النتيجة: ${pass} ناجح، ${fail} فاشل ═══\x1b[0m`);
 process.exit(fail ? 1 : 0);

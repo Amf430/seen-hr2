@@ -12,7 +12,7 @@ const REF = () => doc(db, 'settings', 'config');
    اثنين منها ولا تمسّ البقية. */
 const KEYS = ['permissionReasons', 'leaveTypes', 'approvers', 'departments', 'hrTicketCategories',
               'dateExceptions', 'branches', 'payroll', 'company', 'shifts',
-              'shiftPlans', 'defaultShiftPlanId', 'leavePolicyDefaults'];
+              'shiftPlans', 'defaultShiftPlanId', 'leavePolicyDefaults', 'taskTemplates'];
 
 /* القيم الافتراضية تُدمج تحت المحفوظ، فأي مفتاح جديد نضيفه لاحقاً لا يحتاج
    ترحيل بيانات — يظهر بقيمته الافتراضية حتى يحفظ الأدمن. */
@@ -32,7 +32,9 @@ const DEFAULTS = {
   shiftPlans: [],
   defaultShiftPlanId: '',
   /* سياسة إجازات افتراضية لكل نوع — غيابها يعني الشكل القديم */
-  leavePolicyDefaults: {}
+  leavePolicyDefaults: {},
+  /* قوالب المهام والمهام المتكرّرة (٧-أ و ٧-ب) */
+  taskTemplates: []
 };
 
 export async function loadSettings() {

@@ -722,11 +722,25 @@ service cloud.firestore {
        depend on it.                                                          */
     function taskDept()    { return isMgr() && myDept() != '' && myDept() in p().departments; }
     function taskDeptNew() { return isMgr() && myDept() != '' && myDept() in d().departments; }
+
+    /* ── delegation (phase 7-و) ──
+       Delegation ADDS a reader and editor, it never replaces one. The original
+       assignee keeps their access and stays on the record, so "who actually
+       did this" survives in the analytics.
+
+       ⚠️ delegatedUntil is NOT enforced here. Rules have no clock of their
+       own beyond request.time and no scheduler, so an expired delegation is
+       ignored by the UI and cleared by the manager. Someone who kept a stale
+       delegatedToUid could still write to the task — which is why only the
+       manager can set the field in the first place. */
     function taskAssignee(){ return isActive() && resource != null
-                                    && p().assigneeUid == request.auth.uid; }
+                                    && (p().assigneeUid == request.auth.uid
+                                        || p().get('delegatedToUid','') == request.auth.uid); }
     function taskAt(tid)   { return /databases/$(database)/documents/tasks/$(tid); }
     function taskMineAt(tid) {
-      return sIn() && exists(taskAt(tid)) && get(taskAt(tid)).data.assigneeUid == request.auth.uid;
+      return sIn() && exists(taskAt(tid))
+             && (get(taskAt(tid)).data.assigneeUid == request.auth.uid
+                 || get(taskAt(tid)).data.get('delegatedToUid','') == request.auth.uid);
     }
     function taskInMyDeptAt(tid) {
       return isMgr() && myDept() != '' && exists(taskAt(tid))
@@ -749,6 +763,7 @@ service cloud.firestore {
         && d().get('tags', []).size() <= 5
         && d().get('checklist', []).size() <= 20
         && d().get('progress', 0) == 0
+        && d().get('blockedByTaskIds', []).size() <= 5
         && d().priority in ['low','normal','high','urgent'];
 
       /* ⚠️ deptUnchanged() is enforced on the manager AND the admin branch,

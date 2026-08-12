@@ -223,3 +223,207 @@ export function checklistPct(task) {
   if (!list.length) return null;
   return Math.round((list.filter((c) => c.done).length / list.length) * 100);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   المرحلة ٧ — التوسعات الثماني
+
+   ⚠️ قرار المالك (٢٠٢٦-٠٨-١٢) ألغى شرط «انتظر أسبوعين قبل التوسعات». الثمن
+   المقبول صراحةً: هذه البنود مُصمَّمة على تخمين لا على شكوى حقيقية. لذلك
+   بُنيت كلها هنا كدوال نقيّة مستقلة، وأرجحها للتغيير — ٧-د و٧-هـ — لا يعتمد
+   عليهما شيء آخر، فحذفهما يكلّف حذف دالة وشاشة.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ═══ ٧-أ · المهام المتكرّرة ═══
+
+   ⚠️ لا خادم عندنا، فالتوليد يحدث حين يفتح أحدهم اللوحة. والمفتاح كله هو
+   **المعرّف الحتمي**: مديران يفتحان اللوحة في نفس الثانية يكتبان نفس
+   المعرّف، فتنتج وثيقة واحدة لا اثنتان. لا قفل ولا معاملة ولا علامة
+   lastGenerated قابلة للتباعد بين جهازين. */
+export const MAX_BACKFILL_DAYS = 30;
+
+const p2 = (n) => String(n).padStart(2, '0');
+const ymdOf = (d) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+
+/* رقم الأسبوع ISO — المفتاح الأسبوعي لازم يكون ثابتاً عبر السنة */
+export function isoWeekKey(d) {
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  /* الخميس يحدّد السنة التي ينتمي لها الأسبوع في ISO */
+  t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7));
+  const yStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+  const week = Math.ceil((((t - yStart) / 86400000) + 1) / 7);
+  return `${t.getUTCFullYear()}-W${p2(week)}`;
+}
+
+/* المعرّف الحتمي لنسخة قالب في فترة بعينها */
+export const recurringTaskId = (templateId, periodKey) => `tpl_${templateId}_${periodKey}`;
+
+/* ═══ الفترات المستحقّة غير المولَّدة ═══
+
+   → [{ id, periodKey, dueDate, startDate }]
+
+   ⚠️ التوليد بأثر رجعي محدود بثلاثين يوماً. بدونه يفتح من عاد من إجازة
+   شهرين فيجد تسعين مهمة دفعة واحدة — فيتجاهلها كلها، وهو أسوأ من ألا
+   تُولَّد أصلاً.
+
+   ⚠️ وتاريخ الاستحقاق يُحسب من **تاريخ الفترة** لا من تاريخ التوليد: مهمة
+   الأحد التي وُلِّدت الأربعاء تظهر متأخرة لأنها متأخرة فعلاً، ولا تُمنح
+   مهلة جديدة لأن أحداً لم يفتح النظام. */
+export function duePeriodsFor(template, todayYmd, existingIds = new Set(),
+                              maxBackfillDays = MAX_BACKFILL_DAYS) {
+  if (!template || template.active === false) return [];
+  const rec = template.recurrence;
+  if (!rec || !['daily', 'weekly', 'monthly'].includes(rec.type)) return [];
+
+  const today = new Date(todayYmd + 'T00:00:00');
+  if (isNaN(today)) return [];
+  const from = new Date(today);
+  from.setDate(from.getDate() - maxBackfillDays);
+
+  const out = [];
+  for (let d = new Date(from); d <= today; d.setDate(d.getDate() + 1)) {
+    let key = null;
+    if (rec.type === 'daily') key = ymdOf(d);
+    else if (rec.type === 'weekly') {
+      if (d.getDay() !== (rec.dow ?? 0)) continue;
+      key = isoWeekKey(d);
+    } else {
+      if (d.getDate() !== (rec.dayOfMonth || 1)) continue;
+      key = `${d.getFullYear()}-${p2(d.getMonth() + 1)}`;
+    }
+    const id = recurringTaskId(template.id, key);
+    if (existingIds.has(id)) continue;
+    if (out.some((x) => x.id === id)) continue;
+
+    const due = new Date(d);
+    due.setDate(due.getDate() + (Number(rec.dueOffsetDays ?? template.dueOffsetDays) || 0));
+    out.push({ id, periodKey: key, startDate: ymdOf(d), dueDate: ymdOf(due) });
+  }
+  return out;
+}
+
+/* ═══ ٧-ج · ربط المهمة بالغياب ═══
+
+   ⚠️ أهم بند في المرحلة كلها — وهو ما يجعل المهام جزءاً من نظام الموارد
+   البشرية بدل أداة منفصلة. لا تُسقطه إن ضاق الوقت، أسقط غيره.
+
+   ⚠️ ويقرأ `requests` المعتمَدة كما هي — لا يعيد حساب مدى الإجازة. حسبة
+   ثانية للتواريخ تتباعد عن الأولى فيظهر موظف «في إجازة» في شاشة و«حاضر»
+   في أخرى. */
+export function leaveCovering(requests, uid, ymd) {
+  if (!uid || !ymd) return null;
+  return (requests || []).find((r) =>
+    r.type === 'leave' && r.status === 'approved' && r.employeeUid === uid &&
+    r.startDate <= ymd && r.endDate >= ymd) || null;
+}
+
+/* المهام التي يستحقّ موعدها بينما مسؤولها في إجازة معتمَدة */
+export function tasksHittingLeave(tasks, requests) {
+  return (tasks || [])
+    .filter((t) => ACTIVE_STATUSES.includes(t.status) && t.dueDate)
+    .map((t) => ({ task: t, leave: leaveCovering(requests, t.assigneeUid, t.dueDate) }))
+    .filter((x) => x.leave);
+}
+
+/* ═══ ٧-د · سجل الوقت الفعلي ═══
+
+   ⚠️ يُعرض للمدير والموظف معاً، ولا يدخل تقييم أحد. تحويل دقّة التقدير إلى
+   درجة يجعل الناس تضخّم تقديراتها، فتفقد الرقم ومهارة التقدير معاً. */
+export const MAX_TIME_ENTRIES = 50;
+
+export function timeSummary(task) {
+  const entries = (task && task.timeEntries) || [];
+  const secs = entries.reduce((a, e) => a + (Number(e.secs) || 0), 0);
+  const estSecs = (Number(task && task.estimateHours) || 0) * 3600;
+  const open = entries.find((e) => e.start && !e.end) || null;
+  return {
+    entries: entries.length,
+    actualSecs: secs,
+    actualHours: Math.round((secs / 3600) * 10) / 10,
+    estimateHours: Number(task && task.estimateHours) || 0,
+    /* null حين لا تقدير — النسبة بلا مرجع رقمٌ بلا معنى */
+    pct: estSecs > 0 ? Math.round((secs / estSecs) * 100) : null,
+    hasOpenEntry: !!open,
+    atCap: entries.length >= MAX_TIME_ENTRIES
+  };
+}
+
+/* ═══ ٧-هـ · الاعتماديات ═══
+
+   ⚠️⚠️ **لا تُفرض في firestore.rules ولا يمكن**: التحقق يحتاج get() لكل
+   مهمة مانعة، وهي قراءة مفوترة على كل كتابة. فهي **إرشاد إداري لا قيد
+   أمني** — من يتجاوزها لا يتضرّر أحد مالياً. مكتوب هنا صراحةً حتى لا يظنّها
+   قارئ لاحق ضماناً. */
+export const MAX_BLOCKERS = 5;
+
+export function blockersOf(task, allTasks) {
+  const ids = (task && task.blockedByTaskIds) || [];
+  if (!ids.length) return [];
+  const byId = new Map((allTasks || []).map((t) => [t.id, t]));
+  return ids.map((id) => byId.get(id)).filter(Boolean)
+    .filter((t) => t.status !== 'done' && t.status !== 'archived');
+}
+
+export function isBlocked(task, allTasks) {
+  return blockersOf(task, allTasks).length > 0;
+}
+
+/* ═══ ٧-و · تفويض المهام أثناء الإجازة ═══
+
+   ⚠️ التفويض **إضافة لا استبدال**: المكلَّف الأصلي يبقى ظاهراً ويبقى يقرأ،
+   وسجل «من نفّذ فعلاً» يبقى صحيحاً في التحليلات.
+
+   ⚠️ و`delegatedUntil` لا تُفرض من القاعدة — لا مؤقّت على السيرفر. الواجهة
+   تتجاهل التفويض المنتهي، والمدير يلغيه يدوياً. */
+export function delegationActive(task, todayYmd) {
+  if (!task || !task.delegatedToUid) return false;
+  if (!task.delegatedUntil) return true;
+  return task.delegatedUntil >= todayYmd;
+}
+
+export function effectiveAssignees(task, todayYmd) {
+  const list = [task.assigneeUid].filter(Boolean);
+  if (delegationActive(task, todayYmd) && !list.includes(task.delegatedToUid))
+    list.push(task.delegatedToUid);
+  return list;
+}
+
+/* ═══ ٧-ز · الرؤية المشتركة بين قسمين ═══
+   ⚠️ المصفوفة موجودة من اليوم الأول (قرار ٥-ز)، فهذا واجهة فقط.
+   و`department` المفردة تبقى القسم المالك = departments[0]، وهي المستعملة
+   في التحليلات حتى لا تُحسب المهمة مرتين. */
+export const MAX_DEPARTMENTS = 3;
+
+export function withDepartments(task, depts) {
+  const clean = [...new Set((depts || []).filter(Boolean))].slice(0, MAX_DEPARTMENTS);
+  return { ...task, departments: clean, department: clean[0] || '' };
+}
+
+/* ═══ ٧-ح · الأرشيف ═══
+
+   ⚠️ لا تُحذف المهام المؤرشفة أبداً. هي مادة التحليلات التاريخية، وحذفها
+   يعني فقدان القدرة على المقارنة بين الدورات. */
+export const ARCHIVE_AFTER_DAYS = 30;
+
+export function shouldArchive(task, todayYmd, afterDays = ARCHIVE_AFTER_DAYS) {
+  if (!task || task.status !== 'done' || !task.doneAtYmd) return false;
+  const d = daysBetweenYmd(task.doneAtYmd, todayYmd);
+  return d !== null && d >= afterDays;
+}
+
+export function dueForArchive(tasks, todayYmd, limit = 20) {
+  return (tasks || []).filter((t) => shouldArchive(t, todayYmd)).slice(0, limit);
+}
+
+/* بحث الأرشيف — بالعنوان والموظف والتقييم */
+export function searchArchive(tasks, { text = '', uid = '', minRating = 0, from = '', to = '' } = {}) {
+  const q = text.trim().toLowerCase();
+  return (tasks || []).filter((t) => {
+    if (q && !(t.title || '').toLowerCase().includes(q)
+           && !(t.description || '').toLowerCase().includes(q)) return false;
+    if (uid && t.assigneeUid !== uid) return false;
+    if (minRating && !(Number(t.managerRating) >= minRating)) return false;
+    if (from && (t.doneAtYmd || '') < from) return false;
+    if (to && (t.doneAtYmd || '') > to) return false;
+    return true;
+  });
+}
