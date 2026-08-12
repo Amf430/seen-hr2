@@ -28,6 +28,10 @@ import * as myProfile      from '../pages/my-profile.js';
 import * as myServices     from '../pages/my-services.js';
 import * as myPerformance  from '../pages/my-performance.js';
 import * as teamPerformance from '../pages/team-performance.js';
+import * as myTasks       from '../pages/my-tasks.js';
+import * as teamTasks     from '../pages/team-tasks.js';
+import * as taskPage      from '../pages/task.js';
+import * as tasksAnalytics from '../pages/tasks-analytics.js';
 import * as attendanceLog  from '../pages/attendance-log.js';
 import * as payroll        from '../pages/payroll.js';
 import * as monthly        from '../pages/monthly.js';
@@ -52,6 +56,10 @@ const RENDERERS = {
   services:       myServices.render,
   performance:    myPerformance.render,
   'team-perf':    teamPerformance.render,
+  'my-tasks':     myTasks.render,
+  'team-tasks':   teamTasks.render,
+  task:           taskPage.render,
+  'tasks-analytics': tasksAnalytics.render,
   attendance:     (v, t) => attendanceLog.render(v, t, { coll: 'attendance',   isDevice: false }),
   zklog:          (v, t) => attendanceLog.render(v, t, { coll: 'zkAttendance', isDevice: true  }),
   payroll:        payroll.render,

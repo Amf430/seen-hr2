@@ -21,6 +21,10 @@ export const PAGES = {
   employees:     { title: 'ملفات الموظفين',        hint: 'البيانات والعقود والرواتب والصلاحيات' },
   profile:       { title: 'بروفايل الموظف',        hint: 'الراتب والعقد وتحليلات الالتزام' },
   'team-perf':   { title: 'أداء القسم',             hint: 'نسب الانضباط والتأخير والغياب لموظفي قسمك' },
+  'my-tasks':    { title: 'مهامي',                  hint: 'المهام المكلَّف بها — ابدأها وأرسلها للاعتماد' },
+  'team-tasks':  { title: 'مهام القسم',             hint: 'تكليف ومتابعة واعتماد مهام موظفي قسمك' },
+  task:          { title: 'تفاصيل المهمة',          hint: 'الحالة والقائمة الفرعية والمحادثة' },
+  'tasks-analytics': { title: 'تحليلات المهام',     hint: 'أرقام المهام لكل قسم وموظف بجانب أرقام الحضور' },
   org:           { title: 'الهيكل التنظيمي',        hint: 'من يتبع من — الشجرة الإدارية كاملة' },
   attendance:    { title: 'الحضور من الجوال',      hint: 'تسجيل ذاتي بالموقع الجغرافي — فرز باليوم أو بالموظف' },
   zklog:         { title: 'سجل جهاز البصمة',       hint: 'سجل مستقل قادم من جهاز ZKTeco — لا يعدّله أحد' },
@@ -68,7 +72,8 @@ export const EMPLOYEES_MANAGER = { title: 'موظفو قسمي',
 export const NAV_GROUPS = [
   { group: '', items: [
     { id: 'home', icon: 'dashboard', label: 'لوحة القيادة', roles: ['admin'] },
-    { id: 'home', icon: 'home', label: 'الرئيسية',     roles: ['employee', 'manager'] }
+    { id: 'home', icon: 'home', label: 'الرئيسية',     roles: ['employee', 'manager'] },
+    { id: 'my-tasks', icon: 'check', label: 'مهامي', roles: ['employee', 'manager'] }
   ]},
 
   { group: 'الحضور والدوام', items: [
@@ -98,6 +103,8 @@ export const NAV_GROUPS = [
        فهرس (department, date) في firestore.indexes.json. لا تنسخ هذا السطر لصفحة
        أخرى قبل أن تقيّد استعلامها وتنشر فهرسها — وإلا شاشة فارغة بخطأ صلاحيات. */
     { id: 'team-perf', icon: 'chart', label: 'أداء القسم',      roles: ['admin', 'manager'] },
+    { id: 'team-tasks', icon: 'check', label: 'مهام القسم',    roles: ['admin', 'manager'] },
+    { id: 'tasks-analytics', icon: 'chart', label: 'تحليلات المهام', roles: ['admin'] },
     { id: 'org',       icon: 'network', label: 'الهيكل التنظيمي', roles: ['admin'] },
     { id: 'org',       icon: 'network', label: 'فريقي',           roles: ['manager'] },
     { id: 'set-org',   icon: 'building', label: 'الأقسام والهيكل', roles: ['admin'] }

@@ -1069,3 +1069,25 @@ label.btn{cursor:pointer}
   padding:var(--sp-3) var(--sp-4);background:var(--card);
   color:var(--muted-strong);font-size:var(--fs-caption);
 }
+
+/* ═══ المهام (المرحلة ٥) ═══ */
+.task-card{border:1px solid var(--line);border-radius:var(--r-md);background:var(--card);
+  padding:var(--sp-3) var(--sp-4);margin-block-end:var(--sp-3);
+  display:flex;flex-direction:column;gap:var(--sp-2)}
+/* ⚠️ الحدّ الأحمر على المتأخرة لا لونُ خلفية: الخلفية الملوّنة على الجوال
+   تبتلع النص، والحدّ يُقرأ في الوضعين. */
+.task-card--overdue{border-inline-start:3px solid var(--red)}
+.task-card__top{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-3)}
+.task-card__meta{display:flex;flex-wrap:wrap;gap:var(--sp-3);font-size:var(--fs-micro)}
+
+/* خيط المحادثة — نفس شكل خيط hrTickets */
+.thread{display:flex;flex-direction:column;gap:var(--sp-3);
+  max-block-size:420px;overflow-y:auto;overscroll-behavior:contain;
+  padding:var(--sp-3);background:var(--paper);border-radius:var(--r-md);
+  margin-block-end:var(--sp-3)}
+.msg{background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);
+  padding:var(--sp-2) var(--sp-3);max-inline-size:85%;align-self:flex-start}
+.msg--mine{align-self:flex-end;background:var(--maroon-tint);border-color:var(--a-maroon-16)}
+.msg__head{display:flex;gap:var(--sp-2);align-items:baseline;
+  font-size:var(--fs-micro);margin-block-end:var(--sp-2)}
+.msg__body{white-space:pre-wrap;word-break:break-word;font-size:var(--fs-caption);line-height:1.6}

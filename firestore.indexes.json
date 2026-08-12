@@ -1,14 +1,19 @@
 {
   "//": "فهارس Firestore المركّبة. أي استعلام يجمع where على حقل مع مدى أو ترتيب على حقل آخر يحتاج فهرساً هنا، ويُنشر قبل فتح الشاشة لا بعدها — الاستعلام بلا فهرس يُرفض كاملاً في الإنتاج فتظهر الشاشة فارغة مع خطأ صلاحيات. ⚠️ إنشاء الفهرس من لوحة Firebase بالضغط على رابط الخطأ يبنيه على السيرفر بلا أن يدخل هذا الملف: يعمل عندك ويسقط عند أول نشر نظيف. الفهرس يعيش هنا أو لا يعيش.",
-
   "indexes": [
     {
       "//": "المرحلة ٤ — شاشة أداء القسم. مدير القسم يستعلم عن حضور قسمه ضمن مدى تاريخ. بدون هذا الفهرس تُرفض الشاشة كاملةً له.",
       "collectionGroup": "attendance",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "department", "order": "ASCENDING" },
-        { "fieldPath": "date", "order": "ASCENDING" }
+        {
+          "fieldPath": "department",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
@@ -16,11 +21,73 @@
       "collectionGroup": "zkAttendance",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "department", "order": "ASCENDING" },
-        { "fieldPath": "date", "order": "ASCENDING" }
+        {
+          "fieldPath": "department",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "//": "المرحلة ٥ — لوحة مدير القسم. مقيّد بالمصفوفة مطابقةً لـ taskDept() في القاعدة، والحالات قائمة صريحة لا != على archived (أرخص ولا يحتاج فهرساً زائداً).",
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "departments",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "dueDate",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "//": "المرحلة ٥ — لوحة الموظف: مهامه هو بحالاتها النشطة.",
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "assigneeUid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "dueDate",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "//": "المرحلة ٧-ح — أرشيف المهام. صفحة مستقلة، واللوحة اليومية لا تقرؤه إطلاقاً.",
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "departments",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "archivedAt",
+          "order": "DESCENDING"
+        }
       ]
     }
   ],
-
   "fieldOverrides": []
 }

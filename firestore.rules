@@ -666,6 +666,133 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    /* ═════════════════════════ tasks ═════════════════════════
+
+       Same shape as hrTickets above — a document plus a create-only message
+       thread — because that pattern is already written, tested and in
+       production. Do not invent a second one.
+
+       ⚠️ The department field is an ARRAY from day one, even though the UI
+       only lets you pick one. Widening a single string to an array later
+       means migrating live documents while rewriting the security rules that
+       guard them. Today it costs nothing.
+
+       Because of that, sameDept() does NOT work here: it compares a single
+       `department` string on the resource. These two helpers replace it, and
+       sameDept() is left alone since users, attendance and requests all
+       depend on it.                                                          */
+    function taskDept()    { return isMgr() && myDept() != '' && myDept() in p().departments; }
+    function taskDeptNew() { return isMgr() && myDept() != '' && myDept() in d().departments; }
+    function taskAssignee(){ return isActive() && resource != null
+                                    && p().assigneeUid == request.auth.uid; }
+    function taskAt(tid)   { return /databases/$(database)/documents/tasks/$(tid); }
+    function taskMineAt(tid) {
+      return sIn() && exists(taskAt(tid)) && get(taskAt(tid)).data.assigneeUid == request.auth.uid;
+    }
+    function taskInMyDeptAt(tid) {
+      return isMgr() && myDept() != '' && exists(taskAt(tid))
+             && myDept() in get(taskAt(tid)).data.departments;
+    }
+
+    match /tasks/{tid} {
+      allow read: if isAdmin() || taskAssignee() || taskDept();
+
+      allow create: if (isAdmin() || taskDeptNew())
+        && d().createdBy == request.auth.uid
+        && d().createdByName == me().name
+        && d().status == 'new'
+        && d().createdAt == request.time
+        && d().departments is list
+        && d().departments.size() >= 1 && d().departments.size() <= 3
+        && d().department == d().departments[0]
+        && d().title is string && d().title.size() > 0 && d().title.size() <= 120
+        && d().get('description','') is string && d().get('description','').size() <= 4000
+        && d().get('tags', []).size() <= 5
+        && d().get('checklist', []).size() <= 20
+        && d().get('progress', 0) == 0
+        && d().priority in ['low','normal','high','urgent'];
+
+      /* ⚠️ deptUnchanged() is enforced on the manager AND the admin branch,
+         not left to a comment. A manager who can rewrite `departments` moves
+         the task into another department and drags read access with it —
+         which is the one escalation this whole block exists to prevent. */
+      allow update: if (isAdmin() && deptUnchanged())
+        || (taskDept() && deptUnchanged())
+        || (taskAssignee()
+            && only(['status','progress','startedAt','employeeFeedback','checklist',
+                     'lastMessageAt','messageCount','timeEntries','actualSecs'])
+            && d().status in ['in_progress','blocked','review']
+            && !(p().status in ['done','archived'])
+            /* ⚠️ without the three lines below the employee writes
+               progress: 900 and every completion chart is meaningless */
+            && d().get('progress',0) is int
+            && d().get('progress',0) >= 0 && d().get('progress',0) <= 100
+            && d().get('checklist', []).size() <= 20
+            && d().get('timeEntries', []).size() <= 50
+            && d().get('employeeFeedback','') is string
+            && d().get('employeeFeedback','').size() <= 4000);
+
+      function deptUnchanged() {
+        return d().departments == p().departments && d().department == p().department;
+      }
+
+      allow delete: if isAdmin();
+
+      /* ── the thread ──
+         Create-only, exactly as in hrTickets: a conversation that can be
+         edited afterwards is not a record of anything. A manager could
+         rewrite what they asked for, or an employee what they promised.  */
+      match /messages/{mid} {
+        allow read: if isAdmin() || taskMineAt(tid) || taskInMyDeptAt(tid);
+        allow create: if isActive()
+          && (isAdmin() || taskMineAt(tid) || taskInMyDeptAt(tid))
+          && d().authorUid  == request.auth.uid
+          && d().authorName == me().name
+          && d().createdAt == request.time
+          && d().kind == 'msg'
+          && d().text is string && d().text.size() > 0 && d().text.size() <= 2000;
+        allow update, delete: if false;
+      }
+    }
+
+    /* ═════════════════════════ announcements ═════════════════════════
+
+       ⚠️ Read the long comment above js/lib/notifications.js before deciding
+       this contradicts it. A `notifications` collection was refused because
+       any rule letting an employee write a document aimed at someone else
+       lets them flood that person with thousands of documents, and closing
+       that needs Cloud Functions.
+
+       Announcements are the opposite shape: the admin alone writes, everyone
+       reads, and it is ONE document read by a hundred employees rather than a
+       hundred documents. There is no flood vector to close.                 */
+    match /announcements/{aid} {
+      allow read: if isActive()
+        && (p().get('audienceAll', false) == true
+            || myDept() in p().get('audienceDepts', [])
+            || request.auth.uid in p().get('audienceUids', []));
+
+      allow create, update: if isAdmin()
+        && d().createdBy == request.auth.uid
+        && d().title is string && d().title.size() > 0 && d().title.size() <= 120
+        && d().body is string && d().body.size() <= 5000
+        && d().get('audienceDepts', []).size() <= 30
+        && d().get('audienceUids', []).size() <= 50
+        && d().priority in ['normal','important','urgent'];
+
+      allow delete: if isAdmin();
+
+      match /acks/{uid} {
+        allow read:   if isAdmin() || request.auth.uid == uid;
+        allow create: if isActive() && request.auth.uid == uid
+                      && d().uid == request.auth.uid
+                      && d().at == request.time
+                      && d().get('name','') == me().name;
+        /* ⚠️ an acknowledgement is not withdrawable — that is the whole point */
+        allow update, delete: if false;
+      }
+    }
+
     /* anything not matched above is denied */
   }
 }

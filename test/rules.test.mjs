@@ -701,6 +701,145 @@ await check('suspended manager queries own dept',             false,
 await check('admin queries zkAttendance unconstrained',       true,
   () => getDocs(query(collection(admin, 'zkAttendance'), where('date', '>=', '2026-01-01'))));
 
+/* ═══ 12. المهام (المرحلة ٥) ═══
+
+   ⚠️ حقل القسم مصفوفة `departments` من اليوم الأول، فـ sameDept() لا تصلح
+   هنا — تقارن حقلاً مفرداً. الحارس دالتان جديدتان: taskDept()/taskDeptNew().
+
+   ⚠️ وأخطر تصعيد في هذه المجموعة ليس القراءة بل **تغيير departments**: مدير
+   ينقل مهمة إلى قسم آخر يسحب معه صلاحية قراءتها. لذلك deptUnchanged() مفروضة
+   على فرع المدير وفرع الأدمن معاً، لا مكتوبة في تعليق. */
+console.log('\n\x1b[1m═══ 12. TASKS ═══\x1b[0m');
+
+const task = (over = {}) => ({
+  title: 'تجهيز التقرير', description: '',
+  departments: ['المبيعات'], department: 'المبيعات',
+  assigneeUid: 'empU', assigneeName: 'سالم',
+  createdBy: 'mgrU', createdByName: 'فهد',
+  createdAt: serverTimestamp(),
+  status: 'new', progress: 0, priority: 'normal',
+  startDate: '', dueDate: '', tags: [], checklist: [], ...over
+});
+
+/* ── الإنشاء ── */
+await check('manager creates a task in own dept',      true,
+  () => setDoc(doc(mgr, 'tasks/tk1'), task()));
+await check('manager creates in ANOTHER dept',         false,
+  () => setDoc(doc(mgr, 'tasks/tk2'), task({ departments: ['المالية'], department: 'المالية' })));
+await check('employee creates a task',                 false,
+  () => setDoc(doc(emp, 'tasks/tk3'), task({ createdBy: 'empU', createdByName: 'سالم' })));
+await check('task created already in_progress',        false,
+  () => setDoc(doc(mgr, 'tasks/tk4'), task({ status: 'in_progress' })));
+await check('createdBy forged',                        false,
+  () => setDoc(doc(mgr, 'tasks/tk5'), task({ createdBy: 'adminU' })));
+/* ⚠️ department المفردة لازم تطابق departments[0] وإلا تباعد الفهرس عن القاعدة */
+await check('singular department disagrees with array', false,
+  () => setDoc(doc(mgr, 'tasks/tk6'), task({ departments: ['المبيعات'], department: 'المالية' })));
+await check('empty departments array',                 false,
+  () => setDoc(doc(mgr, 'tasks/tk7'), task({ departments: [], department: '' })));
+await check('title beyond 120 chars',                  false,
+  () => setDoc(doc(mgr, 'tasks/tk8'), task({ title: 'ط'.repeat(121) })));
+await check('empty title',                             false,
+  () => setDoc(doc(mgr, 'tasks/tk9'), task({ title: '' })));
+await check('description beyond 4000',                 false,
+  () => setDoc(doc(mgr, 'tasks/tk10'), task({ description: 'د'.repeat(4001) })));
+await check('checklist beyond 20 items',               false,
+  () => setDoc(doc(mgr, 'tasks/tk11'), task({ checklist: Array.from({ length: 21 }, () => ({ text: 'x' })) })));
+await check('unknown priority',                        false,
+  () => setDoc(doc(mgr, 'tasks/tk12'), task({ priority: 'critical' })));
+await check('admin creates in any dept',               true,
+  () => setDoc(doc(admin, 'tasks/tk13'),
+    task({ departments: ['المالية'], department: 'المالية', createdBy: 'adminU', createdByName: 'المدير' })));
+
+/* ── القراءة ── */
+await check('assignee reads own task',                 true,  () => getDoc(doc(emp, 'tasks/tk1')));
+await check('manager reads task in own dept',          true,  () => getDoc(doc(mgr, 'tasks/tk1')));
+await check('manager reads task in ANOTHER dept',      false, () => getDoc(doc(mgr, 'tasks/tk13')));
+await check('unrelated employee reads a task',         false, () => getDoc(doc(emp2, 'tasks/tk13')));
+await check('admin reads any task',                    true,  () => getDoc(doc(admin, 'tasks/tk13')));
+await check('manager queries own dept tasks',          true,
+  () => getDocs(query(collection(mgr, 'tasks'), where('departments', 'array-contains', 'المبيعات'))));
+await check('manager queries tasks unconstrained',     false,
+  () => getDocs(query(collection(mgr, 'tasks'))));
+await check('employee queries own assigned tasks',     true,
+  () => getDocs(query(collection(emp, 'tasks'), where('assigneeUid', '==', 'empU'))));
+await check('employee queries someone else assigned',  false,
+  () => getDocs(query(collection(emp, 'tasks'), where('assigneeUid', '==', 'emp2U'))));
+
+/* ── تحديث الموظف المكلَّف ── */
+await check('assignee starts the task',                true,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { status: 'in_progress', progress: 10 }));
+await check('assignee sends it for review',            true,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { status: 'review', employeeFeedback: 'تم' }));
+/* ⚠️ جوهر القرار التصميمي: الموظف لا يعتمد مهمته بنفسه */
+await check('⚠️ assignee marks it DONE',                false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { status: 'done' }));
+await check('assignee changes the title',              false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { title: 'عنوان آخر' }));
+await check('assignee changes the due date',           false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { dueDate: '2027-01-01' }));
+await check('assignee reassigns to someone else',      false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { assigneeUid: 'emp2U' }));
+await check('assignee rates their own work',           false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { managerRating: 5 }));
+/* ⚠️ بلا حدّ المدى يكتب الموظف 900 فتفقد كل نسب الإنجاز معناها */
+await check('⚠️ assignee writes progress: 900',         false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { progress: 900 }));
+await check('assignee writes negative progress',       false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { progress: -5 }));
+await check('assignee writes progress as a string',    false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { progress: '50' }));
+await check('assignee feedback beyond 4000',           false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { employeeFeedback: 'ف'.repeat(4001) }));
+await check('assignee timeEntries beyond 50',          false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { timeEntries: Array.from({ length: 51 }, () => ({ secs: 1 })) }));
+await check('unrelated employee updates a task',       false,
+  () => updateDoc(doc(emp2, 'tasks/tk1'), { status: 'in_progress' }));
+
+/* ── المدير والأدمن ── */
+await check('manager approves the task',               true,
+  () => updateDoc(doc(mgr, 'tasks/tk1'), { status: 'done', managerRating: 4, managerNote: 'ممتاز' }));
+/* ⚠️ التصعيد الأخطر: نقل المهمة لقسم آخر يسحب معه صلاحية القراءة */
+await check('⚠️ manager moves task to ANOTHER dept',    false,
+  () => updateDoc(doc(mgr, 'tasks/tk1'), { departments: ['المالية'], department: 'المالية' }));
+await check('⚠️ admin moves task to another dept',      false,
+  () => updateDoc(doc(admin, 'tasks/tk1'), { departments: ['المالية'], department: 'المالية' }));
+await check('manager of another dept updates it',      false,
+  () => updateDoc(doc(mgr, 'tasks/tk13'), { status: 'done' }));
+await check('assignee deletes the task',               false, () => deleteDoc(doc(emp, 'tasks/tk1')));
+await check('manager deletes the task',                false, () => deleteDoc(doc(mgr, 'tasks/tk1')));
+await check('admin deletes the task',                  true,  () => deleteDoc(doc(admin, 'tasks/tk13')));
+
+/* ── المحادثة: إنشاء فقط، كما في hrTickets ── */
+const msg = (over = {}) => ({
+  authorUid: 'empU', authorName: 'سالم', authorRole: 'employee',
+  text: 'بدأت فيها', kind: 'msg', createdAt: serverTimestamp(), ...over
+});
+await check('assignee posts a message',                true,
+  () => setDoc(doc(emp, 'tasks/tk1/messages/m1'), msg()));
+await check('manager posts a message',                 true,
+  () => setDoc(doc(mgr, 'tasks/tk1/messages/m2'), msg({ authorUid: 'mgrU', authorName: 'فهد', authorRole: 'manager' })));
+await check('unrelated employee posts',                false,
+  () => setDoc(doc(emp2, 'tasks/tk1/messages/m3'), msg({ authorUid: 'emp2U', authorName: 'ليلى' })));
+await check('message under a forged name',             false,
+  () => setDoc(doc(emp, 'tasks/tk1/messages/m4'), msg({ authorName: 'فهد' })));
+await check('message beyond 2000 chars',               false,
+  () => setDoc(doc(emp, 'tasks/tk1/messages/m5'), msg({ text: 'ر'.repeat(2001) })));
+await check('empty message',                           false,
+  () => setDoc(doc(emp, 'tasks/tk1/messages/m6'), msg({ text: '' })));
+/* ⚠️ 'system' من الواجهة وحدها عبر تحديث المهمة — لا يكتبه مستخدم */
+await check("message with kind 'system'",              false,
+  () => setDoc(doc(emp, 'tasks/tk1/messages/m7'), msg({ kind: 'system' })));
+await check('assignee reads the thread',               true,
+  () => getDocs(collection(emp, 'tasks/tk1/messages')));
+await check('unrelated employee reads the thread',     false,
+  () => getDocs(collection(emp2, 'tasks/tk1/messages')));
+/* ⚠️ خيط يُعدَّل بعد الفعل ليس سجلاً لشيء */
+await check('⚠️ editing a sent message',                false,
+  () => updateDoc(doc(emp, 'tasks/tk1/messages/m1'), { text: 'غيّرت رأيي' }));
+await check('⚠️ deleting a sent message (even admin)',  false,
+  () => deleteDoc(doc(admin, 'tasks/tk1/messages/m1')));
+
 console.log(`\n\x1b[1m═══ RESULT: ${pass} passed, ${fail} failed ═══\x1b[0m`);
 if (failures.length) { console.log('\nFAILURES:'); failures.forEach((f) => console.log('  • ' + f)); }
 await env.cleanup();
