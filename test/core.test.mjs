@@ -26,6 +26,7 @@ import { canApprove, canApproveType, hasChain, chainStep, isLastStep,
 /* ⚠️ ymd() لا toISOString(): الدورة تُبنى على منتصف ليل محلّي، و toISOString
    تحوّله UTC — ففي UTC+3 يقرأ ٢٦ أغسطس على أنه ٢٥. */
 import { cycleOf, ymd } from '../js/lib/dates.js';
+import { deptCoverageOf, coverageNote, rangeCovered } from '../js/lib/zk-coverage.js';
 
 let pass = 0, fail = 0;
 const eq = (name, expected, actual) => {
@@ -568,6 +569,65 @@ eq('قبل التحميل → مقفل',   true, btn({ loaded: false }).disabled
 eq('خطأ قراءة → مقفل',     true, btn({ loadErr: true }).disabled);
 eq('⚠️ لكن خطأ القراءة مع جلسة مفتوحة لا يحبس الموظف… يبقى مقفلاً عمداً',
    'err', btn({ loadErr: true, hasOpenSession: true }).kind);
+
+/* ═══════ ١٣. تغطية `department` في سجل جهاز البصمة (المرحلة ٤) ═══════
+
+   شاشة المدير تفلتر بـ where('department','==',…) وإلا رُفض الاستعلام كاملاً.
+   والوثائق القديمة بلا الحقل **تُتخطّى بصمت** — لا خطأ ولا رفض. فالشاشة
+   تعمل وتبدو سليمة وأيام منها ناقصة. هذه المجموعة تحرس اكتشاف ذلك النقص. */
+group('١٣. تغطية القسم في سجل الجهاز');
+
+const rec = (date, dept) => (dept === undefined ? { date } : { date, department: dept });
+
+eq('لا سجلات → لا ادّعاء بشيء',
+   { total: 0, complete: false, safeFrom: null },
+   (() => { const c = deptCoverageOf([]); return { total: c.total, complete: c.complete, safeFrom: c.safeFrom }; })());
+
+eq('كل السجلات تحمل القسم → تغطية كاملة',
+   { withoutDept: 0, complete: true, safeFrom: '2026-08-01' },
+   (() => { const c = deptCoverageOf([rec('2026-08-01','المبيعات'), rec('2026-08-02','المبيعات')]);
+            return { withoutDept: c.withoutDept, complete: c.complete, safeFrom: c.safeFrom }; })());
+
+eq('قديمة بلا قسم ثم جديدة به → التغطية تبدأ بعد آخر ناقص',
+   { withDept: 2, withoutDept: 2, lastMissingDate: '2026-07-15', safeFrom: '2026-07-16' },
+   (() => { const c = deptCoverageOf([
+              rec('2026-07-14'), rec('2026-07-15'),
+              rec('2026-07-16','المبيعات'), rec('2026-08-01','المالية')]);
+            return { withDept: c.withDept, withoutDept: c.withoutDept,
+                     lastMissingDate: c.lastMissingDate, safeFrom: c.safeFrom }; })());
+
+/* ⚠️ جوهر الدالة: انقطاع الجسر بعد أن بدأ يكتب القسم.
+   الأخذ بأقدم ظهور للحقل يعطي ٢٠٢٦-٠٧-٠١ ويدّعي تغطية أسبوعٍ لا نملكه. */
+eq('انقطاع في المنتصف → العبرة بآخر ناقص لا بأول ظهور',
+   { firstDeptDate: '2026-07-01', lastMissingDate: '2026-07-20', safeFrom: '2026-07-21' },
+   (() => { const c = deptCoverageOf([
+              rec('2026-07-01','المبيعات'), rec('2026-07-19'), rec('2026-07-20'),
+              rec('2026-07-21','المبيعات')]);
+            return { firstDeptDate: c.firstDeptDate, lastMissingDate: c.lastMissingDate,
+                     safeFrom: c.safeFrom }; })());
+
+eq('قسم فارغ يُعامَل كغائب لا كموجود',
+   1, deptCoverageOf([rec('2026-08-01', '')]).withoutDept);
+eq('سجل بلا تاريخ يُستبعَد من الحساب',
+   1, deptCoverageOf([rec('2026-08-01','المبيعات'), { department: 'المالية' }]).total);
+eq('نهاية الشهر تُحسب صحيحة عند الانتقال ليوم تالٍ',
+   '2026-08-01', deptCoverageOf([rec('2026-07-31')]).safeFrom);
+
+/* الجملة المعروضة للمدير */
+eq('تغطية كاملة → لا تحذير يُعرض', null,
+   coverageNote(deptCoverageOf([rec('2026-08-01','المبيعات')])));
+eq('تغطية ناقصة → تحذير يذكر التاريخ الآمن', true,
+   (coverageNote(deptCoverageOf([rec('2026-07-15'), rec('2026-07-16','المبيعات')])) || '')
+     .includes('2026-07-16'));
+
+/* حراسة النطاق قبل الرسم */
+const covPartial = deptCoverageOf([rec('2026-07-15'), rec('2026-07-16','المبيعات')]);
+eq('نطاق كله قبل التغطية → مرفوض',       false, rangeCovered(covPartial, '2026-07-01', '2026-07-10'));
+eq('نطاق يبدأ داخل التغطية → مقبول',      true,  rangeCovered(covPartial, '2026-07-16', '2026-08-01'));
+eq('نطاق يعبر حدّ التغطية → مرفوض',       false, rangeCovered(covPartial, '2026-07-10', '2026-08-01'));
+eq('تغطية كاملة → كل نطاق مقبول',        true,
+   rangeCovered(deptCoverageOf([rec('2026-08-01','المبيعات')]), '2020-01-01', '2030-01-01'));
+eq('لا بيانات → لا ندّعي نقصاً',          true,  rangeCovered(deptCoverageOf([]), '2026-01-01', '2026-12-31'));
 
 console.log(`\n\x1b[1m═══ النتيجة: ${pass} ناجح، ${fail} فاشل ═══\x1b[0m`);
 process.exit(fail ? 1 : 0);
