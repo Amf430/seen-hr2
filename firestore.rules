@@ -860,6 +860,39 @@ service cloud.firestore {
       }
     }
 
+    /* ═════════════════════════ teamAway ═════════════════════════
+
+       Who is away, per department, for the calendar — one document per
+       department, id = the department name.
+
+       ⚠️ Why a published document rather than reading requests directly:
+       an employee cannot read a colleague's request at all (sameDept()
+       requires isMgr), and loosening that would expose the leave TYPE,
+       which is health information — sick, maternity, bereavement. Rules
+       cannot project fields, so the only way to show a colleague "Salem is
+       away on the 18th" without also showing WHY is to publish a document
+       that never contained the why. Same reasoning as leaderboard above,
+       same shape.
+
+       ⚠️ What may be in it: date, name, uid. Not the type, not the reason,
+       and not the range — a three-week absence says something about its
+       type on its own.
+
+       ⚠️ It is refreshed when a manager opens the calendar, not on a
+       schedule, so it carries `at` and the screen shows that date. A stale
+       board read as today's is worse than one that is dated.               */
+    match /teamAway/{dept} {
+      /* the employee reads their own department's board and no other */
+      allow read: if isActive() && (isAdmin() || dept == myDept());
+
+      allow write: if (isAdmin() || (isMgr() && dept == myDept()))
+        && d().department == dept
+        && d().at == request.time
+        && d().keys().hasOnly(['department','staffCount','days','at','byName'])
+        && d().staffCount is int && d().staffCount >= 0
+        && d().days is map;
+    }
+
     /* anything not matched above is denied */
   }
 }

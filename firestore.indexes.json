@@ -132,6 +132,25 @@
           "order": "DESCENDING"
         }
       ]
+    },
+    {
+      "//": "المرحلة ٩ — تقويم الفريق. إجازات القسم المعتمَدة ضمن الشهر المعروض. ⚠️ المدى على startDate وحده لأن Firestore لا يقبل مدَيين على حقلين مختلفين؛ الترشيح على endDate محلي.",
+      "collectionGroup": "requests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "department",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "startDate",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": []

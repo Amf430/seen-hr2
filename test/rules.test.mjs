@@ -1143,6 +1143,55 @@ await check('manager writes taskTemplates',           false,
 await check('admin writes taskTemplates',             true,
   () => updateDoc(doc(admin, 'settings/config'), { taskTemplates: [{ id: 'x', title: 'y', active: true }] }));
 
+/* ═══ 17. لوحة الغياب المنشورة (المرحلة ٩) ═══
+
+   ⚠️ لماذا وثيقة منشورة أصلاً: الموظف **لا يقدر يقرأ طلبات زملائه**
+   (sameDept تشترط isMgr)، وتوسيع تلك القاعدة يكشف **نوع** الإجازة — وهو
+   معلومة صحّية أحياناً (مرضية · وضع · وفاة)، والقواعد لا تقدر تُسقط حقلاً
+   من وثيقة. فالسبيل الوحيد لعرض «فلان غائب» بلا «لماذا» هو نشر وثيقة لم
+   تحمل «لماذا» قط. نفس منطق leaderboard.
+
+   ⚠️ والقاعدة تحرس الشكل: قائمة مفاتيح مغلقة تمنع تسريب حقل جديد سهواً. */
+console.log('\n\x1b[1m═══ 17. PUBLISHED AWAY BOARD ═══\x1b[0m');
+
+const awayDoc = (over = {}) => ({
+  department: 'المبيعات', staffCount: 6,
+  days: { '2026-09-18': [{ uid: 'empU', name: 'سالم' }] },
+  at: serverTimestamp(), byName: 'فهد', ...over
+});
+
+await check('manager publishes own dept board',       true,
+  () => setDoc(doc(mgr, 'teamAway/المبيعات'), awayDoc()));
+await check('⚠️ manager publishes ANOTHER dept',       false,
+  () => setDoc(doc(mgr, 'teamAway/المالية'), awayDoc({ department: 'المالية' })));
+await check('department field must match the doc id', false,
+  () => setDoc(doc(mgr, 'teamAway/المبيعات'), awayDoc({ department: 'المالية' })));
+await check('⚠️ employee publishes a board',           false,
+  () => setDoc(doc(emp, 'teamAway/المبيعات'), awayDoc({ byName: 'سالم' })));
+await check('admin publishes any dept',               true,
+  () => setDoc(doc(admin, 'teamAway/المالية'), awayDoc({ department: 'المالية', byName: 'المدير' })));
+
+/* ⚠️ قائمة المفاتيح المغلقة — تمنع تسريب حقل جديد سهواً */
+await check('⚠️ a leave TYPE smuggled into the board', false,
+  () => setDoc(doc(mgr, 'teamAway/المبيعات'), { ...awayDoc(), leaveType: 'إجازة مرضية' }));
+await check('⚠️ a reason smuggled into the board',     false,
+  () => setDoc(doc(mgr, 'teamAway/المبيعات'), { ...awayDoc(), reason: 'عملية جراحية' }));
+await check('staffCount as a string',                 false,
+  () => setDoc(doc(mgr, 'teamAway/المبيعات'), awayDoc({ staffCount: 'ستة' })));
+await check('backdated at',                           false,
+  () => setDoc(doc(mgr, 'teamAway/المبيعات'), awayDoc({ at: Timestamp.fromMillis(Date.now() - 9e6) })));
+
+/* القراءة محصورة بالقسم */
+await check('employee reads own dept board',          true,  () => getDoc(doc(emp, 'teamAway/المبيعات')));
+await check('⚠️ employee reads ANOTHER dept board',    false, () => getDoc(doc(emp, 'teamAway/المالية')));
+await check('admin reads any board',                  true,  () => getDoc(doc(admin, 'teamAway/المالية')));
+await check('suspended reads own dept board',         false, () => getDoc(doc(susp, 'teamAway/المبيعات')));
+await check('stranger reads a board',                 false, () => getDoc(doc(stranger, 'teamAway/المبيعات')));
+
+/* ⚠️ ويبقى الأصل مقفلاً: فتح اللوحة لم يفتح الطلبات */
+await check('⚠️ employee still cannot read a peer request', false,
+  () => getDocs(query(collection(emp, 'requests'), where('department', '==', 'المبيعات'))));
+
 console.log(`\n\x1b[1m═══ RESULT: ${pass} passed, ${fail} failed ═══\x1b[0m`);
 if (failures.length) { console.log('\nFAILURES:'); failures.forEach((f) => console.log('  • ' + f)); }
 await env.cleanup();

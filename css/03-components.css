@@ -1091,3 +1091,34 @@ label.btn{cursor:pointer}
 .msg__head{display:flex;gap:var(--sp-2);align-items:baseline;
   font-size:var(--fs-micro);margin-block-end:var(--sp-2)}
 .msg__body{white-space:pre-wrap;word-break:break-word;font-size:var(--fs-caption);line-height:1.6}
+
+/* ═══ تقويم الفريق (المرحلة ٩) ═══ */
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;
+  background:var(--line);border:1px solid var(--line);border-radius:var(--r-md);
+  overflow:hidden;margin-block:var(--sp-3)}
+.cal-head{background:var(--paper-2);padding:var(--sp-2);text-align:center;
+  font-size:var(--fs-micro);font-weight:var(--fw-bold);color:var(--muted-strong)}
+.cal-pad{background:var(--paper)}
+.cal-day{background:var(--card);min-block-size:92px;padding:var(--sp-2);
+  display:flex;flex-direction:column;gap:2px}
+.cal-day--off{background:var(--paper)}
+.cal-day--today{outline:2px solid var(--maroon-2);outline-offset:-2px}
+.cal-num{font-size:var(--fs-micro);color:var(--muted-strong)}
+.cal-tag{font-size:var(--fs-micro);border-radius:var(--r-sm);padding:1px var(--sp-2);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cal-tag--leave{background:var(--info-bg);color:var(--info)}
+.cal-tag--holiday{background:var(--teal-bg);color:var(--teal)}
+.cal-tag--evening{background:var(--violet-bg);color:var(--violet)}
+.cal-tag--task{background:var(--amber-bg);color:var(--amber)}
+
+/* ⚠️ الشبكة الشهرية لا تُقرأ على شاشة صغيرة — سبع خانات في ٣٦٠px تعني
+   خانة ٥٠px لا يظهر فيها اسم. تنقلب قائمة رأسية، وأيام الراحة الفارغة
+   تُخفى فلا تملأ القائمة بلا معلومة. */
+@media (max-width:640px){
+  .cal-grid{grid-template-columns:1fr;gap:1px}
+  .cal-head,.cal-pad{display:none}
+  .cal-day{min-block-size:0;flex-direction:row;flex-wrap:wrap;align-items:center;
+    gap:var(--sp-2);padding:var(--sp-2) var(--sp-3)}
+  .cal-day--off:not(:has(.cal-tag)){display:none}
+  .cal-num{min-inline-size:2ch;font-weight:var(--fw-bold);color:var(--ink)}
+}

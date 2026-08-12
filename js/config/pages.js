@@ -26,6 +26,7 @@ export const PAGES = {
   task:          { title: 'تفاصيل المهمة',          hint: 'الحالة والقائمة الفرعية والمحادثة' },
   'tasks-analytics': { title: 'تحليلات المهام',     hint: 'أرقام المهام لكل قسم وموظف بجانب أرقام الحضور' },
   'tasks-archive': { title: 'أرشيف المهام',       hint: 'المنجزة منذ ٣٠ يوماً — بحث بالعنوان والموظف والتقييم' },
+  'team-calendar': { title: 'تقويم الفريق',       hint: 'الإجازات والشفتات والعطل في شاشة واحدة' },
   announcements: { title: 'الإعلانات',             hint: 'رسائل الموارد البشرية للموظفين' },
   'set-leave-policy': { title: 'سياسة الإجازات',   hint: 'المستحقّ السنوي والاستحقاق التدريجي والترحيل' },
   'set-task-templates': { title: 'قوالب المهام',  hint: 'قوالب جاهزة ومهام متكرّرة تُولَّد تلقائياً' },
@@ -78,6 +79,7 @@ export const NAV_GROUPS = [
     { id: 'home', icon: 'dashboard', label: 'لوحة القيادة', roles: ['admin'] },
     { id: 'home', icon: 'home', label: 'الرئيسية',     roles: ['employee', 'manager'] },
     { id: 'my-tasks', icon: 'check', label: 'مهامي', roles: ['employee', 'manager'] },
+    { id: 'team-calendar', icon: 'calendar', label: 'تقويم الفريق', roles: ['employee', 'manager', 'admin'] },
     { id: 'announcements', icon: 'megaphone', label: 'الإعلانات', roles: ['employee', 'manager'] }
   ]},
 

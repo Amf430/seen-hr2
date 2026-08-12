@@ -33,6 +33,7 @@ import * as teamTasks     from '../pages/team-tasks.js';
 import * as taskPage      from '../pages/task.js';
 import * as tasksAnalytics from '../pages/tasks-analytics.js';
 import * as tasksArchive  from '../pages/tasks-archive.js';
+import * as teamCalendar from '../pages/team-calendar.js';
 import * as announcementsPage from '../pages/announcements.js';
 import * as leavePolicy   from '../pages/settings/leave-policy.js';
 import * as taskTemplates from '../pages/settings/task-templates.js';
@@ -65,6 +66,7 @@ const RENDERERS = {
   task:           taskPage.render,
   'tasks-analytics': tasksAnalytics.render,
   'tasks-archive': tasksArchive.render,
+  'team-calendar': teamCalendar.render,
   announcements:  announcementsPage.render,
   'set-leave-policy': leavePolicy.render,
   'set-task-templates': taskTemplates.render,
