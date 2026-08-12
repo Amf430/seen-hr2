@@ -137,8 +137,26 @@ export const HOME_FOR = { admin: 'home', manager: 'home', employee: 'home' };
 
 /* هل يملك هذا الدور حق فتح هذه الصفحة؟
    للواجهة فقط — الجدار الحقيقي هو firestore.rules. */
+/* ⚠️ الصفحات التفصيلية لا تظهر في القائمة الجانبية — تُفتح من صفّ في جدول
+   أو بطاقة في لوحة. وcanOpen تقرأ NAV_GROUPS وحدها، فالصفحة الغائبة عنها
+   تُرفض ويُعاد المستخدم للرئيسية بلا رسالة.
+
+   ⚠️ هذا ما حصل فعلاً مع صفحة المهمة: كانت مُسجَّلة في PAGES وفي الراوتر
+   ومربوطة بزرّ «التفاصيل والمحادثة» — والزرّ يُعيدك للرئيسية. لم يكشفه أي
+   اختبار لأن الاختبارات لا تضغط أزراراً؛ كشفه الضغط عليه في المتصفح.
+
+   فكل صفحة تفصيلية جديدة تُضاف هنا، وإلا صارت غير قابلة للفتح. */
+const DETAIL_PAGES = {
+  /* بروفايل الموظف: يفتحه الأدمن ومدير القسم من جدول الموظفين */
+  profile: ['admin', 'manager'],
+  /* صفحة المهمة: يفتحها المكلَّف من «مهامي»، والمدير من «مهام القسم».
+     الصلاحية الحقيقية داخل الصفحة نفسها عبر roleFor()، وقاعدة
+     match /tasks تحرس القراءة على السيرفر. */
+  task: ['admin', 'manager', 'employee']
+};
+
 export function canOpen(pageId, role) {
-  if (pageId === 'profile') return role === 'admin' || role === 'manager';
+  if (DETAIL_PAGES[pageId]) return DETAIL_PAGES[pageId].includes(role);
   for (const g of NAV_GROUPS) {
     for (const it of g.items) {
       if (it.id === pageId && it.roles.includes(role)) return true;

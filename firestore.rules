@@ -806,10 +806,23 @@ service cloud.firestore {
        reads, and it is ONE document read by a hundred employees rather than a
        hundred documents. There is no flood vector to close.                 */
     match /announcements/{aid} {
-      allow read: if isActive()
-        && (p().get('audienceAll', false) == true
-            || myDept() in p().get('audienceDepts', [])
-            || request.auth.uid in p().get('audienceUids', []));
+      /* ⚠️ The admin branch is not a convenience — without it the admin
+         screen cannot exist at all. The audience clauses below are per-
+         document, and Firestore only allows a list query when it can prove
+         EVERY possible result satisfies the rule. An admin listing all
+         announcements to manage them cannot prove that, so the query is
+         rejected outright — the screen showed "تعذّر التحميل" and the
+         announcement it had just published was invisible to its own author.
+
+         Caught by publishing one in the browser, not by the rules tests:
+         those checked an admin reading a single document by id, which the
+         audience clauses already allowed. get() and list() are different
+         questions and a passing get() says nothing about list(). */
+      allow read: if isAdmin()
+        || (isActive()
+            && (p().get('audienceAll', false) == true
+                || myDept() in p().get('audienceDepts', [])
+                || request.auth.uid in p().get('audienceUids', [])));
 
       allow create, update: if isAdmin()
         && d().createdBy == request.auth.uid

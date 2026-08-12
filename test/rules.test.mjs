@@ -1,6 +1,6 @@
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, addDoc, getDocs,
-         query, where, serverTimestamp, Timestamp } from 'firebase/firestore';
+         query, where, orderBy, limit, serverTimestamp, Timestamp } from 'firebase/firestore';
 import fs from 'fs';
 
 const PROJECT = 'seen-hr2-test';
@@ -928,6 +928,21 @@ await check('employee reads ANOTHER acknowledgement', false,
   () => getDoc(doc(emp2, 'announcements/an1/acks/empU')));
 await check('admin reads every acknowledgement',      true,
   () => getDocs(collection(admin, 'announcements/an1/acks')));
+
+/* ⚠️ get() و list() سؤالان مختلفان — ونجاح الأول لا يقول شيئاً عن الثاني.
+   كانت هذه المجموعة تفحص قراءة الأدمن لوثيقة **بمعرّفها** فتمرّ عبر شروط
+   الجمهور، بينما شاشة الأدمن تحتاج **سرد** المجموعة كلها لإدارتها —
+   وFirestore يرفض السرد ما لم يثبت أن كل نتيجة محتملة تحقّق القاعدة.
+   فكانت الشاشة تعرض «تعذّر التحميل»، والإعلان الذي أرسله الأدمن للتوّ
+   لا يراه هو نفسه. كُشف بالإرسال في المتصفح لا بهذه الاختبارات. */
+await check('⚠️ admin LISTS all announcements',        true,
+  () => getDocs(collection(admin, 'announcements')));
+await check('⚠️ admin lists ordered by publishAt',     true,
+  () => getDocs(query(collection(admin, 'announcements'), orderBy('publishAt', 'desc'), limit(50))));
+await check('manager still cannot list them all',     false,
+  () => getDocs(collection(mgr, 'announcements')));
+await check('employee still cannot list them all',    false,
+  () => getDocs(collection(emp, 'announcements')));
 
 /* ═══ 14. رصيد الإجازات (المرحلة ٨) ═══
 

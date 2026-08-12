@@ -11,13 +11,21 @@
 
 import { el, esc, toast, openModal, confirmAction } from '../../lib/dom.js';
 import { getSettings, getUsers } from '../../lib/state.js';
-import { updateEmployee } from '../../lib/users.js';
+import { updateEmployee, refreshUsers } from '../../lib/users.js';
 import { logAction } from '../../lib/audit.js';
 import { leaveBalanceOf, migrationPreview, previewHasChanges,
          carryOverPreview, policyFor } from '../../lib/leave-balance.js';
-import { card, empty, tableWrap, sectionHead, button, callout, grid, stat } from '../../lib/ui.js';
+import { isStale } from '../../lib/nav.js';
+import { card, empty, tableWrap, sectionHead, button, callout, grid, stat, loading } from '../../lib/ui.js';
 
-export function render(view) {
+/* ⚠️ async و await refreshUsers() قبل أي رسم — نمط departments.js و
+   employees.js. الصفحة كانت متزامنة تقرأ getUsers() فوراً، فعلى تحميل بارد
+   (فتح الرابط مباشرة أو إعادة تحميل) تُرسم قبل وصول الموظفين فتعرض «٠ موظف»
+   وجدول معاينة فارغاً — والأدمن يقرأ ذلك «لا أحد يتأثر» ويطبّق بثقة.
+
+   اكتُشف بإعادة تحميل الصفحة في المتصفح؛ التنقّل إليها من القائمة كان يخفيه
+   لأن الموظفين يكونون محمَّلين أصلاً. */
+export async function render(view, token) {
   const S = getSettings();
   const types = (S.leaveTypes || []).filter((t) => t.deduct);
 
@@ -35,7 +43,11 @@ export function render(view) {
     'كل تطبيق في هذه الصفحة يعرض أولاً مقارنة «قبل / بعد» لكل موظف. راجعها ثم قرّر.'));
 
   const host = el('div', '');
+  host.appendChild(loading('جارٍ تحميل الموظفين…'));
   view.appendChild(host);
+
+  try { await refreshUsers(); } catch (e) { console.error('leave-policy', e); }
+  if (isStale(token)) return;
 
   function draw() {
     host.innerHTML = '';
@@ -129,6 +141,12 @@ export function render(view) {
   const modeAr = (m) => m === 'monthly' ? 'تدريجي شهري' : m === 'annual' ? 'دفعة سنوية' : 'ثابت';
 
   /* ═══ المعاينة الإلزامية ═══ */
+  /* ⚠️ النافذة الافتراضية ٥٢٠px والجدول ٧٦٠px، فأعمدة «قبل/بعد/الفرق» تقع
+     خلف تمرير أفقي — وهي كل الغرض من المعاينة. اكتُشف بفتحها في المتصفح:
+     البيانات كلها صحيحة في الـDOM، والأدمن لا يراها. `.modal--lg` موجودة في
+     css/03-components.css منذ البداية ولم تكن مستعمَلة. */
+  const widen = (m) => m.modal.classList.add('modal--lg');
+
   function openPreview(prev) {
     const rowsHtml = prev.map((p) => p.rows.map((r, i) => `
       <tr class="${r.delta !== 0 ? 'row-alt' : ''}">
@@ -141,7 +159,7 @@ export function render(view) {
           ${r.delta > 0 ? '+' : ''}${esc(r.delta)}</td>
       </tr>`).join('')).join('');
 
-    openModal(`
+    widen(openModal(`
       <h3>معاينة: رصيد كل موظف قبل وبعد</h3>
       ${previewHasChanges(prev)
         ? '<div class="callout callout--warn"><b>فيه فروق.</b><div class="help">راجع العمود الأخير قبل أي تطبيق — الرقم الأحمر يعني رصيداً ينقص.</div></div>'
@@ -152,7 +170,7 @@ export function render(view) {
         <tbody>${rowsHtml}</tbody>
       </table></div>
       <p class="help">هذه معاينة فقط — لم يُكتب شيء.</p>
-      <div class="row"><button class="btn" onclick="this.closest('.overlay').remove()">إغلاق</button></div>`);
+      <div class="row"><button class="btn" onclick="this.closest('.overlay').remove()">إغلاق</button></div>`));
   }
 
   /* ═══ السياسة الافتراضية ═══ */
@@ -286,7 +304,7 @@ export function render(view) {
         <td class="num cell-sub">${esc(c.carryOverMax)}</td></tr>`;
     }).join('')).join('');
 
-    openModal(`
+    widen(openModal(`
       <h3>معاينة الترحيل — لم يُنفَّذ شيء</h3>
       <div class="callout callout--warn"><b>هذه معاينة فقط.</b>
         <div class="help">إسقاط أيام إجازة قرارٌ لا يُتخذ تلقائياً. راجع العمود الأحمر: هذه أيام سيفقدها الموظف.</div></div>
@@ -296,7 +314,7 @@ export function render(view) {
         <tbody>${rows || '<tr><td colspan="6">لا أرصدة للترحيل.</td></tr>'}</tbody>
       </table></div>
       <p class="help">⚠️ تنفيذ الترحيل غير مُفعَّل في هذه النسخة عمداً — يُضاف بعد أن تراجع هذا الجدول على بيانات حقيقية وتوافق عليه.</p>
-      <div class="row"><button class="btn" onclick="this.closest('.overlay').remove()">إغلاق</button></div>`);
+      <div class="row"><button class="btn" onclick="this.closest('.overlay').remove()">إغلاق</button></div>`));
   }
 
   draw();

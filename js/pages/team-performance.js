@@ -136,10 +136,13 @@ export async function render(view, token) {
     /* ── بطاقات المؤشرات ── */
     const t = sum.totals;
     const tr = trendOf(t, prevSum.totals);
+    /* ⚠️ نصّ خالص لا HTML: stat() تُمرّر قيمتها عبر esc()، فالوسم المحقون
+       يظهر للمستخدم كنصّ خام على الشاشة. اكتُشف بالنظر إلى البطاقة في
+       المتصفح — لا اختبار يقرأ ما تراه العين. */
     const arrow = !tr ? ''
-      : tr.dir === 'up'   ? ` <span class="text-green">▲ ${tr.delta}</span>`
-      : tr.dir === 'down' ? ` <span class="text-red">▼ ${Math.abs(tr.delta)}</span>`
-      : ' <span class="text-muted">=</span>';
+      : tr.dir === 'up'   ? ` ▲${tr.delta}`
+      : tr.dir === 'down' ? ` ▼${Math.abs(tr.delta)}`
+      : ' =';
 
     const kpi = card('');
     kpi.appendChild(sectionHead({ text: `${dept} — ${cyc.label}`, icon: 'chart' }));
@@ -191,8 +194,9 @@ export async function render(view, token) {
         <td class="num">${e.lateMin ? esc(hhmm(e.lateMin)) : '—'}</td>
         <td class="num">${Math.round(e.secs / 360) / 10}</td>
         <td class="num"><b class="${e.overall >= 90 ? 'text-green' : e.overall >= 75 ? 'text-amber' : 'text-red'}">${e.overall}%</b></td>`;
-      /* الضغط يفتح ملف الموظف — نفس صفحة الأدمن، وقواعدها هي التي تحكم ما يراه */
-      row.onclick = () => go('employee-profile', e.uid);
+      /* ⚠️ المعرّف 'profile' لا 'employee-profile' — الثاني غير مُسجَّل في
+         PAGES ولا في الراوتر، فكان الضغط يُعيد المستخدم للرئيسية بصمت. */
+      row.onclick = () => go('profile', e.uid);
       tb.appendChild(row);
     });
 
