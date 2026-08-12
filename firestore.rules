@@ -422,6 +422,43 @@ service cloud.firestore {
           && d().category in ['تأخير عن الدوام', 'خروج مبكر'];
     }
 
+    /* ───────────── attendanceFix: employee-raised punch correction ─────────
+       Someone forgot to clock out. Until now the only fix was an admin
+       editing the record by hand, which meant every forgotten punch had to
+       travel to HR by word of mouth.
+
+       ⚠️ This request only ASKS. The correction itself still lands in
+       attendanceAdjustments, which stays admin-create-only and forbids
+       update and delete outright. Nothing here lets an employee write into
+       their own attendance history.
+
+       Three bounds are enforced on the server, not in the form:
+
+         seven days   a correction to last month means recomputing a payroll
+                      run that has already been paid out.
+         reason ≥ 10  "نسيت" explains nothing to whoever approves it. A
+                      correction without a stated reason is indistinguishable
+                      from a fabricated one.
+         claimedTime  HH:MM shape, so the admin step has something it can
+                      actually parse into a timestamp.
+
+       ⚠️ The monthly cap (3 per cycle) is NOT enforced here: counting an
+       employee's other requests needs a query inside a rule, which Firestore
+       cannot do. It lives in the UI and is stated as such in requests.js —
+       do not read the cap as a server guarantee.                            */
+    function fixOk() {
+      return isYmd(d().date)
+          && d().date >= ymd(ksa() - duration.value(7, 'd'))
+          && d().date <= todayKsa()
+          && d().fixKind in ['missingOut','missingIn','wrongTime']
+          && d().field in ['in','out']
+          && d().sessionIdx is int && d().sessionIdx >= 0 && d().sessionIdx < 12
+          && d().claimedTime is string
+          && d().claimedTime.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+          && d().reason is string
+          && d().reason.size() >= 10 && d().reason.size() <= 300;
+    }
+
     match /requests/{id} {
       allow read: if isAdmin()
         || (sIn() && p().employeeUid == request.auth.uid)
@@ -434,11 +471,13 @@ service cloud.firestore {
         && d().employeeName  == me().name
         && d().get('department','')     == myDept()
         && d().get('employeeEmpId','')  == me().get('empId','')
-        && d().type in ['permission','leave']
+        && d().type in ['permission','leave','attendanceFix']
         && d().status == 'pending'
         && d().reviewedBy == '' && d().reviewedAt == null && d().rejectReason == ''
         && d().createdAt == request.time
-        && (d().type == 'permission' ? permOk() : leaveOk())
+        && (d().type == 'permission' ? permOk()
+            : d().type == 'attendanceFix' ? fixOk()
+            : leaveOk())
         /* السلسلة إن وُجدت تبدأ من الصفر وبلا اعتمادات مسبقة — لا يقدر الموظف
            يُنشئ طلباً «مرّ على مديره» أصلاً. */
         && (!('chain' in d()) || (

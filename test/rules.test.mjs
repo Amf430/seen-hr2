@@ -964,6 +964,90 @@ await check('employee writes leavePolicyDefaults',     false,
 await check('admin writes leavePolicyDefaults',        true,
   () => updateDoc(doc(admin, 'settings/config'), { leavePolicyDefaults: { annual: { annualDays: 21 } } }));
 
+/* ═══ 15. طلب تصحيح بصمة (المرحلة ١٠) ═══
+
+   ⚠️ الطلب **يطلب فقط**. التصحيح نفسه يبقى في attendanceAdjustments التي
+   تسمح بالإنشاء للأدمن وحده وتمنع التحديث والحذف نهائياً. لا شيء هنا يعطي
+   الموظف كتابةً في سجل حضوره.
+
+   ⚠️ والسقف الشهري (٣ في الدورة) **ليس هنا** ولا يمكن أن يكون: عدّ طلبات
+   الموظف الأخرى يحتاج استعلاماً داخل القاعدة وFirestore لا يقدر عليه. هو
+   في الواجهة وحدها ومكتوب هناك أنه ليس ضماناً من السيرفر. */
+console.log('\n\x1b[1m═══ 15. ATTENDANCE FIX REQUESTS ═══\x1b[0m');
+
+const fixReq = (over = {}) => ({
+  type: 'attendanceFix', employeeUid: 'empU', employeeName: 'سالم',
+  employeeEmpId: '101', department: 'المبيعات',
+  date: ymdKsa(), sessionIdx: 0, fixKind: 'missingOut', field: 'out',
+  claimedTime: '17:30',
+  reason: 'خرجت لموعد طبي ونسيت البصمة عند الباب',
+  status: 'pending', reviewedBy: '', reviewedAt: null, rejectReason: '',
+  chain: ['manager', 'admin'], step: 0, approvals: [],
+  createdAt: serverTimestamp(), ...over
+});
+
+await check('employee files a fix for themselves',    true,
+  () => addDoc(collection(emp, 'requests'), fixReq()));
+await check('⚠️ employee files a fix for SOMEONE ELSE', false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ employeeUid: 'emp2U', employeeName: 'خالد' })));
+
+/* النافذة سبعة أيام — تصحيح شهر مضى يعني إعادة حساب مسير صُرِف */
+await check('fix dated 30 days ago',                  false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ date: dRel(-30) })));
+await check('fix dated 8 days ago',                   false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ date: dRel(-8) })));
+await check('fix dated 6 days ago',                   true,
+  () => addDoc(collection(emp, 'requests'), fixReq({ date: dRel(-6) })));
+await check('⚠️ fix dated in the FUTURE',              false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ date: dRel(3) })));
+
+/* السبب — «نسيت» لا تشرح شيئاً لمن سيعتمد */
+await check('reason under 10 chars',                  false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ reason: 'نسيت' })));
+await check('reason beyond 300 chars',                false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ reason: 'س'.repeat(301) })));
+
+/* الوقت لازم يكون قابلاً للتحويل لطابع زمني في خطوة الأدمن */
+await check('claimedTime as free text',               false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ claimedTime: 'بعد العصر' })));
+await check('claimedTime as 25:00',                   false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ claimedTime: '25:00' })));
+await check('unknown fixKind',                        false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ fixKind: 'مزاجي' })));
+await check('unknown field',                          false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ field: 'salary' })));
+await check('sessionIdx of 99',                       false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ sessionIdx: 99 })));
+
+/* السلسلة تبدأ من الصفر — لا طلب «مرّ على مديره» أصلاً */
+await check('fix pre-approved at step 1',             false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ step: 1 })));
+await check('fix created already approved',           false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ status: 'approved' })));
+
+/* ⚠️ الحدّ الأهم: الطلب لا يفتح الكتابة في سجل الحضور */
+await check('⚠️ employee writes attendanceAdjustments directly', false,
+  () => setDoc(doc(emp, 'attendanceAdjustments/hack1'), {
+    employeeUid: 'empU', employeeName: 'سالم', date: ymdKsa(), coll: 'zkAttendance',
+    sessionIdx: 0, field: 'out', value: Timestamp.now(), reason: 'طلبي معتمد',
+    byUid: 'empU', byName: 'سالم', at: serverTimestamp() }));
+await check('⚠️ manager writes attendanceAdjustments',  false,
+  () => setDoc(doc(mgr, 'attendanceAdjustments/hack2'), {
+    employeeUid: 'empU', employeeName: 'سالم', date: ymdKsa(), coll: 'zkAttendance',
+    sessionIdx: 0, field: 'out', value: Timestamp.now(), reason: 'اعتمدت الطلب',
+    byUid: 'mgrU', byName: 'فهد', at: serverTimestamp() }));
+await check('admin writes the adjustment',            true,
+  () => setDoc(doc(admin, 'attendanceAdjustments/fix1'), {
+    employeeUid: 'empU', employeeName: 'سالم', date: ymdKsa(), coll: 'zkAttendance',
+    sessionIdx: 0, field: 'out', value: Timestamp.now(),
+    reason: 'طلب تصحيح معتمَد — خرجت لموعد طبي', byUid: 'adminU', byName: 'المدير',
+    at: serverTimestamp() }));
+/* ⚠️ ولا يُتراجع عنه — الخطأ يُصحَّح بقيد مضادّ لا بمحو الأصل */
+await check('⚠️ admin edits a written adjustment',      false,
+  () => updateDoc(doc(admin, 'attendanceAdjustments/fix1'), { reason: 'غيّرت رأيي' }));
+await check('⚠️ admin deletes a written adjustment',    false,
+  () => deleteDoc(doc(admin, 'attendanceAdjustments/fix1')));
+
 console.log(`\n\x1b[1m═══ RESULT: ${pass} passed, ${fail} failed ═══\x1b[0m`);
 if (failures.length) { console.log('\nFAILURES:'); failures.forEach((f) => console.log('  • ' + f)); }
 await env.cleanup();

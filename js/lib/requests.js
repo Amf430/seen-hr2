@@ -4,7 +4,7 @@
 
 import {
   db, doc, collection, addDoc, updateDoc, deleteDoc, getDocs, query, where,
-  serverTimestamp, runTransaction
+  serverTimestamp, runTransaction, Timestamp
 } from './firebase.js';
 import { getMe, getSettings } from './state.js';
 import { hasChain, chainStep, isLastStep, ownsCurrentStep,
@@ -12,6 +12,11 @@ import { hasChain, chainStep, isLastStep, ownsCurrentStep,
 import { toast, safeUrl } from './dom.js';
 import { logAction } from './audit.js';
 import { ymd, ymdKsa } from './dates.js';
+/* ⚠️ النوافذ الزمنية في وحدة نقيّة مستقلة — هذا الملف يجرّ firebase فلا
+   يُستورد في node، وإبقاؤها هنا كان يفرض نسخة ثانية داخل ملف الاختبار. */
+import { PERM_BACKDATE_DAYS, permOldestDate, permWindowOpen,
+         FIX_WINDOW_DAYS, FIX_MAX_PER_CYCLE, fixOldestDate, fixWindowOpen,
+         fixCountInCycle } from './request-windows.js';
 
 /* ═══════════════════════════════════════════════════════════════════════════
    نافذة الاستئذان — ثلاثة أيام ثم تُغلق
@@ -35,20 +40,6 @@ import { ymd, ymdKsa } from './dates.js';
    هذا الملف يعطي الرسالة المفهومة قبل أن يصطدم بها الموظف. أي تغيير هنا
    يتغيّر هناك، وإلا رُفض الطلب برسالة صلاحيات غامضة.
    ═══════════════════════════════════════════════════════════════════════════ */
-export const PERM_BACKDATE_DAYS = 3;
-
-/* أقدم تاريخ يقبل استئذاناً اليوم — بتاريخ الرياض لا بتاريخ جهاز الموظف */
-export function permOldestDate(today = ymdKsa()) {
-  const d = new Date(today + 'T00:00:00');
-  d.setDate(d.getDate() - PERM_BACKDATE_DAYS);
-  return ymd(d);
-}
-
-/* هل ما زالت نافذة الاستئذان مفتوحة على هذا اليوم؟ */
-export function permWindowOpen(dateStr, today = ymdKsa()) {
-  return !!dateStr && dateStr >= permOldestDate(today);
-}
-
 /* ── إنشاء طلب ──
    الحقول التعريفية (الاسم، القسم، الرقم الوظيفي) تُقرأ من ملف الموظف نفسه.
    القاعدة على السيرفر تتحقق أنها تطابق الملف فعلاً، فما عاد الموظف يقدر
@@ -93,6 +84,27 @@ export async function submitRequest(data) {
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   طلب تصحيح بصمة (المرحلة ١٠)
+
+   الموظف الذي نسي بصمة الانصراف يقدّم طلباً بسبب مكتوب، ويمرّ بنفس سلسلة
+   الاعتماد القائمة، والأدمن في الخطوة الأخيرة هو من يكتب التصحيح فعلاً.
+
+   ── ثلاثة حدود، وأين يُفرض كلٌّ منها ──
+
+   ١) **نافذة سبعة أيام** — مفروضة في `fixOk()` على السيرفر. تصحيح شهر مضى
+      يعني إعادة حساب مسير رواتب صُرِف فعلاً.
+
+   ٢) **السبب ≥ ١٠ أحرف** — مفروض على السيرفر كذلك. «نسيت» لا تشرح شيئاً لمن
+      سيعتمد الطلب.
+
+   ٣) ⚠️ **السقف الشهري (٣ في الدورة)** — **في الواجهة وحدها**، ولا يمكن
+      فرضه في قاعدة: عدّ طلبات الموظف الأخرى يحتاج استعلاماً داخل القاعدة
+      وFirestore لا يقدر عليه. فلا تقرأه على أنه ضمان من السيرفر. من يتجاوزه
+      بأدوات المطوّر يقدّم طلباً رابعاً — لكنه يظهر للأدمن الذي يعتمده،
+      والعدّاد معروض في تحليلات الموارد البشرية.
+
+   ولماذا سقف أصلاً: بلا حدّ يصير التصحيح باباً خلفياً يُلغي معنى البصمة. */
 /* ── هل يمسّ هذا الطلب رصيد الموظف؟ ──
    إجازة، بخصم، ولها نوع معرَّف. الاستئذان لا يمسّ الرصيد أبداً. */
 const touchesBalance = (r) => r.type === 'leave' && !!r.deduct && !!r.leaveTypeId;
@@ -217,9 +229,53 @@ async function approveChainStep(r) {
       rejectReason: ''
     });
     if (needsBalance && usnap && usnap.exists()) {
-      tx.update(uref, { balances: nextBalances(usnap.data(), r, -1) });
+      /* ⚠️ الحقلان معاً — نفس علّة reviewRequest أعلاه. كتابة balances وحده
+         هنا كانت تجعل الطلبات ذات السلسلة تتباعد عن الطلبات المباشرة:
+         نفس الموظف، ونفس الإجازة، ورقمان مختلفان حسب طريق الاعتماد. */
+      tx.update(uref, {
+        balances:  nextBalances(usnap.data(), r, -1),
+        leaveUsed: nextLeaveUsed(usnap.data(), r, -1)
+      });
+    }
+
+    /* ⚠️ تصحيح البصمة يُكتب في **نفس المعاملة** مع الاعتماد النهائي.
+       الفصل يترك طلباً معتمَداً بلا تعديل مطبَّق — وهو نفس الدرس المكتوب
+       فوق reviewRequest. والكتابة على الأدمن وحده: قاعدة
+       attendanceAdjustments تشترط isAdmin()، والتعديل يمسّ المسير. */
+    if (last && r.type === 'attendanceFix' && me.role === 'admin') {
+      const adj = fixAdjustmentPayload(r, me);
+      if (adj) tx.set(doc(db, 'attendanceAdjustments', adj.id), adj.data);
     }
   });
+}
+
+/* ═══ بناء قيد التصحيح من طلب attendanceFix ═══
+   ⚠️ يُرجع null لو تعذّر بناء الطابع الزمني — فلا يُكتب قيد نصفه صحيح.
+   الطلب يبقى معتمَداً والأدمن يرى أن التعديل لم يُطبَّق، وهو أوضح من قيد
+   بوقت خاطئ يدخل المسير بصمت. */
+function fixAdjustmentPayload(r, me) {
+  const t = String(r.claimedTime || '');
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(t)) return null;
+  const when = new Date(`${r.date}T${t}:00`);
+  if (isNaN(when)) return null;
+  const field = r.field === 'in' || r.field === 'out' ? r.field
+              : r.fixKind === 'missingIn' ? 'in' : 'out';
+  const data = {
+    employeeUid:  r.employeeUid,
+    employeeName: r.employeeName || '',
+    date:         r.date,
+    /* ⚠️ zkAttendance لا attendance: المسير يُحسب على سجل الجهاز، وتصحيحٌ
+       يُكتب على سجل الجوال لا يغيّر راتب أحد — فيظنّ الموظف أن طلبه نُفِّذ. */
+    coll:         'zkAttendance',
+    sessionIdx:   Number(r.sessionIdx) || 0,
+    field,
+    value:        Timestamp.fromDate(when),
+    reason:       `طلب تصحيح معتمَد — ${String(r.reason || '').slice(0, 200)}`,
+    byUid:        me.id,
+    byName:       me.name,
+    at:           serverTimestamp()
+  };
+  return { id: `${r.employeeUid}_${r.date}_zkAttendance_${data.sessionIdx}_${field}_${r.id}`, data };
 }
 
 export async function approve(r) {
@@ -292,3 +348,7 @@ export async function requestsOfUser(uid) {
 }
 
 export { hasChain, chainStep, isLastStep, ownsCurrentStep, CHAIN_ROLE_AR, chainRoleAr };
+/* تُعاد التصدير فلا يتغيّر أي مستورد قائم */
+export { PERM_BACKDATE_DAYS, permOldestDate, permWindowOpen,
+         FIX_WINDOW_DAYS, FIX_MAX_PER_CYCLE, fixOldestDate, fixWindowOpen,
+         fixCountInCycle };
