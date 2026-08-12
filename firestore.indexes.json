@@ -87,6 +87,51 @@
           "order": "DESCENDING"
         }
       ]
+    },
+    {
+      "//": "المرحلة ١١ — إعلانات «الجميع». ⚠️ ثلاثة فهارس لثلاثة مستمعين منفصلين: القاعدة تسمح بالقراءة إن تحقّق أحد ثلاثة شروط، واستعلام OR واحد لا يُحقّق شرط القاعدة لكل نتيجة محتملة فيُرفض كاملاً.",
+      "collectionGroup": "announcements",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "audienceAll",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "publishAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "//": "المرحلة ١١ — إعلانات موجّهة لأقسام.",
+      "collectionGroup": "announcements",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "audienceDepts",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "publishAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "//": "المرحلة ١١ — إعلانات موجّهة لأشخاص.",
+      "collectionGroup": "announcements",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "audienceUids",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "publishAt",
+          "order": "DESCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": []

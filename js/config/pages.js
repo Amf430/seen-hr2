@@ -25,6 +25,7 @@ export const PAGES = {
   'team-tasks':  { title: 'مهام القسم',             hint: 'تكليف ومتابعة واعتماد مهام موظفي قسمك' },
   task:          { title: 'تفاصيل المهمة',          hint: 'الحالة والقائمة الفرعية والمحادثة' },
   'tasks-analytics': { title: 'تحليلات المهام',     hint: 'أرقام المهام لكل قسم وموظف بجانب أرقام الحضور' },
+  announcements: { title: 'الإعلانات',             hint: 'رسائل الموارد البشرية للموظفين' },
   org:           { title: 'الهيكل التنظيمي',        hint: 'من يتبع من — الشجرة الإدارية كاملة' },
   attendance:    { title: 'الحضور من الجوال',      hint: 'تسجيل ذاتي بالموقع الجغرافي — فرز باليوم أو بالموظف' },
   zklog:         { title: 'سجل جهاز البصمة',       hint: 'سجل مستقل قادم من جهاز ZKTeco — لا يعدّله أحد' },
@@ -73,7 +74,8 @@ export const NAV_GROUPS = [
   { group: '', items: [
     { id: 'home', icon: 'dashboard', label: 'لوحة القيادة', roles: ['admin'] },
     { id: 'home', icon: 'home', label: 'الرئيسية',     roles: ['employee', 'manager'] },
-    { id: 'my-tasks', icon: 'check', label: 'مهامي', roles: ['employee', 'manager'] }
+    { id: 'my-tasks', icon: 'check', label: 'مهامي', roles: ['employee', 'manager'] },
+    { id: 'announcements', icon: 'megaphone', label: 'الإعلانات', roles: ['employee', 'manager'] }
   ]},
 
   { group: 'الحضور والدوام', items: [
@@ -105,6 +107,7 @@ export const NAV_GROUPS = [
     { id: 'team-perf', icon: 'chart', label: 'أداء القسم',      roles: ['admin', 'manager'] },
     { id: 'team-tasks', icon: 'check', label: 'مهام القسم',    roles: ['admin', 'manager'] },
     { id: 'tasks-analytics', icon: 'chart', label: 'تحليلات المهام', roles: ['admin'] },
+    { id: 'announcements', icon: 'megaphone', label: 'الإعلانات', roles: ['admin'] },
     { id: 'org',       icon: 'network', label: 'الهيكل التنظيمي', roles: ['admin'] },
     { id: 'org',       icon: 'network', label: 'فريقي',           roles: ['manager'] },
     { id: 'set-org',   icon: 'building', label: 'الأقسام والهيكل', roles: ['admin'] }

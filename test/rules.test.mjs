@@ -840,6 +840,95 @@ await check('⚠️ editing a sent message',                false,
 await check('⚠️ deleting a sent message (even admin)',  false,
   () => deleteDoc(doc(admin, 'tasks/tk1/messages/m1')));
 
+/* ═══ 13. الإعلانات (المرحلة ١١) ═══
+
+   ⚠️ لماذا هذه المجموعة مقبولة وقد رُفضت `notifications`: هناك الموظف يكتب
+   وثيقة موجّهة لغيره — أي أنه يقدر يُغرق أي مستخدم بآلاف الوثائق. هنا الأدمن
+   وحده يكتب، والموظف يقرأ فقط، فلا ثغرة إغراق أصلاً. الاختبارات أدناه تُثبت
+   الشقّين: أن الموظف لا يكتب، وأنه لا يقرأ ما ليس موجّهاً له. */
+console.log('\n\x1b[1m═══ 13. ANNOUNCEMENTS ═══\x1b[0m');
+
+const ann = (over = {}) => ({
+  title: 'اجتماع الأحد', body: 'الاجتماع الساعة ١٠',
+  audienceAll: true, audienceDepts: [], audienceUids: [],
+  priority: 'normal', pinned: false, publishAt: '2026-08-01', expiresAt: '',
+  requireAck: false, createdBy: 'adminU', createdByName: 'المدير',
+  createdAt: serverTimestamp(), ackCount: 0, ...over
+});
+
+await check('admin publishes to everyone',            true,
+  () => setDoc(doc(admin, 'announcements/an1'), ann()));
+await check('admin publishes to a department',        true,
+  () => setDoc(doc(admin, 'announcements/an2'),
+    ann({ audienceAll: false, audienceDepts: ['المالية'] })));
+await check('admin publishes to named people',        true,
+  () => setDoc(doc(admin, 'announcements/an3'),
+    ann({ audienceAll: false, audienceUids: ['emp2U'] })));
+
+/* ⚠️ الشقّ الأول: لا كتابة من غير الأدمن — وهنا يموت خطر الإغراق */
+await check('⚠️ employee publishes an announcement',   false,
+  () => setDoc(doc(emp, 'announcements/an4'), ann({ createdBy: 'empU', createdByName: 'سالم' })));
+await check('⚠️ manager publishes an announcement',    false,
+  () => setDoc(doc(mgr, 'announcements/an5'), ann({ createdBy: 'mgrU', createdByName: 'فهد' })));
+await check('admin forges createdBy',                 false,
+  () => setDoc(doc(admin, 'announcements/an6'), ann({ createdBy: 'mgrU' })));
+await check('title beyond 120 chars',                 false,
+  () => setDoc(doc(admin, 'announcements/an7'), ann({ title: 'ع'.repeat(121) })));
+await check('body beyond 5000 chars',                 false,
+  () => setDoc(doc(admin, 'announcements/an8'), ann({ body: 'ن'.repeat(5001) })));
+await check('audienceUids beyond 50',                 false,
+  () => setDoc(doc(admin, 'announcements/an9'),
+    ann({ audienceAll: false, audienceUids: Array.from({ length: 51 }, (_, i) => 'u' + i) })));
+await check('unknown priority',                       false,
+  () => setDoc(doc(admin, 'announcements/an10'), ann({ priority: 'حرج' })));
+
+/* ⚠️ الشقّ الثاني: القراءة محصورة بمن وُجّه إليه */
+/* إعلان موجَّه لـ empU بالاسم — للتحقق من الفرع الثالث في قاعدة القراءة */
+await check('admin publishes to empU by name',        true,
+  () => setDoc(doc(admin, 'announcements/an11'),
+    ann({ audienceAll: false, audienceUids: ['empU'] })));
+
+await check('employee reads an all-hands notice',     true,  () => getDoc(doc(emp, 'announcements/an1')));
+await check('employee reads a notice aimed at them',  true,  () => getDoc(doc(emp, 'announcements/an11')));
+await check('employee reads notice for OWN dept',     false, () => getDoc(doc(emp, 'announcements/an2')));
+await check('employee reads notice aimed at another', false, () => getDoc(doc(emp, 'announcements/an3')));
+await check('suspended reads an all-hands notice',    false, () => getDoc(doc(susp, 'announcements/an1')));
+/* ⚠️ emp2U عُلّق في القسم ٦ أعلاه (`admin suspends an employee`)، فقراءته
+   مرفوضة بـ isActive() ولو كان الإعلان موجّهاً له بالاسم. هذا سلوك مقصود
+   يُختبر هنا صراحةً: التعليق يقطع كل شيء، لا الكتابة وحدها. */
+await check('⚠️ suspended reads a notice aimed at THEM', false,
+  () => getDoc(doc(emp2, 'announcements/an3')));
+
+/* الاستعلامات — ثلاثة مستمعين منفصلين لأن OR واحد يُرفض */
+await check('employee queries audienceAll',           true,
+  () => getDocs(query(collection(emp, 'announcements'), where('audienceAll', '==', true))));
+await check('employee queries own dept notices',      true,
+  () => getDocs(query(collection(emp, 'announcements'), where('audienceDepts', 'array-contains', 'المبيعات'))));
+await check('employee queries announcements openly',  false,
+  () => getDocs(query(collection(emp, 'announcements'))));
+
+/* الإقرار بالاطّلاع */
+await check('employee acknowledges as themselves',    true,
+  () => setDoc(doc(emp, 'announcements/an1/acks/empU'),
+    { uid: 'empU', name: 'سالم', department: 'المبيعات', at: serverTimestamp() }));
+await check('⚠️ employee acknowledges FOR someone else', false,
+  () => setDoc(doc(emp, 'announcements/an1/acks/emp2U'),
+    { uid: 'emp2U', name: 'خالد', at: serverTimestamp() }));
+await check('acknowledgement under a forged name',    false,
+  () => setDoc(doc(emp2, 'announcements/an1/acks/emp2U'),
+    { uid: 'emp2U', name: 'سالم', at: serverTimestamp() }));
+/* ⚠️ الإقرار لا يُسحب — وهذا كل معناه */
+await check('⚠️ withdrawing an acknowledgement',       false,
+  () => deleteDoc(doc(emp, 'announcements/an1/acks/empU')));
+await check('⚠️ editing an acknowledgement',           false,
+  () => updateDoc(doc(emp, 'announcements/an1/acks/empU'), { at: serverTimestamp() }));
+await check('employee reads own acknowledgement',     true,
+  () => getDoc(doc(emp, 'announcements/an1/acks/empU')));
+await check('employee reads ANOTHER acknowledgement', false,
+  () => getDoc(doc(emp2, 'announcements/an1/acks/empU')));
+await check('admin reads every acknowledgement',      true,
+  () => getDocs(collection(admin, 'announcements/an1/acks')));
+
 console.log(`\n\x1b[1m═══ RESULT: ${pass} passed, ${fail} failed ═══\x1b[0m`);
 if (failures.length) { console.log('\nFAILURES:'); failures.forEach((f) => console.log('  • ' + f)); }
 await env.cleanup();
