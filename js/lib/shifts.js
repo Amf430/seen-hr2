@@ -191,6 +191,104 @@ export function shiftLabelOf(dow) {
   return shiftText(sh);
 }
 
+/* ═══════════════════ نافذة تسجيل الحضور (المرحلة ١) ═══════════════════
+
+   ⚠️ الخلل الذي تُصلحه هذه الكتلة: shiftEndPassed() كانت تُستعمل لتعطيل زرّ
+   اللوحة **كله** بعد نهاية الوردية بساعتين — بما فيه زرّ الانصراف. فمن دخل
+   ونسي الانصراف يجد الزر مقفلاً ولا يقدر يخرج، وتبقى جلسته مفتوحة إلى
+   الأبد فتُقرأ «نسيان بصمة خروج» عليه هو.
+
+   القراران منفصلان تماماً من الآن:
+     • تسجيل الانصراف — **متاح دائماً** ما دامت هناك جلسة مفتوحة. لا يُقفل أبداً.
+     • تسجيل الحضور  — محكوم بنافذة الوردية وحده.
+
+   والقفل مرتبط بالوردية لا بساعة ثابتة: بعد المرحلة ٢ صار في الشركة موظفون
+   يبدأ دوامهم ٣ العصر، وقفل ثابت على ٤:٠٠ يمنعهم من تسجيل حضورهم أصلاً. */
+
+/* ⚠️⚠️ صراحةً عن حدود هذا القفل — لا تدّعِ غير هذا في أي شاشة:
+   كل ما في هذه الكتلة يعمل في **متصفح الموظف**، فهو ترتيب واجهة لا حماية.
+   من يفتح أدوات المطوّر يتجاوزه في ثوانٍ.
+
+   الحارس الحقيقي على السيرفر في `match /attendance` هو سقف مطلق ورخيص:
+   `d().date == todayKsa() || yesterKsa()` مع `fresh()` — أي لا كتابة في
+   الماضي ولا بطابع زمني مزوّر. أما القفل الدقيق حسب نافذة الوردية فلا
+   يمكن فرضه في قاعدة: التحقق منه يحتاج `get()` على settings و users في كل
+   كتابة حضور، وهي قراءة مفوترة على حساب المالك في كل بصمة لكل موظف.
+
+   فالتعويض رصدٌ لا منع: كل سجل خارج نافذة ورديته يحمل `lateCheckIn: true`
+   ويظهر مُعلَّماً لمديره وللأدمن. الكشف بعد الفعل هو ما نملكه هنا، وقوله
+   صراحةً خير من وعد أمني لا سند له. */
+
+/* تفتح النافذة قبل بداية الوردية بساعتين — من يجي بدري يقدر يسجّل */
+export const CHECK_IN_EARLY_MIN = 120;
+
+/* → { opensAt, closesAt } | null   (null = يوم راحة، فلا نافذة ولا قفل) */
+export function checkInWindow(baseDate, shift) {
+  const win = shiftWindowFor(baseDate, shift);
+  if (!win) return null;
+  const opensAt = new Date(win.start.getTime() - CHECK_IN_EARLY_MIN * 60000);
+
+  let closesAt = win.end;
+  if (shift && shift.checkInCutoff) {
+    const c = hmToDate(baseDate, shift.checkInCutoff);
+    /* ⚠️ قفل صريح قبل بداية الوردية يخصّ اليوم التالي لا الماضي — وردية
+       ٢٢:٠٠–٠٦:٠٠ بقفل ٠٢:٠٠ تعني الثانية فجراً بعد بدايتها، لا قبلها بعشرين ساعة. */
+    if (c) closesAt = c <= win.start ? new Date(c.getTime() + 86400000) : c;
+  }
+  return { opensAt, closesAt };
+}
+
+/* → { ok, reason, closesAt, opensAt, late }
+
+   القرار المعتمَد من المالك (٢٠٢٦-٠٨-١٢) حرفياً: «بعد الساعة ٤ العصر ما
+   يبان تسجيل حضور… إلا إذا كان الشخص ما سجّل حضور ولا مرة، فهنا يبان له.
+   أما إذا كان فيه تسجيل حضور قديم — خلاص.»
+
+     hasSessionToday=false + بعد القفل → مسموح، موسوماً lateCheckIn
+     hasSessionToday=true  + بعد القفل → ممنوع، انتهى يومه */
+export function checkInAllowed(now, shift, opts = {}) {
+  const { hasSessionToday = false, allowLate = true } = opts;
+  const w = checkInWindow(now, shift);
+
+  /* ⚠️ يوم الراحة يبقى مفتوحاً كما هو اليوم. لا نمنع أحداً من العمل في
+     يوم راحته — العمل يُسجَّل ويُوسم، والقرار الإداري يأتي بعده لا قبله. */
+  if (!w) return { ok: true, reason: 'offDay', closesAt: null };
+
+  if (now < w.opensAt)  return { ok: false, reason: 'early', opensAt: w.opensAt, closesAt: w.closesAt };
+  if (now <= w.closesAt) return { ok: true,  reason: 'open',  closesAt: w.closesAt };
+
+  if (hasSessionToday)  return { ok: false, reason: 'done',   closesAt: w.closesAt };
+  if (allowLate)        return { ok: true,  reason: 'late', late: true, closesAt: w.closesAt };
+  return { ok: false, reason: 'closed', closesAt: w.closesAt };
+}
+
+/* ═══ حالة زرّ اللوحة — دالة نقيّة عمداً ═══
+
+   ⚠️ سبب إخراجها من attend-panel.js إلى هنا: الخلل الأصلي كان في هذا القرار
+   بالضبط (سطر واحد يعطّل الزر كله بعد الوردية فيحبس من نسي الانصراف)، وكان
+   مدفوناً في ملف يجرّ firebase فلا يُختبر في node إطلاقاً. الآن يُختبر.
+
+   ⚠️ الترتيب هنا ليس تجميلاً: الجلسة المفتوحة تُفحص **قبل** أي شرط زمني،
+   فلا يوجد فرع واحد يستطيع أن يُعطّل الانصراف. لا تُدخل شرطاً قبلها. */
+export function attendButtonState({ loaded, loadErr, hasOpenSession, gate }) {
+  if (!loaded) return { kind: 'wait', disabled: true,  label: '… جارٍ التحميل' };
+  if (loadErr) return { kind: 'err',  disabled: true,  label: 'تعذّر قراءة حالتك — حدّث الصفحة' };
+  if (hasOpenSession) return { kind: 'out', disabled: false, label: 'تسجيل انصراف' };
+
+  if (!gate || !gate.ok) {
+    const r = gate && gate.reason;
+    return { kind: 'blocked', disabled: true, reason: r,
+      label: r === 'done'  ? 'أنهيت دوامك اليوم'
+           : r === 'early' ? 'لم يبدأ وقت التسجيل بعد'
+           : 'انتهى وقت تسجيل الحضور لورديتك' };
+  }
+  return { kind: 'in', disabled: false, late: !!gate.late,
+    label: gate.late ? 'تسجيل حضور متأخر' : 'تسجيل حضور' };
+}
+
+/* ⚠️ بقيت للتوافق ولا تُستعمل في تعطيل أي زر.
+   استعمالها الوحيد المشروع: هل مضى وقت الوردية أصلاً — للعرض لا للمنع.
+   من يحتاج قرار «هل يُسمح بتسجيل حضور» يستعمل checkInAllowed() وحدها. */
 export function shiftEndPassed() {
   const now = new Date();
   const w = shiftWindowFor(now, myShiftToday(now));

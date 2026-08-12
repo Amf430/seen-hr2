@@ -15,11 +15,11 @@
 import { db, doc, getDoc, setDoc, onSnapshot } from '../lib/firebase.js';
 import { el, esc, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
-import { getMe } from '../lib/state.js';
+import { getMe, getSettings } from '../lib/state.js';
 import { ymdKsa, AR_DAYS } from '../lib/dates.js';
 import { fmtDate, fmtDur, hm, p2, fmtDist } from '../lib/format.js';
 import { sessionsOf, workedSecs } from '../lib/attendance.js';
-import { shiftLabelOf, shiftEndPassed } from '../lib/shifts.js';
+import { shiftLabelOf, checkInAllowed, myShiftToday, attendButtonState } from '../lib/shifts.js';
 import { getPosition, geoRuleFor, nearestBranch, activeBranches, REMOTE_BRANCH_ID, REMOTE_LABEL } from '../lib/geo.js';
 import { verifyBiometric, bioReasonAr, bioUserCancelled, setCredentialPersister } from '../lib/biometric.js';
 import { capturePhoto, savePhoto } from '../lib/photo.js';
@@ -96,6 +96,8 @@ export function attendPanel(view) {
   /* تنبيه «بصمت على الجهاز فقط» — يُملأ من paintZkNote */
   const zkNote = el('div', '');
   card.appendChild(zkNote);
+  const gateNote = el('div', '');
+  card.appendChild(gateNote);
   card.appendChild(el('p', 'help',
     rule.mode === 'remote'
       ? 'حسابك مسموح له التسجيل من أي مكان. يُسجَّل موقعك على السجل للتوثيق فقط.'
@@ -147,13 +149,45 @@ export function attendPanel(view) {
       `<span class="wt-val num">${fmtDur(secs)}</span>`;
   }
 
+  /* ⚠️ القرار كله في attendButtonState() النقيّة داخل shifts.js — هنا رسمٌ
+     فقط. الخلل الأصلي كان قراراً مدفوناً في هذا الملف الذي لا يُختبر في node. */
   function paintBtn() {
     if (busy) return;
-    if (!loaded)  { actBtn.disabled = true;  actBtn.className = 'btn btn--xl'; actBtn.textContent = '… جارٍ التحميل'; return; }
-    if (loadErr)  { actBtn.disabled = true;  actBtn.className = 'btn btn--xl'; actBtn.textContent = 'تعذّر قراءة حالتك — حدّث الصفحة'; return; }
-    if (isOpen()) { actBtn.disabled = false; actBtn.className = 'btn btn--xl danger'; actBtn.textContent = 'تسجيل انصراف'; return; }
-    if (shiftEndPassed()) { actBtn.disabled = true; actBtn.className = 'btn btn--xl'; actBtn.textContent = 'انتهى وقت الدوام'; return; }
-    actBtn.disabled = false; actBtn.className = 'btn btn--xl'; actBtn.textContent = 'تسجيل حضور';
+    const st = attendButtonState({
+      loaded, loadErr, hasOpenSession: isOpen(),
+      gate: (loaded && !loadErr && !isOpen()) ? checkInGate() : null
+    });
+    actBtn.disabled = st.disabled;
+    actBtn.className = 'btn btn--xl'
+      + (st.kind === 'out' ? ' danger' : '')
+      + (st.late ? ' warn' : '');
+    actBtn.textContent = st.label;
+  }
+
+  /* بوّابة تسجيل الحضور — مصدر واحد تستعمله اللوحة والتنفيذ معاً، فلا
+     يعرض الزرّ شيئاً وتقرّر الكتابة غيره. */
+  function checkInGate() {
+    return checkInAllowed(new Date(), myShiftToday(), {
+      hasSessionToday: sessionsOf(todayDoc).length > 0,
+      allowLate: getSettings().allowLateCheckIn !== false
+    });
+  }
+
+  /* سطر يشرح للموظف حالته بدل زرّ مقفل بلا تفسير */
+  function paintGateNote() {
+    gateNote.innerHTML = '';
+    if (!loaded || loadErr || isOpen()) return;
+    const g = checkInGate();
+    if (g.ok && g.late) {
+      gateNote.appendChild(callout('warn', 'انتهى وقت تسجيل الحضور لورديتك',
+        'ما زال بإمكانك التسجيل لأنك لم تسجّل اليوم إطلاقاً، وسيُوسم السجل «حضور متأخر» ويظهر لمديرك.'));
+    } else if (!g.ok && g.reason === 'closed') {
+      gateNote.appendChild(callout('warn', 'انتهى وقت تسجيل الحضور لورديتك',
+        'راجع مديرك أو قدّم طلب تصحيح بصمة.'));
+    } else if (!g.ok && g.reason === 'early' && g.opensAt) {
+      gateNote.appendChild(callout('info', 'لم يبدأ وقت التسجيل بعد',
+        `يفتح التسجيل الساعة ${hm(g.opensAt)}.`));
+    }
   }
 
   function paintStatus() {
@@ -189,7 +223,7 @@ export function attendPanel(view) {
       'ليُوثَّق موقعك — جهاز البصمة لا يسجّل أين كنت.'));
   }
 
-  const paintAll = () => { paintStatus(); paintTimer(); paintBtn(); paintZkNote(); };
+  const paintAll = () => { paintStatus(); paintTimer(); paintBtn(); paintZkNote(); paintGateNote(); };
 
   /* اشتراك لحظي: الحالة تُستعاد صحيحة عند إعادة فتح الصفحة أو الجوال */
   trackSubscription(onSnapshot(ref,
@@ -265,8 +299,15 @@ async function doAttendance(kind, ref, btn, bioNote, rule, setBusy) {
   setBusy(true); btn.disabled = true;
   const fail = (msg) => { toast(msg, 'err'); setBusy(false); };
 
-  if (kind === 'in' && shiftEndPassed())
-    return fail('انتهى وقت الدوام الرسمي — لا يمكن تسجيل الحضور');
+  /* ⚠️ الفحص هنا مؤقّت لا نهائي: القرار الحقيقي يُعاد بعد قراءة السيرفر
+     في ① — بين فتح الصفحة والضغط قد يكون الموظف سجّل من تبويب آخر. */
+  if (kind === 'in') {
+    const g = checkInAllowed(new Date(), myShiftToday(), {
+      hasSessionToday: false,
+      allowLate: getSettings().allowLateCheckIn !== false
+    });
+    if (!g.ok) return fail('انتهى وقت تسجيل الحضور لورديتك');
+  }
 
   /* ① الحالة الحقيقية من السيرفر قبل أي كتابة — بلا تخمين.
      القاعدة تشترط أن تبقى الجلسات السابقة كما هي، فالقراءة الطازجة ضرورية. */
@@ -283,6 +324,25 @@ async function doAttendance(kind, ref, btn, bioNote, rule, setBusy) {
   if (kind === 'in'  && openIdx >= 0) return fail('أنت مسجّل دخول بالفعل — سجّل الانصراف أولاً');
   if (kind === 'out' && openIdx < 0)  return fail('لست مسجّل دخول حالياً');
   if (kind === 'in'  && preSessions.length >= 12) return fail('وصلت الحد الأقصى لجلسات اليوم');
+
+  /* ⚠️ القرار النهائي لتسجيل الحضور — بعد معرفة جلسات اليوم الحقيقية من
+     السيرفر. القاعدة المعتمَدة: من لم يسجّل اليوم إطلاقاً يُسمح له بحضور
+     متأخر موسوم، ومن عنده جلسة سابقة انتهى يومه.
+     ⚠️ ولا تُطبَّق هذه البوّابة على الانصراف أبداً — الانصراف لا يُقفل. */
+  const shiftNow = myShiftToday();
+  const gate = kind === 'in'
+    ? checkInAllowed(new Date(), shiftNow, {
+        hasSessionToday: preSessions.length > 0,
+        allowLate: getSettings().allowLateCheckIn !== false
+      })
+    : { ok: true };
+  if (!gate.ok) {
+    return fail(gate.reason === 'done'
+      ? 'أنهيت دوامك اليوم — لا يمكن تسجيل حضور جديد'
+      : gate.reason === 'early'
+        ? 'لم يبدأ وقت تسجيل الحضور لورديتك بعد'
+        : 'انتهى وقت تسجيل الحضور لورديتك');
+  }
 
   /* ② الموقع — فشله قاتل للموظف داخل الفرع فقط */
   btn.textContent = 'تحديد الموقع…';
@@ -381,6 +441,11 @@ async function doAttendance(kind, ref, btn, bioNote, rule, setBusy) {
         /* علامة على السجل أن لهذه الجلسة صورة إثبات — الأدمن يعرف أين يبحث
            بلا استعلام إضافي على كل صف. */
         inPhoto: !!photo,
+        /* ⚠️ وسمان للمراجعة لا للمنع — الحضور سُجّل فعلاً في الحالتين.
+           lateCheckIn: سجّل بعد قفل نافذة ورديته لأنه لم يسجّل اليوم إطلاقاً.
+           offDayWork:  دوام في يوم راحته. لا نمنعه، لكن لا نُخفيه عن مديره. */
+        ...(gate.late ? { lateCheckIn: true } : {}),
+        ...(gate.reason === 'offDay' ? { offDayWork: true } : {}),
         source: 'web'
       }]);
       await setDoc(ref, {
@@ -388,6 +453,7 @@ async function doAttendance(kind, ref, btn, bioNote, rule, setBusy) {
         department: me.department || '', date: ymdKsa(now), dow,
         shiftLabel: shiftLabelOf(dow), source: 'web',
         branchId, branchName, workMode: rule.mode,
+        ...(gate.late ? { lateCheckIn: true } : {}),
         sessions
       }, { merge: true });
       /* ⚠️ الصورة تُحفظ بعد نجاح الجلسة. لو فشل حفظها لا نُبطل الحضور — الموظف

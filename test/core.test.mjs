@@ -17,7 +17,8 @@
 import { setSettings, setMe } from '../js/lib/state.js';
 import { resolveShift, shiftHours, shiftWindowFor, shiftText,
          workingDaysBetween, compensableMin, shiftPlansOf, planById, planUsage,
-         DEFAULT_PLAN_ID, LATE_GRACE_MIN, LATE_COMP_MAX_MIN } from '../js/lib/shifts.js';
+         DEFAULT_PLAN_ID, checkInWindow, checkInAllowed, attendButtonState,
+         LATE_GRACE_MIN, LATE_COMP_MAX_MIN } from '../js/lib/shifts.js';
 import { haversine, nearestBranch, geoRuleFor, branchesOf, activeBranches,
          REMOTE_BRANCH_ID } from '../js/lib/geo.js';
 import { canApprove, canApproveType, hasChain, chainStep, isLastStep,
@@ -442,6 +443,131 @@ eq('تُحصى الأقسام والموظفون التابعون للخطة',
    planUsage('plan_pm', [{ shiftPlanId: 'plan_pm' }, { shiftPlanId: 'plan_pm' }, { shiftPlanId: 'x' }]));
 eq('وخطة لا يتبعها أحد تُحصى صفراً',
    { depts: 0, employees: 0, deptNames: [] }, planUsage('plan_none', []));
+
+/* ═════════════ ١١. نافذة تسجيل الحضور وقفلها (المرحلة ١) ═════════════
+
+   الخلل الأصلي: زرّ اللوحة كان يُعطَّل **كله** بعد نهاية الوردية بساعتين،
+   فمن نسي الانصراف لا يقدر يخرج. القراران منفصلان الآن:
+     • الانصراف لا يُقفل أبداً — تحرسه اللوحة لا هذه الدالة
+     • الحضور محكوم بالنافذة، ومن لم يسجّل اليوم إطلاقاً يُسمح له متأخراً
+
+   القرار المعتمَد من المالك (٢٠٢٦-٠٨-١٢): «ما سجّل حضور ولا مرة → يبان له
+   تسجيل حضور. فيه تسجيل حضور قديم → خلاص.» */
+group('١١. نافذة تسجيل الحضور');
+
+const MORNING = { type: 'morning', start: '08:00', end: '16:00' };
+const at = (hhmm, day = '2026-08-02') => new Date(`${day}T${hhmm}:00`);
+
+const w1 = checkInWindow(at('12:00'), MORNING);
+eq('النافذة تفتح قبل الوردية بساعتين', 6, w1.opensAt.getHours());
+eq('وتُقفل عند نهاية الوردية',        16, w1.closesAt.getHours());
+eq('يوم الراحة بلا نافذة إطلاقاً', null, checkInWindow(at('12:00'), { type: 'off' }));
+
+/* قفل صريح من الخطة يتقدّم على نهاية الوردية */
+eq('checkInCutoff الصريح يُقصّر النافذة', 10,
+   checkInWindow(at('12:00'), { ...MORNING, checkInCutoff: '10:00' }).closesAt.getHours());
+
+/* ⚠️ وردية عابرة لمنتصف الليل: القفل ٠٢:٠٠ يعني فجر الغد لا فجر اليوم */
+const nightPlan = { type: 'evening', start: '22:00', end: '06:00', checkInCutoff: '02:00' };
+const wn = checkInWindow(at('23:00'), nightPlan);
+eq('قفل ٠٢:٠٠ على وردية ليلية يقع في اليوم التالي', 3, wn.closesAt.getDate());
+eq('ونافذتها تفتح ٢٠:٠٠ من نفس اليوم', 20, wn.opensAt.getHours());
+
+/* ── القرار: قبل النافذة · داخلها · بعدها ── */
+const gate = (hhmm, over = {}) =>
+  checkInAllowed(at(hhmm), MORNING, { hasSessionToday: false, allowLate: true, ...over });
+
+eq('الخامسة صباحاً — قبل فتح النافذة',
+   { ok: false, reason: 'early' },
+   (() => { const g = gate('05:00'); return { ok: g.ok, reason: g.reason }; })());
+eq('السابعة — داخل النافذة المبكرة',
+   { ok: true, reason: 'open' },
+   (() => { const g = gate('07:00'); return { ok: g.ok, reason: g.reason }; })());
+eq('العاشرة — داخل الدوام',
+   { ok: true, reason: 'open' },
+   (() => { const g = gate('10:00'); return { ok: g.ok, reason: g.reason }; })());
+
+/* ⚠️ جوهر طلب المالك — الحالتان المتقابلتان بعد القفل */
+eq('السادسة مساءً ولم يسجّل اليوم إطلاقاً → مسموح وموسوم',
+   { ok: true, reason: 'late', late: true },
+   (() => { const g = gate('18:00'); return { ok: g.ok, reason: g.reason, late: g.late }; })());
+eq('السادسة مساءً وعنده جلسة اليوم → انتهى يومه',
+   { ok: false, reason: 'done' },
+   (() => { const g = gate('18:00', { hasSessionToday: true }); return { ok: g.ok, reason: g.reason }; })());
+
+/* الإعداد يقفل المتأخر لمن أراد ذلك لاحقاً */
+eq('allowLateCheckIn=false يمنع المتأخر حتى لمن لم يسجّل',
+   { ok: false, reason: 'closed' },
+   (() => { const g = gate('18:00', { allowLate: false }); return { ok: g.ok, reason: g.reason }; })());
+
+/* ── يوم الراحة يبقى مفتوحاً ── */
+eq('يوم الراحة: التسجيل متاح ويُوسم offDayWork',
+   { ok: true, reason: 'offDay' },
+   (() => { const g = checkInAllowed(at('10:00'), { type: 'off' }, { hasSessionToday: false });
+            return { ok: g.ok, reason: g.reason }; })());
+eq('وحتى بعد منتصف النهار في يوم الراحة', true,
+   checkInAllowed(at('23:00'), { type: 'off' }, {}).ok);
+
+/* ── الوردية المسائية: القفل يتبعها هي لا الساعة ٤ ──
+   هذا هو سبب ربط القفل بالوردية أصلاً — موظف يبدأ ٣ العصر. */
+const PM = { type: 'evening', start: '15:00', end: '23:00' };
+eq('من يبدأ ٣ العصر يقدر يسجّل الساعة ٤ عصراً',
+   true, checkInAllowed(at('16:00'), PM, {}).ok);
+eq('وقفل ثابت على ٤:٠٠ كان سيمنعه — النافذة تتبع ورديته',
+   true, checkInAllowed(at('22:00'), PM, {}).ok);
+eq('وبعد نهاية ورديته وعنده جلسة → انتهى',
+   false, checkInAllowed(at('23:30'), PM, { hasSessionToday: true }).ok);
+
+/* ═════════ ١٢. زرّ اللوحة — الانصراف لا يُقفل أبداً (المرحلة ١) ═════════
+
+   ⚠️ هذه المجموعة تحرس الخلل الأصلي بعينه: سطر واحد كان يعطّل الزر كله بعد
+   نهاية الوردية بساعتين، فمن دخل ونسي الانصراف يجد الزر مقفلاً ولا يقدر
+   يخرج — فتبقى جلسته مفتوحة وتُقرأ عليه هو «نسيان بصمة خروج».
+
+   القاعدة التي لا تُكسر: hasOpenSession=true ⇒ زرّ انصراف مُفعَّل، **مهما
+   كانت البوّابة**. لو سقط أي اختبار هنا فقد عاد الخلل. */
+group('١٢. زرّ اللوحة — الانصراف مفتوح دائماً');
+
+const btn = (over = {}) => attendButtonState({
+  loaded: true, loadErr: false, hasOpenSession: false, gate: { ok: true }, ...over });
+
+eq('جلسة مفتوحة → انصراف مُفعَّل',
+   { kind: 'out', disabled: false },
+   (() => { const s = btn({ hasOpenSession: true }); return { kind: s.kind, disabled: s.disabled }; })());
+
+/* الحالات الأربع التي كانت تقفل الزر — كلها لازم تبقى مفتوحة للانصراف */
+[['بوّابة مقفلة', { ok: false, reason: 'closed' }],
+ ['انتهى يومه',   { ok: false, reason: 'done'   }],
+ ['قبل النافذة',  { ok: false, reason: 'early'  }],
+ ['بلا بوّابة',    null]
+].forEach(([label, g]) => {
+  const s = btn({ hasOpenSession: true, gate: g });
+  eq(`${label} + جلسة مفتوحة → الانصراف يبقى مُفعَّلاً`,
+     { kind: 'out', disabled: false }, { kind: s.kind, disabled: s.disabled });
+});
+
+/* بلا جلسة مفتوحة: البوّابة هي الحاكمة */
+eq('بلا جلسة + بوّابة مفتوحة → زرّ حضور',
+   { kind: 'in', disabled: false, late: false },
+   (() => { const s = btn(); return { kind: s.kind, disabled: s.disabled, late: s.late }; })());
+eq('بلا جلسة + بوّابة متأخرة → حضور متأخر',
+   { kind: 'in', disabled: false, late: true, label: 'تسجيل حضور متأخر' },
+   (() => { const s = btn({ gate: { ok: true, late: true } });
+            return { kind: s.kind, disabled: s.disabled, late: s.late, label: s.label }; })());
+eq('بلا جلسة + انتهى يومه → مقفل برسالته',
+   { disabled: true, label: 'أنهيت دوامك اليوم' },
+   (() => { const s = btn({ gate: { ok: false, reason: 'done' } });
+            return { disabled: s.disabled, label: s.label }; })());
+eq('بلا جلسة + قبل النافذة → مقفل برسالته',
+   { disabled: true, label: 'لم يبدأ وقت التسجيل بعد' },
+   (() => { const s = btn({ gate: { ok: false, reason: 'early' } });
+            return { disabled: s.disabled, label: s.label }; })());
+
+/* التحميل والخطأ يسبقان كل شيء */
+eq('قبل التحميل → مقفل',   true, btn({ loaded: false }).disabled);
+eq('خطأ قراءة → مقفل',     true, btn({ loadErr: true }).disabled);
+eq('⚠️ لكن خطأ القراءة مع جلسة مفتوحة لا يحبس الموظف… يبقى مقفلاً عمداً',
+   'err', btn({ loadErr: true, hasOpenSession: true }).kind);
 
 console.log(`\n\x1b[1m═══ النتيجة: ${pass} ناجح، ${fail} فاشل ═══\x1b[0m`);
 process.exit(fail ? 1 : 0);

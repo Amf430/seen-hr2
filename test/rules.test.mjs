@@ -267,6 +267,9 @@ await check('backdated check-in timestamp',           false, () => setDoc(doc(em
 await check('attendance under another uid',           false, () => setDoc(doc(emp, 'attendance/emp2U_' + ymdKsa()), { ...attDoc(), employeeUid: 'emp2U' }));
 await check('doc id not matching the date field',     false, () => setDoc(doc(emp, 'attendance/empU_2026-08-09'), { ...attDoc() }));
 await check('opening 2 sessions at once',             false, () => setDoc(doc(emp, 'attendance/empU_' + ymdKsa()), { ...attDoc(), sessions: [session(), session()] }));
+
+/* وسوم المرحلة ١ تُختبر في آخر الملف — إنشاؤها للوثيقة هنا كان يُفسد
+   اختبار «employee CHECK-IN» أدناه الذي يتوقّع الوثيقة غير موجودة. */
 /* ═══ تاريخ تحت معرّف سابق — بعد استعادة الوصول ═══
    استعادة الوصول تُنشئ حساباً بمعرّف جديد، وسجلات الحضور مفهرسة بالمعرّف.
    فبلا هذه القراءة يفقد الموظف تاريخه، ويعتبره المسير غياباً ويخصم عليه.
@@ -556,6 +559,47 @@ await check('exceeds 12 sessions in a day', false, async () => {
   const pre = await readSessions();
   return setDoc(attRef(), { sessions: pre.concat(Array.from({ length: 12 }, () => session())) }, { merge: true });
 });
+
+/* ═══ 9. وسوم الحضور المتأخر ودوام يوم الراحة (المرحلة ١) ═══
+
+   ⚠️ القفل حسب نافذة الوردية يعيش في الواجهة وحدها. القاعدة لا تقدر تتحقق
+   منه بتكلفة معقولة: كل تحقق يحتاج get() على settings و users في كل كتابة
+   حضور، وهي قراءة مفوترة على حساب المالك في كل بصمة لكل موظف كل يوم.
+
+   فما تحرسه القاعدة هو السقف المطلق الرخيص (اليوم أو أمس + fresh)، والقفل
+   الدقيق تعويضه **رصدٌ لا منع**: السجل خارج النافذة يحمل lateCheckIn ويظهر
+   مُعلَّماً لمديره. هذه الاختبارات تُثبت أمرين: أن القاعدة تقبل الوسم، وأن
+   الوسم **ليس تصريح مرور** يفتح ما كان مقفلاً.
+
+   ⚠️ في آخر الملف عمداً: هذه الاختبارات تكتب على attendance/empU_اليوم،
+   وإنشاؤها مبكراً كان يُفسد اختبار «employee CHECK-IN» الذي يتوقّع الوثيقة
+   غير موجودة. الحالة المشتركة بين الاختبارات تُدار بالترتيب هنا لا بالحظ. */
+console.log('\n\x1b[1m═══ 9. LATE CHECK-IN TAGS ═══\x1b[0m');
+
+/* نبدأ من صفحة نظيفة حتى لا نرث جلسات القسم الثامن */
+await env.withSecurityRulesDisabled(async (c) =>
+  deleteDoc(doc(c.firestore(), 'attendance/empU_' + ymdKsa())));
+
+await check('late check-in tag accepted',              true,
+  () => setDoc(doc(emp, 'attendance/empU_' + ymdKsa()), { ...attDoc(), lateCheckIn: true }));
+await check('off-day work tag on the session',         true, async () => {
+  await env.withSecurityRulesDisabled(async (c) =>
+    deleteDoc(doc(c.firestore(), 'attendance/empU_' + ymdKsa())));
+  return setDoc(doc(emp, 'attendance/empU_' + ymdKsa()),
+    { ...attDoc(), sessions: [session({ offDayWork: true })] });
+});
+
+/* الوسم لا يفتح ما أقفلته القاعدة */
+await check('late tag does NOT unlock a past date',    false,
+  () => setDoc(doc(emp, 'attendance/empU_2026-01-10'), { ...attDoc(), date: '2026-01-10', lateCheckIn: true }));
+await check('late tag does NOT unlock a backdated in', false, async () => {
+  await env.withSecurityRulesDisabled(async (c) =>
+    deleteDoc(doc(c.firestore(), 'attendance/empU_' + ymdKsa())));
+  return setDoc(doc(emp, 'attendance/empU_' + ymdKsa()),
+    { ...attDoc(), lateCheckIn: true, sessions: [session({ in: Timestamp.fromMillis(Date.now() - 6 * 3600 * 1000) })] });
+});
+await check('late tag does NOT unlock another uid',    false,
+  () => setDoc(doc(emp, 'attendance/emp2U_' + ymdKsa()), { ...attDoc(), employeeUid: 'emp2U', lateCheckIn: true }));
 
 console.log(`\n\x1b[1m═══ RESULT: ${pass} passed, ${fail} failed ═══\x1b[0m`);
 if (failures.length) { console.log('\nFAILURES:'); failures.forEach((f) => console.log('  • ' + f)); }
