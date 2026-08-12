@@ -20,6 +20,7 @@ export const PAGES = {
   inbox:         { title: 'بانتظار موافقتك',       hint: 'راجع الطلبات ووافق أو ارفض' },
   employees:     { title: 'ملفات الموظفين',        hint: 'البيانات والعقود والرواتب والصلاحيات' },
   profile:       { title: 'بروفايل الموظف',        hint: 'الراتب والعقد وتحليلات الالتزام' },
+  'team-perf':   { title: 'أداء القسم',             hint: 'نسب الانضباط والتأخير والغياب لموظفي قسمك' },
   org:           { title: 'الهيكل التنظيمي',        hint: 'من يتبع من — الشجرة الإدارية كاملة' },
   attendance:    { title: 'الحضور من الجوال',      hint: 'تسجيل ذاتي بالموقع الجغرافي — فرز باليوم أو بالموظف' },
   zklog:         { title: 'سجل جهاز البصمة',       hint: 'سجل مستقل قادم من جهاز ZKTeco — لا يعدّله أحد' },
@@ -93,6 +94,10 @@ export const NAV_GROUPS = [
 
   { group: 'شؤون الموظفين', items: [
     { id: 'employees', icon: 'people', label: 'ملفات الموظفين',  roles: ['admin', 'manager'] },
+    /* ⚠️ تُفتح للمدير لأن استعلامها مقيَّد بـ where('department','==',…) ويقابله
+       فهرس (department, date) في firestore.indexes.json. لا تنسخ هذا السطر لصفحة
+       أخرى قبل أن تقيّد استعلامها وتنشر فهرسها — وإلا شاشة فارغة بخطأ صلاحيات. */
+    { id: 'team-perf', icon: 'chart', label: 'أداء القسم',      roles: ['admin', 'manager'] },
     { id: 'org',       icon: 'network', label: 'الهيكل التنظيمي', roles: ['admin'] },
     { id: 'org',       icon: 'network', label: 'فريقي',           roles: ['manager'] },
     { id: 'set-org',   icon: 'building', label: 'الأقسام والهيكل', roles: ['admin'] }

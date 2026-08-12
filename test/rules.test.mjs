@@ -663,6 +663,44 @@ await check('manager reads own dept member (salary included — owner decision)'
 await check('manager reads someone OUTSIDE own dept', false,
   () => getDoc(doc(mgr, 'users/adminU')));
 
+/* ═══ 11. استعلام أداء القسم (المرحلة ٤) ═══
+
+   ⚠️ هذه أهم اختبارات المرحلة، وهي تختبر شيئاً لا يُرى في الواجهة إطلاقاً:
+   Firestore يرفض الاستعلام **كاملاً** ما لم يكن مقيَّداً بحيث تُحقّق كل نتيجة
+   محتملة شرط القاعدة. فاستعلام المدير بالتاريخ وحده لا يُرجع نتيجة منقوصة —
+   يُرجع خطأ صلاحيات وشاشة فارغة.
+
+   والفرق بين السطرين الأولين أدناه هو المرحلة ٤ كلها: نفس المدير، ونفس
+   البيانات، ونفس القاعدة — والفارق `where('department','==',…)` وحده. */
+console.log('\n\x1b[1m═══ 11. TEAM PERFORMANCE QUERY ═══\x1b[0m');
+
+await check('manager queries attendance by date ONLY',        false,
+  () => getDocs(query(collection(mgr, 'attendance'), where('date', '>=', '2026-01-01'))));
+await check('manager queries attendance WITH department',     true,
+  () => getDocs(query(collection(mgr, 'attendance'),
+    where('department', '==', 'المبيعات'), where('date', '>=', '2026-01-01'))));
+
+await check('manager queries zkAttendance by date ONLY',      false,
+  () => getDocs(query(collection(mgr, 'zkAttendance'), where('date', '>=', '2026-01-01'))));
+await check('manager queries zkAttendance WITH department',   true,
+  () => getDocs(query(collection(mgr, 'zkAttendance'),
+    where('department', '==', 'المبيعات'), where('date', '>=', '2026-01-01'))));
+
+/* ⚠️ التقييد بقسم غيره لا يُنجّيه — sameDept() تقارن بقسمه هو لا بما كتبه */
+await check('manager queries ANOTHER department',             false,
+  () => getDocs(query(collection(mgr, 'zkAttendance'),
+    where('department', '==', 'المالية'), where('date', '>=', '2026-01-01'))));
+
+/* الموظف العادي لا يُفتح له هذا الطريق مهما قيّد */
+await check('employee queries dept attendance',               false,
+  () => getDocs(query(collection(emp, 'zkAttendance'), where('department', '==', 'المبيعات'))));
+await check('suspended manager queries own dept',             false,
+  () => getDocs(query(collection(susp, 'zkAttendance'), where('department', '==', 'المبيعات'))));
+
+/* الأدمن يقرأ بلا تقييد — وهو ما يجعل حساب التغطية ممكناً أصلاً */
+await check('admin queries zkAttendance unconstrained',       true,
+  () => getDocs(query(collection(admin, 'zkAttendance'), where('date', '>=', '2026-01-01'))));
+
 console.log(`\n\x1b[1m═══ RESULT: ${pass} passed, ${fail} failed ═══\x1b[0m`);
 if (failures.length) { console.log('\nFAILURES:'); failures.forEach((f) => console.log('  • ' + f)); }
 await env.cleanup();

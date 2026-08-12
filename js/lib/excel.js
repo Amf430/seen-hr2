@@ -25,6 +25,16 @@ function saveBook(sheets, filename) {
   X().writeFile(wb, filename);
 }
 
+/* ═══ أداء القسم (المرحلة ٤) ═══
+   ⚠️ الصفوف تأتي جاهزة من teamExportRows() في team-stats.js — نفس الأرقام
+   المعروضة على الشاشة حرفياً. لا يُحسب هنا شيء: ملفٌ يخالف الشاشة التي
+   صُدِّر منها يُفقد الثقة في الاثنين معاً. */
+export function teamPerfExport(cyc, deptName, rows) {
+  if (!rows.length) { toast('لا بيانات للتصدير', 'err'); return; }
+  saveBook([[`أداء ${deptName || 'القسم'}`.slice(0, 28), rows]],
+           `أداء-${deptName || 'القسم'}-${cyc.key}.xlsx`);
+}
+
 /* ═══ كل الطلبات ═══ */
 export function exportRequests(requests) {
   if (!requests.length) { toast('لا توجد طلبات للتصدير', 'err'); return; }

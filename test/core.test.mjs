@@ -27,6 +27,7 @@ import { canApprove, canApproveType, hasChain, chainStep, isLastStep,
    تحوّله UTC — ففي UTC+3 يقرأ ٢٦ أغسطس على أنه ٢٥. */
 import { cycleOf, ymd } from '../js/lib/dates.js';
 import { deptCoverageOf, coverageNote, rangeCovered } from '../js/lib/zk-coverage.js';
+import { teamSummaryOf, trendOf, teamExportRows } from '../js/lib/team-stats.js';
 
 let pass = 0, fail = 0;
 const eq = (name, expected, actual) => {
@@ -628,6 +629,73 @@ eq('نطاق يعبر حدّ التغطية → مرفوض',       false, rangeC
 eq('تغطية كاملة → كل نطاق مقبول',        true,
    rangeCovered(deptCoverageOf([rec('2026-08-01','المبيعات')]), '2020-01-01', '2030-01-01'));
 eq('لا بيانات → لا ندّعي نقصاً',          true,  rangeCovered(deptCoverageOf([]), '2026-01-01', '2026-12-31'));
+
+/* ══════════ ١٤. تجميع أداء الفريق (المرحلة ٤) ══════════
+
+   ⚠️ teamSummaryOf لا تحسب حالة يوم واحد — تستقبل صفوف buildDailyStatus
+   وتجمعها. الاختبار هنا على التجميع لا على تصنيف الأيام، وهذا مقصود: حساب
+   «متأخر» له مكان واحد، ولو حُسب هنا ثانيةً لتباعد الرقمان. */
+group('١٤. تجميع أداء الفريق');
+
+const U = (id, name, dept = 'المبيعات') => ({ id, name, department: dept, jobTitle: '' });
+const day = (u, cls, lateMin = 0, secs = 28800) => ({ u, cls, lateMin, secs });
+
+const sami = U('u1', 'سامي'), noura = U('u2', 'نورة');
+const teamRows = [
+  day(sami, 'present'), day(sami, 'present'), day(sami, 'late', 20), day(sami, 'absent', 0, 0),
+  day(noura, 'present'), day(noura, 'present'), day(noura, 'present'), day(noura, 'leave', 0, 0)
+];
+const S = teamSummaryOf(teamRows);
+
+eq('موظفان في التجميع', 2, S.employees.length);
+eq('نورة أعلى التزاماً فتتصدّر', 'نورة', S.employees[0].name);
+eq('أيام سامي الأربعة محسوبة', 4, S.employees.find((e) => e.uid === 'u1').days);
+eq('التزام سامي = (٢ حاضر + ١ متأخر) ÷ ٤', 75, S.employees.find((e) => e.uid === 'u1').overall);
+eq('وفي الوقت له = ٢ ÷ ٤',                  50, S.employees.find((e) => e.uid === 'u1').onTime);
+eq('⚠️ الإجازة تُحسب التزاماً لا تقصيراً',   100, S.employees.find((e) => e.uid === 'u2').overall);
+eq('⚠️ لكنها لا تُحسب حضوراً في الوقت',       75, S.employees.find((e) => e.uid === 'u2').onTime);
+eq('مجموع دقائق تأخير سامي', 20, S.employees.find((e) => e.uid === 'u1').lateMin);
+
+eq('إجماليات القسم',
+   { days: 8, present: 5, late: 1, absent: 1, leave: 1, employeeCount: 2 },
+   (() => { const t = S.totals; return { days: t.days, present: t.present, late: t.late,
+            absent: t.absent, leave: t.leave, employeeCount: t.employeeCount }; })());
+eq('التزام القسم = (٥+١+١) ÷ ٨', 88, S.totals.overall);
+
+/* ⚠️ المتوسط على الأيام المتأخرة وحدها. لو قُسم على كل الأيام لصار ٢٫٥ د
+   فلا يلفت أحداً، والمشكلة عند شخص واحد تأخّر ٢٠ دقيقة. */
+eq('متوسط التأخير يُحسب على الأيام المتأخرة وحدها', 20, S.totals.avgLateMinPerLateDay);
+eq('قسم بلا تأخير → صفر لا قسمة على صفر',
+   0, teamSummaryOf([day(sami, 'present')]).totals.avgLateMinPerLateDay);
+
+eq('لا صفوف → إجماليات صفرية بلا استثناء',
+   { days: 0, overall: 0, employeeCount: 0 },
+   (() => { const t = teamSummaryOf([]).totals; return { days: t.days, overall: t.overall, employeeCount: t.employeeCount }; })());
+
+/* ⚠️ صنف غير معروف يبقى في المقام — نسبة على مقام ناقص أخطر من صنف غير معدود */
+eq('صنف غير متوقّع يُعدّ في الأيام ولا يُسقط الصف',
+   { days: 2, overall: 50 },
+   (() => { const t = teamSummaryOf([day(sami, 'present'), day(sami, 'وضع_جديد')]).totals;
+            return { days: t.days, overall: t.overall }; })());
+
+/* ── اتجاه المقارنة ── */
+group('١٤-ب. المقارنة بالدورة السابقة');
+eq('تحسّن',  { delta: 10, dir: 'up' },   trendOf({ days: 8, overall: 90 }, { days: 8, overall: 80 }));
+eq('تراجع',  { delta: -5, dir: 'down' }, trendOf({ days: 8, overall: 75 }, { days: 8, overall: 80 }));
+eq('ثبات',   { delta: 0,  dir: 'flat' }, trendOf({ days: 8, overall: 80 }, { days: 8, overall: 80 }));
+/* ⚠️ سهم أخضر مبنيّ على «صفر سابقاً» يقرأه المدير تحسّناً وهو لا شيء */
+eq('لا دورة سابقة → لا سهم', null, trendOf({ days: 8, overall: 90 }, { days: 0, overall: 0 }));
+eq('لا دورة حالية → لا سهم', null, trendOf({ days: 0, overall: 0 }, { days: 8, overall: 80 }));
+eq('previous مفقودة → لا سهم', null, trendOf({ days: 8, overall: 90 }, null));
+
+/* ── صفوف التصدير = أرقام الشاشة نفسها ── */
+const xrows = teamExportRows(S);
+eq('صف تصدير لكل موظف', 2, xrows.length);
+eq('⚠️ التصدير يحمل رقم الشاشة نفسه لا حساباً ثانياً',
+   S.employees[0].overall, xrows[0]['الالتزام %']);
+eq('والساعات مشتقّة من ثوانيها لا محسوبة من جديد',
+   Math.round((S.employees[0].secs / 3600) * 10) / 10, xrows[0]['ساعات العمل']);
+eq('نورة: ٣ أيام حضور × ٨ ساعات = ٢٤', 24, xrows[0]['ساعات العمل']);
 
 console.log(`\n\x1b[1m═══ النتيجة: ${pass} ناجح، ${fail} فاشل ═══\x1b[0m`);
 process.exit(fail ? 1 : 0);
