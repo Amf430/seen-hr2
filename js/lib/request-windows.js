@@ -19,6 +19,25 @@
    فتنقص النافذة يوماً كاملاً قرب منتصف الليل.
    ═══════════════════════════════════════════════════════════════════════════ */
 
+/* ⚠️⚠️ المعاملات الافتراضية `today = ymdKsa()` ليست راحةً — ثلاثة مواضع
+   تنادي هذه الدوال بوسيط واحد:
+     attendance.js:264   excusable = permWindowOpen(dateStr)
+     requests.js:52      !permWindowOpen(data.date)
+     request-new.js:88   !permWindowOpen(date)
+
+   وقد أسقطتُها مرةً عند استخراج هذه الوحدة من requests.js، فصار `today`
+   يساوي undefined، والمقارنة `dateStr >= undefined` تُرجع false دائماً —
+   أي أن **كل طلب استئذان كان يُرفض**، وكل يوم تأخير يُوسم «بدون عذر».
+   اكتشفتها اختبارات المتصفح (test/browser/suite.html) لا eslint ولا node،
+   لأن الدوال تُنادى بوسيط واحد في مسارات لا تصلها اختبارات node.
+
+   ⚠️ ymdKsa لا ymd: تاريخ الرياض هو مرجع النوافذ كلها في النظام، وجهاز
+   موظف على منطقة زمنية أخرى يجب ألّا يوسّع نافذته ولا يضيّقها.
+
+   ⚠️ و dates.js نقيّة (لا تجرّ firebase) فتُستورد هنا بلا أن تُفقد هذه
+   الوحدة قابليتها للاختبار في node. */
+import { ymdKsa } from './dates.js';
+
 const ymdOf = (d) => d.getFullYear() + '-' +
   String(d.getMonth() + 1).padStart(2, '0') + '-' +
   String(d.getDate()).padStart(2, '0');
@@ -38,8 +57,8 @@ const backDate = (todayYmd, days) => {
    نافذة يقدر الموظف — بعد أن يرى الخصم — أن يقدّم استئذاناً عن يوم في أول
    الشهر فيلغيه بأثر رجعي. */
 export const PERM_BACKDATE_DAYS = 3;
-export const permOldestDate = (today) => backDate(today, PERM_BACKDATE_DAYS);
-export const permWindowOpen = (dateStr, today) =>
+export const permOldestDate = (today = ymdKsa()) => backDate(today, PERM_BACKDATE_DAYS);
+export const permWindowOpen = (dateStr, today = ymdKsa()) =>
   !!dateStr && dateStr >= permOldestDate(today);
 
 /* ═══ تصحيح البصمة ═══
@@ -47,10 +66,10 @@ export const permWindowOpen = (dateStr, today) =>
    يومه، والتصحيح يضيف بصمة ناقصة لا يكتشفها غالباً إلا حين يرى «نسيان
    بصمة» في صفحة أدائه بعد أيام. */
 export const FIX_WINDOW_DAYS = 7;
-export const fixOldestDate = (today) => backDate(today, FIX_WINDOW_DAYS);
+export const fixOldestDate = (today = ymdKsa()) => backDate(today, FIX_WINDOW_DAYS);
 
 /* ⚠️ المستقبل مرفوض صراحةً: تصحيح ليوم لم يأتِ بعد ليس تصحيحاً. */
-export const fixWindowOpen = (dateStr, today) =>
+export const fixWindowOpen = (dateStr, today = ymdKsa()) =>
   !!dateStr && dateStr >= fixOldestDate(today) && dateStr <= today;
 
 /* ═══ السقف الشهري ═══

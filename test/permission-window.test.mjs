@@ -96,5 +96,21 @@ check('وطلبات موظف آخر لا تُحسب عليه', 1, fixCountInCycl
 check('وخارج الدورة لا يُحسب',         2, fixCountInCycle(reqs, 'u1', cyc));
 check('موظف بلا طلبات → صفر',          0, fixCountInCycle(reqs, 'u9', cyc));
 
+
+/* ═══ النداء بوسيط واحد — الانحدار الذي كشفته اختبارات المتصفح ═══
+
+   ⚠️ ثلاثة مواضع تنادي هذه الدوال بوسيط واحد وتعتمد على المعامل الافتراضي
+   `today = ymdKsa()`. إسقاطه مرةً جعل المقارنة `dateStr >= undefined` ترجع
+   false دائماً — فرُفض **كل** طلب استئذان، ووُسم كل يوم تأخير «بدون عذر».
+   ولم يلتقطه eslint ولا اختبارات node لأنها كانت تمرّر الوسيطين دائماً. */
+console.log('\n\x1b[1m═══ النداء بوسيط واحد ═══\x1b[0m');
+
+const todayKsa = new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 10);
+check('⚠️ اليوم مقبول بلا تمرير today',        true,  permWindowOpen(todayKsa));
+check('⚠️ وتاريخ قديم مرفوض بلا تمرير today',  false, permWindowOpen('2020-01-01'));
+check('permOldestDate بلا وسيط تُرجع تاريخاً', true,  /^\d{4}-\d{2}-\d{2}$/.test(permOldestDate()));
+check('⚠️ fixWindowOpen اليوم مقبول بلا وسيط',  true,  fixWindowOpen(todayKsa));
+check('fixOldestDate بلا وسيط تُرجع تاريخاً',   true,  /^\d{4}-\d{2}-\d{2}$/.test(fixOldestDate()));
+
 console.log(`\n\x1b[1m═══ النتيجة: ${pass} ناجح، ${fail} فاشل ═══\x1b[0m`);
 process.exit(fail ? 1 : 0);
