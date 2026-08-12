@@ -1036,3 +1036,36 @@ label.btn{cursor:pointer}
   .lt-row__acts{inline-size:100%}
   .lt-row__acts .btn{flex:1}
 }
+
+/* ═══ مُنتقي الموقع على الخريطة (js/components/map-picker.js) ═══
+   ⚠️ الارتفاع صريح ولا يعتمد على المحتوى: Leaflet يقيس الحاوية عند البناء،
+   وحاوية بلا ارتفاع تعطي خريطة رمادية فارغة بلا أي رسالة خطأ. */
+.map-picker__canvas{
+  block-size:min(55vh,420px);min-block-size:240px;
+  inline-size:100%;margin-block:var(--sp-3);
+  border:1px solid var(--line-strong);border-radius:var(--r-md);
+  background:var(--paper-2);overflow:hidden;
+}
+.map-picker__canvas--failed{
+  display:flex;align-items:center;justify-content:center;text-align:center;
+  padding:var(--sp-4);color:var(--muted-strong);font-size:var(--fs-caption);
+}
+/* ⚠️ أدوات Leaflet (التكبير، الإسناد) مبنية على تخطيط LTR. تركها ترث RTL
+   يقلب مواضعها ويكسر أسهم التكبير. الخريطة نفسها لا اتجاه لها، فالحصر آمن. */
+.map-picker__canvas .leaflet-container{direction:ltr;font-family:var(--font)}
+
+.map-picker__results{
+  display:flex;flex-direction:column;gap:1px;margin-block-start:var(--sp-2);
+  border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;
+  background:var(--line);max-block-size:200px;overflow-y:auto;
+}
+.map-picker__hit{
+  display:block;inline-size:100%;text-align:start;border:0;cursor:pointer;
+  padding:var(--sp-3) var(--sp-4);background:var(--card);color:var(--ink-2);
+  font:inherit;font-size:var(--fs-caption);line-height:1.5;
+}
+.map-picker__hit:hover,.map-picker__hit:focus-visible{background:var(--row-hover);color:var(--ink)}
+.map-picker__none{
+  padding:var(--sp-3) var(--sp-4);background:var(--card);
+  color:var(--muted-strong);font-size:var(--fs-caption);
+}

@@ -12,6 +12,7 @@ import { branchesOf, getPosition, activeBranches } from '../../lib/geo.js';
 import { saveBranches } from '../../lib/settings.js';
 import { logAction } from '../../lib/audit.js';
 import { openTypedConfirm } from '../../components/review-modals.js';
+import { openMapPicker } from '../../components/map-picker.js';
 import { fmtDist } from '../../lib/format.js';
 import { card, empty, tableWrap, sectionHead, button, callout } from '../../lib/ui.js';
 
@@ -61,6 +62,7 @@ export function render(view) {
       const td = el('td', '');
       const cell = el('div', 'actions-cell');
       cell.append(
+        button('الخريطة', 'btn sm ghost', () => viewOnMap(b, draw)),
         button('تعديل', 'btn sm ghost', () => openBranch(b, draw)),
         button(b.active !== false ? 'إيقاف' : 'تفعيل', 'btn sm ghost', async () => {
           b.active = b.active === false;
@@ -95,6 +97,10 @@ function openBranch(b, after) {
       <label for="bName">اسم الفرع *</label>
       <input id="bName" value="${esc(b?.name || '')}" placeholder="مثال: فرع الروضة">
     </div>
+    <div class="field field--btn">
+      <button type="button" class="btn w-full" id="bMap">تحديد على الخريطة</button>
+      <div class="help">تشوف الموقع والنطاق على الخريطة قبل الحفظ. الحقول تحتها تتعبّأ تلقائياً.</div>
+    </div>
     <div class="form-row">
       <div class="field"><label for="bLat">خط العرض (Latitude)</label>
         <input id="bLat" value="${b?.lat != null ? b.lat : ''}" placeholder="21.543300" inputmode="decimal"></div>
@@ -114,6 +120,25 @@ function openBranch(b, after) {
       <button class="btn ghost" id="bCancel">إلغاء</button>
       <button class="btn" id="bOk">${isEdit ? 'حفظ' : 'إضافة الفرع'}</button>
     </div>`);
+
+  /* ── الخريطة ──
+     تقرأ ما في الحقول الآن لا ما كان محفوظاً: الأدمن قد يكون لصق إحداثيات
+     يدوياً قبل أن يفتح الخريطة، فالخريطة تبدأ من عنده لا من نقطة الصفر. */
+  m.$('#bMap').onclick = async () => {
+    const curLat = parseFloat(m.$('#bLat').value);
+    const curLng = parseFloat(m.$('#bLng').value);
+    const picked = await openMapPicker({
+      lat: Number.isFinite(curLat) ? curLat : undefined,
+      lng: Number.isFinite(curLng) ? curLng : undefined,
+      radius: parseInt(m.$('#bRad').value, 10) || 500,
+      name: m.$('#bName').value.trim()
+    });
+    if (!picked) return;                       /* أُلغيت — لا نلمس الحقول */
+    m.$('#bLat').value = picked.lat.toFixed(6);
+    m.$('#bLng').value = picked.lng.toFixed(6);
+    m.$('#bRad').value = picked.radius;
+    m.$('#bStatus').textContent = 'حُدّد الموقع من الخريطة. اضغط حفظ لتثبيته.';
+  };
 
   m.$('#bHere').onclick = async () => {
     const st = m.$('#bStatus');
@@ -158,6 +183,23 @@ function openBranch(b, after) {
       btn.disabled = false; btn.textContent = isEdit ? 'حفظ' : 'إضافة الفرع';
     }
   };
+}
+
+/* ── عرض فرع على الخريطة (ويقبل تصحيحاً سريعاً) ──
+   ⚠️ لا تُحفظ إلا إن ضغط الأدمن «استخدام هذا الموقع» داخل النافذة، ولا تُحفظ
+   إن لم يتحرّك شيء: فتح الخريطة للاطّلاع يجب ألا يكتب في الإعدادات ولا يترك
+   أثراً في auditLog، وإلا امتلأ السجل بتعديلات لم تعدّل شيئاً. */
+async function viewOnMap(b, after) {
+  const S = getSettings();
+  const picked = await openMapPicker({ lat: b.lat, lng: b.lng, radius: b.radius, name: b.name });
+  if (!picked) return;
+  if (picked.lat === b.lat && picked.lng === b.lng && picked.radius === b.radius) return;
+
+  Object.assign(b, { lat: picked.lat, lng: picked.lng, radius: picked.radius });
+  await saveBranches(S.branches);
+  await logAction('تعديل فرع', `${b.name} — من الخريطة، نطاق ${picked.radius} م`);
+  after();
+  toast('حُدّث موقع الفرع', 'ok');
 }
 
 function removeBranch(b, after) {
