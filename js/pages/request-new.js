@@ -1,8 +1,6 @@
 import { el, esc, toast } from '../lib/dom.js';
 import { getSettings, getMe } from '../lib/state.js';
 import { workingDaysBetween } from '../lib/shifts.js';
-import { peersAwayInRange } from '../lib/calendar.js';
-import { readAway } from '../lib/calendar-io.js';
 import { submitRequest, permOldestDate, permWindowOpen, PERM_BACKDATE_DAYS } from '../lib/requests.js';
 import { ymdKsa } from '../lib/dates.js';
 import { go } from '../lib/nav.js';
@@ -132,38 +130,18 @@ function leaveForm() {
     <div class="form-row one">
       <div class="field"><label for="lfNote">ملاحظات (اختياري)</label><textarea id="lfNote"></textarea></div>
     </div>
-    <div class="help" id="lfPeers"></div>
     <button class="btn w-auto" id="lfSubmit" type="button">تقديم طلب الإجازة</button>`;
 
   /* قسم مقدّم الطلب — يحدّد ورديته، فيحدّد أي أيام تُحتسب من رصيده */
   const myDept = () => { const m = getMe(); return m ? m.department : ''; };
 
-  /* ⚠️ تنبيه الزحام قبل التقديم لا بعد الرفض (المرحلة ٩).
-     يقرأ وثيقة teamAway المنشورة — الموظف لا يقدر يقرأ طلبات زملائه أصلاً
-     (قاعدة requests)، والوثيقة لا تحمل أنواع الإجازات ولا أسبابها: أسماءً
-     وأياماً فقط. راجع التعليق أعلى js/lib/calendar.js.
-
-     ⚠️ وهو **تنبيه لا منع**: قرار الازدحام لمديره لا لهذه الشاشة. */
-  let awayDays = null;
-  readAway(myDept()).then((d) => { awayDays = d ? d.days : {}; upd(); })
-    .catch((e) => { console.error('away', e); awayDays = {}; });
-
   const upd = () => {
     const s = f.querySelector('#lfStart').value, e = f.querySelector('#lfEnd').value;
-    const peersBox = f.querySelector('#lfPeers');
-    if (!s || !e) { f.querySelector('#lfDays').textContent = ''; if (peersBox) peersBox.textContent = ''; return; }
+    if (!s || !e) { f.querySelector('#lfDays').textContent = ''; return; }
     const w = workingDaysBetween(s, e, myDept());
     f.querySelector('#lfDays').textContent =
       `المدة: ${w.days} يوم عمل` + (w.off ? ` (تم استثناء ${w.off} يوم راحة وعطلة رسمية)` : '');
 
-    if (peersBox && awayDays) {
-      const me = getMe();
-      const peers = peersAwayInRange(awayDays, s, e, me ? me.id : '');
-      peersBox.textContent = peers.length
-        ? `${peers.length} من زملائك في إجازة في هذه الفترة: ${peers.join('، ')}`
-        : '';
-      peersBox.className = peers.length ? 'help text-amber' : 'help';
-    }
   };
   f.querySelector('#lfStart').onchange = upd;
   f.querySelector('#lfEnd').onchange = upd;

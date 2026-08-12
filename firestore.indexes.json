@@ -151,6 +151,21 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "//": "المرحلة ٩ — أحداث التقويم. استعلامان منفصلان (الشركة، والقسم) لأن OR واحد لا يُثبت للقاعدة كل نتيجة محتملة.",
+      "collectionGroup": "calendarEvents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "department",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": []

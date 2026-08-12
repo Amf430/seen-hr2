@@ -1122,3 +1122,5 @@ label.btn{cursor:pointer}
   .cal-day--off:not(:has(.cal-tag)){display:none}
   .cal-num{min-inline-size:2ch;font-weight:var(--fw-bold);color:var(--ink)}
 }
+/* حدث التقويم — يضيفه الأدمن للشركة أو مدير القسم لقسمه */
+.cal-tag--event{background:var(--maroon-tint);color:var(--maroon-2);font-weight:var(--fw-medium)}

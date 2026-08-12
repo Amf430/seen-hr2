@@ -860,37 +860,62 @@ service cloud.firestore {
       }
     }
 
-    /* ═════════════════════════ teamAway ═════════════════════════
+    /* ═════════════════════════ calendarEvents ═════════════════════════
 
-       Who is away, per department, for the calendar — one document per
-       department, id = the department name.
+       Owner's decision, 2026-08-12: employees do NOT see who is on leave.
+       Leave stays with the department manager, who can already read requests.
+       What an employee sees on the calendar is holidays, their own shift, and
+       EVENTS — a weekly meeting their manager added, or something company-wide
+       from the admin.
 
-       ⚠️ Why a published document rather than reading requests directly:
-       an employee cannot read a colleague's request at all (sameDept()
-       requires isMgr), and loosening that would expose the leave TYPE,
-       which is health information — sick, maternity, bereavement. Rules
-       cannot project fields, so the only way to show a colleague "Salem is
-       away on the 18th" without also showing WHY is to publish a document
-       that never contained the why. Same reasoning as leaderboard above,
-       same shape.
+       That removed the privacy problem rather than managing it. The earlier
+       version published a derived document with names but no leave types; now
+       nothing is published at all, and the existing requests rule — which
+       already blocks employees — is the only boundary needed.
 
-       ⚠️ What may be in it: date, name, uid. Not the type, not the reason,
-       and not the range — a three-week absence says something about its
-       type on its own.
+       ⚠️ Scope is ONE field, not two: an empty `department` means the whole
+       company. Two fields (forAll plus department) would allow a contradictory
+       state — "everyone, and also sales" — and the rule would have to grow to
+       forbid it.
 
-       ⚠️ It is refreshed when a manager opens the calendar, not on a
-       schedule, so it carries `at` and the screen shows that date. A stale
-       board read as today's is worse than one that is dated.               */
-    match /teamAway/{dept} {
-      /* the employee reads their own department's board and no other */
-      allow read: if isActive() && (isAdmin() || dept == myDept());
+       ⚠️ A manager may only write events carrying their own department. An
+       empty department here would mean company-wide, which is the admin's
+       call, so the manager branch requires a non-empty match.                */
+    match /calendarEvents/{eid} {
+      /* ⚠️⚠️ `p().department` مباشرةً لا `p().get('department','')`.
+         الفرق ليس أسلوبياً — كان ثغرة:
 
-      allow write: if (isAdmin() || (isMgr() && dept == myDept()))
-        && d().department == dept
-        && d().at == request.time
-        && d().keys().hasOnly(['department','staffCount','days','at','byName'])
-        && d().staffCount is int && d().staffCount >= 0
-        && d().days is map;
+         عند تقييم استعلام سرد، لا تكون بيانات الوثيقة متاحة للقاعدة، فترجع
+         `get()` **قيمتها الافتراضية**. ومع الافتراضي `''` يتحقّق الفرع
+         `== ''` فراغاً، فتُقبل أي قائمة — وسرد المجموعة كلها بلا تقييد كان
+         يُرجع للموظف أحداث الأقسام الأخرى. كُشف بتشغيل السرد على المحاكي؛
+         `getDoc` على وثيقة بعينها كان يُرفض صحيحاً، فمرّ الخلل بين
+         الاثنين.
+
+         الوصول المباشر يُخطئ حين لا تكون البيانات متاحة، والقاعدة التي
+         تُخطئ **ترفض** — وهو الاتجاه الآمن. والنتيجة أن السرد غير المقيَّد
+         يُرفض، والعميل يستعلم باستعلامين مقيَّدين كما في fetchEvents.
+
+         ⚠️ ولا تُعِد `.get()` هنا «تفادياً لخطأ على وثيقة قديمة»: كل حدث
+         يُكتب بـ department (القاعدة تشترط hasOnly ذلك الحقل ضمنها)، فلا
+         وثيقة بلا الحقل أصلاً. */
+      allow read: if isActive()
+        && (p().department == '' || p().department == myDept());
+
+      allow create, update: if (isAdmin()
+            || (isMgr() && myDept() != '' && d().get('department','') == myDept()))
+        && d().createdBy == request.auth.uid
+        && d().createdByName == me().name
+        && d().createdAt == request.time
+        && isYmd(d().date)
+        && d().title is string && d().title.size() > 0 && d().title.size() <= 120
+        && d().get('note','') is string && d().get('note','').size() <= 500
+        && d().keys().hasOnly(['title','note','date','department',
+                               'createdBy','createdByName','createdAt']);
+
+      /* ⚠️ الحذف بنفس حدّ الكتابة: مدير قسم لا يحذف حدث الشركة ولا حدث غيره */
+      allow delete: if isAdmin()
+        || (isMgr() && myDept() != '' && p().get('department','') == myDept());
     }
 
     /* anything not matched above is denied */

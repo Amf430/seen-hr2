@@ -1,13 +1,13 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    تقويم الفريق (المرحلة ٩)
 
-   ⚠️ أهم ما يُختبر هنا ليس الشبكة بل **الخصوصية**: أن نوع الإجازة لا يخرج
-   لزميل أبداً. نوعها معلومة صحّية أحياناً (مرضية · وضع · وفاة)، وتسريبها
-   لا يُتراجع عنه.
+   ⚠️ قرار المالك (٢٠٢٦-٠٨-١٢): الموظف لا يرى إجازات زملائه إطلاقاً. فما
+   يُختبر هنا هو الإجازات للمدير، و**الأحداث** التي يراها الجميع — اجتماع
+   يضيفه مدير القسم، أو حدث للشركة يضيفه الأدمن.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import { monthGrid, shiftMonth, leavesOn, dayLayers, conflictOn, conflictsInRange,
-         peersAwayInRange, buildAwayDoc, DEFAULT_CONFLICT_PCT, AR_MONTHS }
+         eventsOn, canEditEvent, DEFAULT_CONFLICT_PCT, AR_MONTHS }
   from '../js/lib/calendar.js';
 
 let pass = 0, fail = 0;
@@ -70,30 +70,19 @@ eq('بلا تحديد قسم تُحسب الشركة كلها', 4, leavesOn(LEAV
 eq('يوم خارج كل المدَيات', 0, leavesOn(LEAVES, '2026-09-25', 'المبيعات').length);
 eq('واليوم الأخير في المدى محسوب', 1, leavesOn(LEAVES, '2026-09-19', 'المبيعات').length);
 
-/* ═══════════ ٣. الخصوصية — أهم اختبار في الملف ═══════════
+/* ═══════════ ٣. الإجازات للمدير وحده ═══════════
 
-   ⚠️ نوع الإجازة معلومة صحّية أحياناً. تسريبها لزميل لا يُتراجع عنه. */
-group('٣. الخصوصية — ما يراه الزميل');
+   ⚠️ الترشيح هنا ليس ضابطاً أمنياً: الموظف لا يملك قراءة `requests` أصلاً
+   (قاعدة sameDept تشترط isMgr)، والشاشة لا تستدعيها له. */
+group('٣. الإجازات — للمدير');
 
-const peer = dayLayers('2026-09-18', { requests: LEAVES, dept: 'المبيعات' });
-const full = dayLayers('2026-09-18', { requests: LEAVES, dept: 'المبيعات', view: 'full' });
+const mgrDay = dayLayers('2026-09-18', { requests: LEAVES, dept: 'المبيعات' });
+eq('المدير يرى ثلاثة في إجازة', 3, mgrDay.leaves.length);
+eq('ومعها النوع', 'إجازة وضع', mgrDay.leaves.find((l) => l.uid === 'u3').type);
 
-eq('الزميل يرى ثلاثة أسماء', 3, peer.leaves.length);
-eq('⚠️⚠️ ولا يرى نوع الإجازة إطلاقاً', true,
-   peer.leaves.every((l) => l.type === undefined));
-eq('⚠️ ولا عدد الأيام — المدى يقول شيئاً عن النوع', true,
-   peer.leaves.every((l) => l.days === undefined));
-eq('⚠️ ولا «إجازة وضع» تظهر في أي حقل', true,
-   !JSON.stringify(peer).includes('وضع'));
-eq('⚠️ ولا «مرضية»', true, !JSON.stringify(peer).includes('مرضية'));
-eq('الاسم وحده يخرج له', ['سالم', 'نورة', 'خالد'], peer.leaves.map((l) => l.name));
-
-eq('والمدير يرى النوع — يملك القراءة أصلاً', 'إجازة وضع',
-   full.leaves.find((l) => l.uid === 'u3').type);
-/* ⚠️ الافتراضي هو الأقل كشفاً: من ينسى تمرير view يحصل على رؤية الزميل */
-eq('⚠️ الافتراضي بلا وسيط = رؤية الزميل لا المدير', true,
-   dayLayers('2026-09-18', { requests: LEAVES, dept: 'المبيعات' })
-     .leaves.every((l) => l.type === undefined));
+/* ⚠️ شاشة الموظف تمرّر requests فارغة لأنها لا تستدعيها له أصلاً */
+eq('⚠️ بلا requests → لا إجازات في الطبقات',
+   0, dayLayers('2026-09-18', { dept: 'المبيعات' }).leaves.length);
 
 /* ═══════════ ٤. الطبقات الأخرى ═══════════ */
 group('٤. العطل والمهام فوق اليوم');
@@ -133,36 +122,47 @@ eq('قسم بلا موظفين لا يُقسَم على صفر', null, conflictO
 eq('يوم واحد متضارب في المدى', 1,
    conflictsInRange(['2026-09-17', '2026-09-18', '2026-09-19'], LEAVES, 'المبيعات', 6).length);
 
-/* ═══════════ ٦. تنبيه ما قبل تقديم الطلب ═══════════ */
-group('٦. «٣ من زملائك في إجازة»');
+/* ═══════════ ٦. الأحداث ═══════════
 
-const away = { '2026-09-17': [{ uid: 'u1', name: 'سالم' }],
-               '2026-09-18': [{ uid: 'u1', name: 'سالم' }, { uid: 'u2', name: 'نورة' }],
-               '2026-09-25': [{ uid: 'u9', name: 'بعيد' }] };
+   ⚠️ نطاق الحدث حقلٌ واحد: قسم، أو فارغ = الشركة كلها. حقلان يسمحان بحالة
+   متناقضة والقاعدة تصير أطول لتمنعها. */
+group('٦. أحداث التقويم');
 
-eq('زميلان في المدى بلا تكرار', ['سالم', 'نورة'],
-   peersAwayInRange(away, '2026-09-16', '2026-09-20'));
-eq('⚠️ ومقدّم الطلب لا يُحسب على نفسه', ['نورة'],
-   peersAwayInRange(away, '2026-09-16', '2026-09-20', 'u1'));
-eq('وخارج المدى لا يدخل', true,
-   !peersAwayInRange(away, '2026-09-16', '2026-09-20').includes('بعيد'));
-eq('مدى خالٍ → لا أحد', [], peersAwayInRange(away, '2026-10-01', '2026-10-05'));
+const EVENTS = [
+  { id: 'e1', title: 'اجتماع المبيعات الأسبوعي', date: '2026-09-18', department: 'المبيعات' },
+  { id: 'e2', title: 'اجتماع الشركة العام',       date: '2026-09-18', department: '' },
+  { id: 'e3', title: 'اجتماع المالية',            date: '2026-09-18', department: 'المالية' },
+  { id: 'e4', title: 'يوم آخر',                   date: '2026-09-20', department: '' }
+];
 
-/* ═══════════ ٧. الوثيقة المنشورة ═══════════
+eq('موظف المبيعات يرى حدثه وحدث الشركة', ['e1', 'e2'],
+   eventsOn(EVENTS, '2026-09-18', 'المبيعات').map((e) => e.id));
+eq('⚠️ ولا يرى حدث قسم آخر', true,
+   !eventsOn(EVENTS, '2026-09-18', 'المبيعات').some((e) => e.id === 'e3'));
+eq('وموظف المالية يرى حدثه وحدث الشركة', ['e2', 'e3'],
+   eventsOn(EVENTS, '2026-09-18', 'المالية').map((e) => e.id));
+eq('ومن بلا قسم يرى أحداث الشركة فقط', ['e2'],
+   eventsOn(EVENTS, '2026-09-18', '').map((e) => e.id));
+eq('ويوم آخر لا يخلط', ['e4'], eventsOn(EVENTS, '2026-09-20', 'المبيعات').map((e) => e.id));
 
-   ⚠️ ما يُنشر للزميل: اليوم والاسم فقط. لا نوع ولا سبب ولا مدى — حتى المدى
-   يقول شيئاً عن النوع. */
-group('٧. ما يُنشَر للزملاء');
+/* الأحداث تدخل طبقات اليوم */
+eq('الحدث يظهر في طبقات اليوم', 2,
+   dayLayers('2026-09-18', { events: EVENTS, dept: 'المبيعات' }).events.length);
 
-const doc = buildAwayDoc(['2026-09-17', '2026-09-18', '2026-09-25'], LEAVES, 'المبيعات', 6);
-eq('يومان فيهما غياب فقط', ['2026-09-17', '2026-09-18'], Object.keys(doc.days));
-eq('وعدد موظفي القسم محفوظ للنسبة', 6, doc.staffCount);
-eq('⚠️⚠️ لا نوع إجازة في الوثيقة المنشورة', true, !JSON.stringify(doc).includes('إجازة'));
-eq('⚠️ ولا عدد أيام', true, !JSON.stringify(doc).includes('"days":3'));
-eq('الاسم والمعرّف فقط', ['uid', 'name'], Object.keys(doc.days['2026-09-18'][0]));
-eq('والمعلَّقة لا تُنشر', true,
-   !JSON.stringify(doc).includes('ليلى'));
-eq('واليوم بلا غياب لا يُكتب أصلاً', true, !('2026-09-25' in doc.days));
+group('٦-ب. مَن يعدّل حدثاً');
+const adminU = { role: 'admin' };
+const mgrSales = { role: 'manager', department: 'المبيعات' };
+const mgrFin   = { role: 'manager', department: 'المالية' };
+const empU     = { role: 'employee', department: 'المبيعات' };
+
+eq('الأدمن يعدّل أي حدث',            true,  canEditEvent(EVENTS[0], adminU));
+eq('وحتى حدث الشركة',                true,  canEditEvent(EVENTS[1], adminU));
+eq('مدير القسم يعدّل حدث قسمه',      true,  canEditEvent(EVENTS[0], mgrSales));
+eq('⚠️ ولا يعدّل حدث الشركة',         false, canEditEvent(EVENTS[1], mgrSales));
+eq('⚠️ ولا حدث قسم آخر',              false, canEditEvent(EVENTS[2], mgrSales));
+eq('ومدير المالية عكسه',             true,  canEditEvent(EVENTS[2], mgrFin));
+eq('⚠️ والموظف لا يعدّل شيئاً',        false, canEditEvent(EVENTS[0], empU));
+eq('ومدير بلا قسم لا يعدّل',          false, canEditEvent(EVENTS[0], { role: 'manager', department: '' }));
 
 console.log(`\n\x1b[1m═══ النتيجة: ${pass} ناجح، ${fail} فاشل ═══\x1b[0m`);
 process.exit(fail ? 1 : 0);

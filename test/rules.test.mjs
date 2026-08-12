@@ -1143,53 +1143,81 @@ await check('manager writes taskTemplates',           false,
 await check('admin writes taskTemplates',             true,
   () => updateDoc(doc(admin, 'settings/config'), { taskTemplates: [{ id: 'x', title: 'y', active: true }] }));
 
-/* ═══ 17. لوحة الغياب المنشورة (المرحلة ٩) ═══
+/* ═══ 17. أحداث التقويم (المرحلة ٩) ═══
 
-   ⚠️ لماذا وثيقة منشورة أصلاً: الموظف **لا يقدر يقرأ طلبات زملائه**
-   (sameDept تشترط isMgr)، وتوسيع تلك القاعدة يكشف **نوع** الإجازة — وهو
-   معلومة صحّية أحياناً (مرضية · وضع · وفاة)، والقواعد لا تقدر تُسقط حقلاً
-   من وثيقة. فالسبيل الوحيد لعرض «فلان غائب» بلا «لماذا» هو نشر وثيقة لم
-   تحمل «لماذا» قط. نفس منطق leaderboard.
+   ⚠️ قرار المالك (٢٠٢٦-٠٨-١٢): الموظف لا يرى إجازات زملائه إطلاقاً. فما
+   يراه في التقويم هو **الأحداث** — اجتماع يضيفه مدير قسمه، أو حدث للشركة
+   يضيفه الأدمن. وهذا ألغى الحاجة لأي وثيقة مُشتقّة تُنشر.
 
-   ⚠️ والقاعدة تحرس الشكل: قائمة مفاتيح مغلقة تمنع تسريب حقل جديد سهواً. */
-console.log('\n\x1b[1m═══ 17. PUBLISHED AWAY BOARD ═══\x1b[0m');
+   ⚠️ ونطاق الحدث حقلٌ واحد: `department` فارغة = الشركة كلها. حقلان
+   (forAll و department) يسمحان بحالة متناقضة — «للشركة ولقسم المبيعات» —
+   والقاعدة تصير أطول لتمنعها. */
+console.log('\n\x1b[1m═══ 17. CALENDAR EVENTS ═══\x1b[0m');
 
-const awayDoc = (over = {}) => ({
-  department: 'المبيعات', staffCount: 6,
-  days: { '2026-09-18': [{ uid: 'empU', name: 'سالم' }] },
-  at: serverTimestamp(), byName: 'فهد', ...over
+const ev = (over = {}) => ({
+  title: 'اجتماع القسم الأسبوعي', note: '', date: '2026-09-20',
+  department: 'المبيعات', createdBy: 'mgrU', createdByName: 'فهد',
+  createdAt: serverTimestamp(), ...over
 });
 
-await check('manager publishes own dept board',       true,
-  () => setDoc(doc(mgr, 'teamAway/المبيعات'), awayDoc()));
-await check('⚠️ manager publishes ANOTHER dept',       false,
-  () => setDoc(doc(mgr, 'teamAway/المالية'), awayDoc({ department: 'المالية' })));
-await check('department field must match the doc id', false,
-  () => setDoc(doc(mgr, 'teamAway/المبيعات'), awayDoc({ department: 'المالية' })));
-await check('⚠️ employee publishes a board',           false,
-  () => setDoc(doc(emp, 'teamAway/المبيعات'), awayDoc({ byName: 'سالم' })));
-await check('admin publishes any dept',               true,
-  () => setDoc(doc(admin, 'teamAway/المالية'), awayDoc({ department: 'المالية', byName: 'المدير' })));
+/* المدير: قسمه وحده */
+await check('manager adds an event for own dept',     true,
+  () => setDoc(doc(mgr, 'calendarEvents/ev1'), ev()));
+await check('⚠️ manager adds one for ANOTHER dept',    false,
+  () => setDoc(doc(mgr, 'calendarEvents/ev2'), ev({ department: 'المالية' })));
+/* ⚠️ حدث الشركة قرار الأدمن — والمدير يصله بترك القسم فارغاً */
+await check('⚠️ manager adds a COMPANY-WIDE event',    false,
+  () => setDoc(doc(mgr, 'calendarEvents/ev3'), ev({ department: '' })));
+await check('manager forges createdBy',               false,
+  () => setDoc(doc(mgr, 'calendarEvents/ev4'), ev({ createdBy: 'adminU' })));
+await check('manager forges createdByName',           false,
+  () => setDoc(doc(mgr, 'calendarEvents/ev5'), ev({ createdByName: 'المدير' })));
 
-/* ⚠️ قائمة المفاتيح المغلقة — تمنع تسريب حقل جديد سهواً */
-await check('⚠️ a leave TYPE smuggled into the board', false,
-  () => setDoc(doc(mgr, 'teamAway/المبيعات'), { ...awayDoc(), leaveType: 'إجازة مرضية' }));
-await check('⚠️ a reason smuggled into the board',     false,
-  () => setDoc(doc(mgr, 'teamAway/المبيعات'), { ...awayDoc(), reason: 'عملية جراحية' }));
-await check('staffCount as a string',                 false,
-  () => setDoc(doc(mgr, 'teamAway/المبيعات'), awayDoc({ staffCount: 'ستة' })));
-await check('backdated at',                           false,
-  () => setDoc(doc(mgr, 'teamAway/المبيعات'), awayDoc({ at: Timestamp.fromMillis(Date.now() - 9e6) })));
+/* الأدمن: أي نطاق */
+await check('admin adds a company-wide event',        true,
+  () => setDoc(doc(admin, 'calendarEvents/ev6'),
+    ev({ department: '', createdBy: 'adminU', createdByName: 'المدير' })));
+await check('admin adds one for any dept',            true,
+  () => setDoc(doc(admin, 'calendarEvents/ev7'),
+    ev({ department: 'المالية', createdBy: 'adminU', createdByName: 'المدير' })));
 
-/* القراءة محصورة بالقسم */
-await check('employee reads own dept board',          true,  () => getDoc(doc(emp, 'teamAway/المبيعات')));
-await check('⚠️ employee reads ANOTHER dept board',    false, () => getDoc(doc(emp, 'teamAway/المالية')));
-await check('admin reads any board',                  true,  () => getDoc(doc(admin, 'teamAway/المالية')));
-await check('suspended reads own dept board',         false, () => getDoc(doc(susp, 'teamAway/المبيعات')));
-await check('stranger reads a board',                 false, () => getDoc(doc(stranger, 'teamAway/المبيعات')));
+/* الموظف لا يكتب شيئاً */
+await check('⚠️ employee adds an event',               false,
+  () => setDoc(doc(emp, 'calendarEvents/ev8'), ev({ createdBy: 'empU', createdByName: 'سالم' })));
 
-/* ⚠️ ويبقى الأصل مقفلاً: فتح اللوحة لم يفتح الطلبات */
-await check('⚠️ employee still cannot read a peer request', false,
+/* الحدود على الشكل */
+await check('title beyond 120 chars',                 false,
+  () => setDoc(doc(mgr, 'calendarEvents/ev9'), ev({ title: 'ع'.repeat(121) })));
+await check('empty title',                            false,
+  () => setDoc(doc(mgr, 'calendarEvents/ev10'), ev({ title: '' })));
+await check('note beyond 500 chars',                  false,
+  () => setDoc(doc(mgr, 'calendarEvents/ev11'), ev({ note: 'ن'.repeat(501) })));
+await check('a malformed date',                       false,
+  () => setDoc(doc(mgr, 'calendarEvents/ev12'), ev({ date: 'الأحد القادم' })));
+/* ⚠️ قائمة مفاتيح مغلقة — حقل جديد لا يتسلّل */
+await check('⚠️ an extra field smuggled in',           false,
+  () => setDoc(doc(mgr, 'calendarEvents/ev13'), { ...ev(), employeeUid: 'empU' }));
+
+/* القراءة: الشركة أو قسم القارئ */
+await check('employee reads own dept event',          true,  () => getDoc(doc(emp, 'calendarEvents/ev1')));
+await check('employee reads a company-wide event',    true,  () => getDoc(doc(emp, 'calendarEvents/ev6')));
+await check('⚠️ employee reads ANOTHER dept event',    false, () => getDoc(doc(emp, 'calendarEvents/ev7')));
+await check('employee queries own dept events',       true,
+  () => getDocs(query(collection(emp, 'calendarEvents'), where('department', '==', 'المبيعات'))));
+await check('employee queries company-wide events',   true,
+  () => getDocs(query(collection(emp, 'calendarEvents'), where('department', '==', ''))));
+await check('⚠️ employee queries events unconstrained', false,
+  () => getDocs(collection(emp, 'calendarEvents')));
+
+/* الحذف بنفس حدّ الكتابة */
+await check('manager deletes own dept event',         true,  () => deleteDoc(doc(mgr, 'calendarEvents/ev1')));
+await check('⚠️ manager deletes a company event',      false, () => deleteDoc(doc(mgr, 'calendarEvents/ev6')));
+await check('⚠️ manager deletes another dept event',   false, () => deleteDoc(doc(mgr, 'calendarEvents/ev7')));
+await check('employee deletes an event',              false, () => deleteDoc(doc(emp, 'calendarEvents/ev6')));
+await check('admin deletes any event',                true,  () => deleteDoc(doc(admin, 'calendarEvents/ev7')));
+
+/* ⚠️ والأصل يبقى مقفلاً: التقويم لم يفتح إجازات الزملاء للموظف */
+await check('⚠️ employee still cannot read peer leave requests', false,
   () => getDocs(query(collection(emp, 'requests'), where('department', '==', 'المبيعات'))));
 
 console.log(`\n\x1b[1m═══ RESULT: ${pass} passed, ${fail} failed ═══\x1b[0m`);
