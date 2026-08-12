@@ -16,8 +16,8 @@
 
 import { setSettings, setMe } from '../js/lib/state.js';
 import { resolveShift, shiftHours, shiftWindowFor, shiftText,
-         workingDaysBetween, compensableMin,
-         LATE_GRACE_MIN, LATE_COMP_MAX_MIN } from '../js/lib/shifts.js';
+         workingDaysBetween, compensableMin, shiftPlansOf, planById, planUsage,
+         DEFAULT_PLAN_ID, LATE_GRACE_MIN, LATE_COMP_MAX_MIN } from '../js/lib/shifts.js';
 import { haversine, nearestBranch, geoRuleFor, branchesOf, activeBranches,
          REMOTE_BRANCH_ID } from '../js/lib/geo.js';
 import { canApprove, canApproveType, hasChain, chainStep, isLastStep,
@@ -302,6 +302,146 @@ eq('بلا بصمة انصراف → لا تعويض',       0, compensableMin(6
 eq('بلا وردية محدّدة → لا تعويض',      0, compensableMin(60, outAt('19:00'), null));
 eq('تأخير سالب (خطأ حساب) → صفر لا سالب', 0, compensableMin(-30, outAt('19:00'), cWin));
 eq('السقف المعلن ساعة واحدة', 60, LATE_COMP_MAX_MIN);
+
+/* ═════════════════ ١٠. خطط الشفتات المتعدّدة (المرحلة ٢) ═════════════════
+
+   الطلب: «بعض الأحيان عندي موظفين يبدأ دوامهم ٢ أو ٣ العصر غير الباقي».
+   الخطر: هذه الطبقة تدخل بين الموظف وحساب تأخيره — أي خطأ فيها يخصم من
+   راتب إنسان. فالاختبار الأهم هنا ليس أن الجديد يعمل، بل أن **القديم لم
+   يتحرّك بالحرف** لمن لا خطة له. */
+group('١٠. خطط الشفتات — التوافق الخلفي أولاً');
+
+const EVENING = {
+  0: { type: 'evening', start: '15:00', end: '23:00' },
+  1: { type: 'evening', start: '15:00', end: '23:00' },
+  2: { type: 'evening', start: '15:00', end: '23:00' },
+  3: { type: 'evening', start: '15:00', end: '23:00' },
+  4: { type: 'evening', start: '15:00', end: '23:00' },
+  5: { type: 'off', start: '', end: '' },
+  6: { type: 'off', start: '', end: '' }
+};
+const planEvening = { id: 'plan_pm', name: 'الشفت المسائي', days: EVENING, active: true };
+
+/* ── بلا أي خطة: كل شيء كما كان ── */
+setSettings(baseSettings());
+eq('بلا shiftPlans تُركَّب خطة واحدة في الذاكرة', 1, shiftPlansOf().length);
+eq('وهي مُعلَّمة أنها مُركَّبة لا محفوظة', true, shiftPlansOf()[0].synthetic);
+eq('ومعرّفها هو الافتراضي المعلن', DEFAULT_PLAN_ID, shiftPlansOf()[0].id);
+eq('وأيامها هي ورديات الشركة نفسها', WEEK[0], shiftPlansOf()[0].days[0]);
+
+eq('موظف بلا خطة ولا قسم → سلوك اليوم بالحرف',
+   { type: 'morning', src: 'company' },
+   (() => { const s = resolveShift('2026-08-02', 0, '', { id: 'u1' }); return { type: s.type, src: s.src }; })());
+eq('ونداء بلا المعامل الرابع إطلاقاً يعطي نفس النتيجة',
+   { type: 'morning', src: 'company' },
+   (() => { const s = resolveShift('2026-08-02', 0); return { type: s.type, src: s.src }; })());
+
+/* ── خطة الموظف تتقدّم على قسمه وعلى الشركة ── */
+setSettings(baseSettings({
+  shiftPlans: [planEvening],
+  departments: [{ name: 'المبيعات', shifts: { 0: { type: 'morning', start: '09:00', end: '17:00' } } }]
+}));
+eq('موظف بخطة مسائية → خطته تفوز على وردية قسمه',
+   { type: 'evening', start: '15:00', src: 'empPlan' },
+   (() => { const s = resolveShift('2026-08-02', 0, 'المبيعات', { shiftPlanId: 'plan_pm' });
+            return { type: s.type, start: s.start, src: s.src }; })());
+eq('وزميله بلا خطة يبقى على وردية القسم',
+   { type: 'morning', start: '09:00', src: 'dept' },
+   (() => { const s = resolveShift('2026-08-02', 0, 'المبيعات', { id: 'u2' });
+            return { type: s.type, start: s.start, src: s.src }; })());
+
+/* ── خطة القسم بين خطة الموظف والورديات القديمة ── */
+setSettings(baseSettings({
+  shiftPlans: [planEvening],
+  departments: [{ name: 'الأمن', shiftPlanId: 'plan_pm',
+                  shifts: { 0: { type: 'morning', start: '09:00', end: '17:00' } } }]
+}));
+eq('خطة القسم تتقدّم على ورديات القسم القديمة',
+   { type: 'evening', src: 'deptPlan' },
+   (() => { const s = resolveShift('2026-08-02', 0, 'الأمن'); return { type: s.type, src: s.src }; })());
+
+/* ── الطبقات الخمس مرتّبة: استثناء التاريخ يعلو الجميع ── */
+setSettings(baseSettings({
+  shiftPlans: [planEvening],
+  departments: [{ name: 'الأمن', shiftPlanId: 'plan_pm' }],
+  dateExceptions: [{ date: '2026-08-02', type: 'off', label: 'اليوم الوطني' }]
+}));
+eq('عطلة رسمية تتقدّم حتى على خطة الموظف', 'off',
+   resolveShift('2026-08-02', 0, 'الأمن', { shiftPlanId: 'plan_pm' }).type);
+eq('واسمها هو الظاهر لا اسم الخطة', 'اليوم الوطني',
+   resolveShift('2026-08-02', 0, 'الأمن', { shiftPlanId: 'plan_pm' }).exLabel);
+
+/* ── ⚠️ خطة معطَّلة لا تعني «راحة» ──
+   لو أعادت off لصار قسم كامل غائباً في المسير بضغطة تعطيل واحدة. */
+setSettings(baseSettings({
+  shiftPlans: [{ ...planEvening, active: false }],
+  departments: [{ name: 'الأمن', shiftPlanId: 'plan_pm' }]
+}));
+eq('خطة معطَّلة تسقط للطبقة التالية ولا تُغيّب أحداً',
+   { type: 'morning', src: 'company' },
+   (() => { const s = resolveShift('2026-08-02', 0, 'الأمن', { shiftPlanId: 'plan_pm' });
+            return { type: s.type, src: s.src }; })());
+
+/* ── ⚠️ خطة ناقصة اليوم تسقط ولا تُحسب راحة ── */
+setSettings(baseSettings({
+  shiftPlans: [{ id: 'plan_half', name: 'ناقصة', days: { 1: EVENING[1] }, active: true }]
+}));
+eq('خطة بلا تعريف لليوم المطلوب تسقط للشركة',
+   'company', resolveShift('2026-08-02', 0, '', { shiftPlanId: 'plan_half' }).src);
+eq('واليوم المعرَّف فيها يعمل', 'empPlan',
+   resolveShift('2026-08-03', 1, '', { shiftPlanId: 'plan_half' }).src);
+
+/* ── معرّف خطة لا وجود له لا يكسر شيئاً ── */
+setSettings(baseSettings({ shiftPlans: [planEvening] }));
+eq('shiftPlanId يشير لخطة محذوفة → يسقط للشركة بلا خطأ',
+   'company', resolveShift('2026-08-02', 0, '', { shiftPlanId: 'plan_ghost' }).src);
+eq('planById لمعرّف غير موجود → null', null, planById('plan_ghost'));
+
+/* ── الخطة الافتراضية على مستوى الشركة ── */
+setSettings(baseSettings({ shiftPlans: [planEvening], defaultShiftPlanId: 'plan_pm' }));
+eq('الخطة الافتراضية تحلّ محلّ settings.shifts للجميع',
+   { type: 'evening', src: 'plan' },
+   (() => { const s = resolveShift('2026-08-02', 0); return { type: s.type, src: s.src }; })());
+
+/* ── ⚠️ الوصلة إلى المرحلة ١: checkInCutoff لازم يركب الوردية ── */
+group('١٠-ب. checkInCutoff يصل من الخطة إلى الوردية');
+setSettings(baseSettings({
+  shiftPlans: [{ ...planEvening, checkInCutoff: '18:30' }]
+}));
+eq('قفل الحضور المُعرَّف في الخطة يظهر على الوردية المُرجَعة', '18:30',
+   resolveShift('2026-08-02', 0, '', { shiftPlanId: 'plan_pm' }).checkInCutoff);
+setSettings(baseSettings({ shiftPlans: [planEvening] }));
+eq('وخطة بلا قفل صريح لا تخترع واحداً', undefined,
+   resolveShift('2026-08-02', 0, '', { shiftPlanId: 'plan_pm' }).checkInCutoff);
+eq('والمسار القديم بلا خطط لا قفل فيه إطلاقاً', undefined,
+   resolveShift('2026-08-02', 0).checkInCutoff);
+
+/* ── أيام الإجازة تُحسب على خطة الموظف ── */
+group('١٠-ج. الإجازة تحترم خطة شفت الموظف');
+setSettings(baseSettings({
+  shiftPlans: [{ id: 'plan_tue', name: 'راحته الثلاثاء',
+                 days: { ...WEEK, 2: { type: 'off', start: '', end: '' },
+                         5: { type: 'morning', start: '08:00', end: '16:00' } },
+                 active: true }]
+}));
+eq('موظف راحته الثلاثاء لا يُخصم منه الثلاثاء',
+   { days: 4, off: 1 },
+   workingDaysBetween('2026-08-02', '2026-08-06', '', { shiftPlanId: 'plan_tue' }));
+eq('وزميله على دوام الشركة يُخصم منه الأيام الخمسة',
+   { days: 5, off: 0 },
+   workingDaysBetween('2026-08-02', '2026-08-06', ''));
+
+/* ── حراسة الحذف ── */
+group('١٠-د. مَن يتبع الخطة');
+setSettings(baseSettings({
+  shiftPlans: [planEvening],
+  departments: [{ name: 'الأمن', shiftPlanId: 'plan_pm' }, { name: 'المالية' }]
+}));
+eq('تُحصى الأقسام والموظفون التابعون للخطة',
+   { depts: 1, employees: 2, deptNames: ['الأمن'] },
+   planUsage('plan_pm', [{ shiftPlanId: 'plan_pm' }, { shiftPlanId: 'plan_pm' }, { shiftPlanId: 'x' }]));
+eq('وخطة لا يتبعها أحد تُحصى صفراً',
+   { depts: 0, employees: 0, deptNames: [] }, planUsage('plan_none', []));
 
 console.log(`\n\x1b[1m═══ النتيجة: ${pass} ناجح، ${fail} فاشل ═══\x1b[0m`);
 process.exit(fail ? 1 : 0);

@@ -191,7 +191,10 @@ export function buildDailyStatus(cyc, users, requests, recs, opts = {}) {
     const startsAt = (hire && !isNaN(hire) && hire > cyc.start) ? hire : cyc.start;
     for (let d = new Date(startsAt); d <= end; d.setDate(d.getDate() + 1)) {
       const dateStr = ymd(d), dow = d.getDay();
-      const shift = resolveShift(dateStr, dow, u.department);
+      /* ⚠️ خطة شفت الموظف تتقدّم على قسمه — انظر resolveShift في shifts.js.
+         بلا تمرير `u` هنا يُحسب «متأخر» على وردية قسمه لا على ورديته، فمن
+         دوامه ٣ العصر يظهر متأخراً سبع ساعات كل يوم. */
+      const shift = resolveShift(dateStr, dow, u.department, u);
       if (!shift || shift.type === 'off') continue;   /* راحة أو عطلة رسمية → لا يُحاسب عليها */
       const leave = requests.find((r) => r.type === 'leave' && r.status === 'approved' &&
         r.employeeUid === u.id && r.startDate <= dateStr && r.endDate >= dateStr);

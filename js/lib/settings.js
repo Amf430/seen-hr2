@@ -11,7 +11,8 @@ const REF = () => doc(db, 'settings', 'config');
 /* المفاتيح المستقلة داخل وثيقة الإعدادات — كل شاشة إعدادات تملك واحداً أو
    اثنين منها ولا تمسّ البقية. */
 const KEYS = ['permissionReasons', 'leaveTypes', 'approvers', 'departments', 'hrTicketCategories',
-              'dateExceptions', 'branches', 'payroll', 'company', 'shifts'];
+              'dateExceptions', 'branches', 'payroll', 'company', 'shifts',
+              'shiftPlans', 'defaultShiftPlanId'];
 
 /* القيم الافتراضية تُدمج تحت المحفوظ، فأي مفتاح جديد نضيفه لاحقاً لا يحتاج
    ترحيل بيانات — يظهر بقيمته الافتراضية حتى يحفظ الأدمن. */
@@ -25,7 +26,11 @@ const DEFAULTS = {
   branches: [],
   payroll: { hoursPerDay: 8, daysPerMonth: 30, graceMinutes: 0 },
   company: { lat: null, lng: null, radius: 500 },
-  shifts: {}
+  shifts: {},
+  /* ⚠️ فارغة عمداً: shiftPlansOf() في shifts.js تُركّب خطة واحدة في الذاكرة
+     من `shifts` حين تكون هذه فارغة، فيشتغل النظام يوم النشر بلا ترحيل. */
+  shiftPlans: [],
+  defaultShiftPlanId: ''
 };
 
 export async function loadSettings() {

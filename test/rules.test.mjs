@@ -144,6 +144,29 @@ await check('emergencyPhone beyond 20 chars',         false, () => selfContact({
 await check('emergencyName beyond 80 chars',          false, () => selfContact({ emergencyName: 'ن'.repeat(81) }));
 await check('address sent as a non-string',           false, () => selfContact({ address: { a: 1 } }));
 
+/* ═══ خطط الشفتات (المرحلة ٢) ═══
+   ⚠️ shiftPlanId يحدّد وقت بداية دوام الموظف، وعليه يُحسب تأخيره ويُخصم
+   راتبه. موظف يقدر يكتبه على نفسه يمنح نفسه شفتاً مسائياً صباحَ كل يوم
+   يتأخر فيه، فيمحو التأخير قبل أن يراه أحد. الحارس الحقيقي هو أن الحقل
+   خارج قائمة only([...]) في match /users — وهذه الاختبارات تحرس القائمة
+   من أن يوسّعها أحد لاحقاً بلا انتباه. */
+await check('employee grants self a shift plan',      false, () => selfContact({ shiftPlanId: 'plan_pm' }));
+await check('employee smuggles shiftPlanId w/ address', false, () => selfContact({ address: 'x', shiftPlanId: 'plan_pm' }));
+await check('employee clears own shiftPlanId',        false, () => selfContact({ shiftPlanId: '' }));
+await check('manager sets a plan on own dept member', false, () => updateDoc(doc(mgr, 'users/empU'), { shiftPlanId: 'plan_pm' }));
+await check('admin assigns a shift plan',             true,  () => updateDoc(doc(admin, 'users/empU'), { shiftPlanId: 'plan_pm' }));
+await check('admin clears a shift plan',              true,  () => updateDoc(doc(admin, 'users/empU'), { shiftPlanId: '' }));
+
+/* الخطط نفسها تعيش في settings/config — أدمن فقط، والقاعدة قائمة */
+await check('employee writes shiftPlans in settings', false,
+  () => updateDoc(doc(emp, 'settings/config'), { shiftPlans: [{ id: 'x', name: 'y' }] }));
+await check('manager writes shiftPlans in settings',  false,
+  () => updateDoc(doc(mgr, 'settings/config'), { shiftPlans: [{ id: 'x', name: 'y' }] }));
+await check('admin writes shiftPlans in settings',    true,
+  () => updateDoc(doc(admin, 'settings/config'), {
+    shiftPlans: [{ id: 'plan_pm', name: 'المسائي', days: {}, active: true }],
+    defaultShiftPlanId: 'plan_pm' }));
+
 /* ═══ سجل المستندات ═══
    الخطر المحدّد: موظف يخفي انتهاء إقامته. الغرامة على الشركة لا عليه،
    فالحقل بيد الأدمن وحده مهما بدا أنه «بيانات الموظف نفسه». */

@@ -13,6 +13,7 @@ import { activeBranches, branchesOf as allBranches } from '../lib/geo.js';
 import { normPhone, isValidSaudiMobile } from '../lib/phone.js';
 import { createEmployee, updateEmployee, generateTempPassword } from '../lib/users.js';
 import { managerCandidates } from '../lib/org.js';
+import { shiftPlansOf } from '../lib/shifts.js';
 
 const ROLE_OPTS = [
   ['employee', 'موظف'],
@@ -35,6 +36,9 @@ export function openEmpForm(u = null, after) {
   })();
   /* المرشّحون لأن يكونوا مديراً — بلا نفسه، وبلا من يخلق حلقة تسلسل */
   const bosses = managerCandidates(u ? u.id : '__new__');
+  /* الخطط المحفوظة وحدها — الخطة المُركَّبة في الذاكرة لا تُسنَد لأحد لأن
+     معرّفها غير موجود في Firestore، وإسنادها يكتب معرّفاً ميتاً في وثيقة. */
+  const namedPlans = shiftPlansOf().filter((p) => !p.synthetic && p.active !== false);
   const mode = (u && u.workMode === 'remote') ? 'remote' : 'onsite';
   const picked = Array.isArray(u && u.branchIds) ? u.branchIds : [];
 
@@ -57,6 +61,15 @@ export function openEmpForm(u = null, after) {
           <div class="help">القسم يحدّد الوردية ومدير الموافقات.</div></div>
         <div class="field"><label for="eTitle">المسمى الوظيفي</label>
           <input id="eTitle" value="${esc(u?.jobTitle || '')}"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label for="eShiftPlan">خطة الشفت</label>
+          <select id="eShiftPlan">
+            <option value="">حسب القسم</option>
+            ${namedPlans.map((p) => `<option value="${esc(p.id)}"${
+              (u?.shiftPlanId || '') === p.id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}
+          </select>
+          <div class="help">للاستثناءات وحدها — موظف دوامه يبدأ ٣ العصر مثلاً. «حسب القسم» هو الصحيح لأغلب الناس، وهو ما يجعل تغيير خطة القسم يشملهم تلقائياً.</div></div>
       </div>
       <div class="form-row">
         <div class="field"><label for="ePhone">الجوال (يُستخدم للدخول) *</label>
@@ -168,6 +181,8 @@ export function openEmpForm(u = null, after) {
       name,
       empId:       m.$('#eEmpId').value.trim(),
       department:  m.$('#eDept').value.trim(),
+      /* '' = حسب القسم — الغياب يطابق سلوك اليوم بالحرف */
+      shiftPlanId: m.$('#eShiftPlan').value || '',
       jobTitle:    m.$('#eTitle').value.trim(),
       /* ⚠️ الحقل النصّي القديم يبقى كما هو ولا يُحذف: هو ما يُعرض في بطاقة
          الموظف اليوم، ولا يوجد ترحيل آلي موثوق من نصّ إلى معرّف (اسمان

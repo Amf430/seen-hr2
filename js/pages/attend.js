@@ -15,10 +15,10 @@ import { card, tableWrap, empty, grid, stat } from '../lib/ui.js';
    buildDailyStatus، وكان ما زال قائماً في هذه الصفحة وحدها.
    الوردية تُحلّ بنفس ترتيب الأولوية المعتمد: استثناء التاريخ ← وردية القسم
    ← الوردية العامة. */
-function daySecs(rec, deptName) {
+function daySecs(rec, deptName, emp) {
   const d  = new Date(rec.date + 'T00:00:00');
   if (isNaN(d)) return workedSecs(sessionsOf(rec)).secs;
-  const sh = resolveShift(rec.date, d.getDay(), deptName);
+  const sh = resolveShift(rec.date, d.getDay(), deptName, emp);
   const w  = shiftWindowFor(d, sh);
   return workedSecs(sessionsOf(rec), w ? w.end.getTime() : null).secs;
 }
@@ -51,7 +51,7 @@ export async function render(view, token) {
   host.innerHTML = '';
   if (!mine.length) { host.appendChild(empty('ما سجّلت حضوراً في هذه الدورة بعد', 'calendar')); return; }
 
-  const totalSecs = mine.reduce((s, r) => s + daySecs(r, me.department), 0);
+  const totalSecs = mine.reduce((s, r) => s + daySecs(r, me.department, me), 0);
   const g = grid(3);
   g.append(
     stat(mine.length, 'أيام حضور'),
@@ -66,7 +66,7 @@ export async function render(view, token) {
       <tbody>${mine.map((r) => {
         const ss = sessionsOf(r);
         const last = ss[ss.length - 1];
-        const secs = daySecs(r, me.department);
+        const secs = daySecs(r, me.department, me);
         const d = new Date(r.date + 'T00:00:00');
         return `<tr>
           <td class="num">${esc(r.date)}</td>
