@@ -601,6 +601,68 @@ await check('late tag does NOT unlock a backdated in', false, async () => {
 await check('late tag does NOT unlock another uid',    false,
   () => setDoc(doc(emp, 'attendance/emp2U_' + ymdKsa()), { ...attDoc(), employeeUid: 'emp2U', lateCheckIn: true }));
 
+/* ═══ 10. مدير القسم ينشئ موظفاً في قسمه (المرحلة ٣) ═══
+
+   الطلب: «مدير القسم يقدر يشوف الموظفين ويضيف موظفين تابعين لقسمه فقط، ما
+   يقدر يشوف بيانات باقي الموظفين ولا أي حد برا قسمه».
+
+   ⚠️ القراءة خارج القسم كانت محروسة أصلاً بـ sameDept()، والجديد هنا هو
+   الإنشاء. وكل اختبار أدناه يقابل تصعيداً محدّداً لا افتراضاً:
+     • قسم آخر     → يكسب قراءة على موظف لم يُعطَ له
+     • دور manager → يصنع مديراً ثانياً فينتهي فحص الأدوار
+     • salary      → القراءة مسموحة بقرار المالك، أما الكتابة فهي المسير
+     • createdBy   → حساب بلا كاتب معروف لا يمكن التحقيق فيه لاحقاً
+
+   ⚠️ ولاحظ: قراءة الراتب **مسموحة** لمدير القسم بقرار المالك (٢٠٢٦-٠٨-١٢)،
+   وهناك اختبار صريح أدناه يُثبتها حتى لا يظنّ أحد لاحقاً أنها ثغرة فيسدّها
+   ويكسر سلوكاً مقصوداً. */
+console.log('\n\x1b[1m═══ 10. MANAGER CREATES AN EMPLOYEE ═══\x1b[0m');
+
+const newEmp = (over = {}) => ({
+  name: 'موظف جديد', department: 'المبيعات', role: 'employee',
+  status: 'active', createdBy: 'mgrU', phone: '0501112233', ...over
+});
+
+await check('manager creates in OWN dept',            true,
+  () => setDoc(doc(mgr, 'users/newHire1'), newEmp()));
+await check('manager creates in ANOTHER dept',        false,
+  () => setDoc(doc(mgr, 'users/newHire2'), newEmp({ department: 'المالية' })));
+await check('manager creates with NO department',     false,
+  () => setDoc(doc(mgr, 'users/newHire3'), newEmp({ department: '' })));
+await check('manager mints a second manager',         false,
+  () => setDoc(doc(mgr, 'users/newHire4'), newEmp({ role: 'manager' })));
+await check('manager mints an admin',                 false,
+  () => setDoc(doc(mgr, 'users/newHire5'), newEmp({ role: 'admin' })));
+await check('manager sets a salary on creation',      false,
+  () => setDoc(doc(mgr, 'users/newHire6'), newEmp({ salary: 9000 })));
+/* ⚠️ صفر ليس «بلا راتب» — الحقل موجود، والقاعدة تشترط غيابه */
+await check('manager sends salary: 0',                false,
+  () => setDoc(doc(mgr, 'users/newHire7'), newEmp({ salary: 0 })));
+await check('manager creates a pre-suspended acct',   false,
+  () => setDoc(doc(mgr, 'users/newHire8'), newEmp({ status: 'suspended' })));
+await check('manager forges createdBy',               false,
+  () => setDoc(doc(mgr, 'users/newHire9'), newEmp({ createdBy: 'adminU' })));
+await check('manager omits createdBy',                false,
+  () => setDoc(doc(mgr, 'users/newHire10'), (() => { const o = newEmp(); delete o.createdBy; return o; })()));
+await check('plain employee creates an employee',     false,
+  () => setDoc(doc(emp, 'users/newHire11'), newEmp({ createdBy: 'empU' })));
+await check('suspended manager creates',              false,
+  () => setDoc(doc(susp, 'users/newHire12'), newEmp({ createdBy: 'suspU' })));
+
+/* الكتابة على موظف قائم تبقى ممنوعة على المدير — الإنشاء وحده فُتح */
+await check('manager edits a salary in own dept',     false,
+  () => updateDoc(doc(mgr, 'users/empU'), { salary: 1 }));
+await check('manager promotes own dept member',       false,
+  () => updateDoc(doc(mgr, 'users/empU'), { role: 'manager' }));
+await check('manager suspends own dept member',       false,
+  () => updateDoc(doc(mgr, 'users/empU'), { status: 'suspended' }));
+
+/* القراءة: داخل القسم مسموحة بكاملها، وخارجه ممنوعة */
+await check('manager reads own dept member (salary included — owner decision)', true,
+  () => getDoc(doc(mgr, 'users/empU')));
+await check('manager reads someone OUTSIDE own dept', false,
+  () => getDoc(doc(mgr, 'users/adminU')));
+
 console.log(`\n\x1b[1m═══ RESULT: ${pass} passed, ${fail} failed ═══\x1b[0m`);
 if (failures.length) { console.log('\nFAILURES:'); failures.forEach((f) => console.log('  • ' + f)); }
 await env.cleanup();

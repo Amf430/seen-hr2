@@ -15,12 +15,25 @@ import { docsOf, worstDocState, kindLabel } from '../lib/documents.js';
 
 export async function render(view, token) {
   const me = getMe();
+  /* ⚠️⚠️ عمود الراتب مخفيّ عن المدير هنا **تجميلاً مقصوداً لا حمايةً**.
+     قاعدة القراءة في firestore.rules تمنح مدير القسم وثيقة الموظف كاملةً عبر
+     sameDept()، وفيها salary — فأي مدير يفتح تبويب Network يراه.
+
+     وهذا **قرار المالك في ٢٠٢٦-٠٨-١٢** لا سهوٌ: «ما فيه مشكلة لو مدير القسم
+     شاف الرواتب». نقلُ الحقول المالية إلى وثيقة فرعية مُلغى.
+
+     فلا تبنِ على هذا الإخفاء أي وعد أمني، ولا تكتب في أي شاشة أن المدير لا
+     يستطيع رؤية الرواتب. ما يمنعه فعلاً على السيرفر شيئان: لا يرى أحداً خارج
+     قسمه، ولا يكتب راتباً إطلاقاً. */
   const isAdmin = me.role === 'admin';
 
   const bar = el('div', 'toolbar');
   bar.innerHTML = `<input id="empSearch" class="search-input" placeholder="بحث بالاسم أو القسم أو الرقم الوظيفي…">`;
   /* مدير القسم لا يقدر ينشئ أو يعدّل — القاعدة ترفضه، فلا نعرض أزراراً تفشل */
-  if (isAdmin) bar.appendChild(button('إضافة موظف', 'btn sm', () => openEmpForm(null, afterChange, 'plus')));
+  /* ⚠️ مدير القسم يضيف لقسمه وحده — تحرسه قاعدة `allow create` لا هذا السطر.
+     ومن لا قسم له لا يقدر: القاعدة تشترط myDept() != '' فتسقط كتابته. */
+  const canAdd = isAdmin || (me.role === 'manager' && !!me.department);
+  if (canAdd) bar.appendChild(button('إضافة موظف', 'btn sm', () => openEmpForm(null, afterChange, 'plus')));
   view.appendChild(bar);
 
   const c = card('');

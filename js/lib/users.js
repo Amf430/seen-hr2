@@ -54,8 +54,14 @@ export async function createEmployee(base, password) {
      رقم الجوال يُقفل نهائياً: الحساب موجود في Auth بلا ملف، وكل إعادة محاولة
      ترجع auth/email-already-in-use، ولا مخرج إلا الحذف اليدوي من Console. */
   try {
+    /* ⚠️ createdBy ليس تجميلاً: قاعدة الإنشاء تشترطه على مدير القسم
+       (`d().createdBy == request.auth.uid`). حساب يظهر في قسم بلا كاتب معروف
+       هو الشيء الوحيد الذي لا يمكن التحقيق فيه لاحقاً. ويُكتب للأدمن أيضاً
+       حتى يكون السجل موحّداً لا مشروطاً بمن أنشأ. */
+    const me = getMe();
     await setDoc(doc(db, 'users', acct.uid), {
       ...base, email, status: 'active', balances,
+      createdBy: me ? me.id : '',
       mustChangePassword: true, createdAt: serverTimestamp()
     });
   } catch (e) {

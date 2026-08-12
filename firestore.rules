@@ -97,7 +97,36 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if isAdmin() || (sIn() && request.auth.uid == uid) || sameDept();
 
-      allow create: if isAdmin();
+      /* ── who may create an employee ──
+         The admin, always. A department manager, but only into their own
+         department and only as a plain employee.
+
+         Every clause below closes a specific escalation, not a hypothetical:
+
+           department == myDept()   a manager filing someone into another
+                                    department would gain sameDept() read over
+                                    a person they were never given.
+           role == 'employee'       without it a manager mints a second manager,
+                                    or an admin, and the role check is over.
+           !('salary' in d())       reading salaries is the owner's call and is
+                                    allowed (see the decision of 2026-08-12).
+                                    SETTING one is not — that is payroll.
+           status == 'active'       no pre-suspended accounts.
+           createdBy == uid         the record says who did it. An account that
+                                    appears in a department with no author is
+                                    the one thing nobody can investigate later.
+
+         ⚠️ Auth-side account creation is a separate act the rules cannot see —
+         js/lib/firebase.js opens a secondary app so the creator's own session
+         is not swapped out. That path must not assume the creator is an admin. */
+      allow create: if isAdmin()
+        || (isMgr()
+            && d().get('department','') == myDept()
+            && myDept() != ''
+            && d().get('role','employee') == 'employee'
+            && !('salary' in d())
+            && d().get('status','active') == 'active'
+            && d().get('createdBy','') == request.auth.uid);
 
       /* Self-update is pinned to a short allowlist. Role, salary, status,
          balances, department, managerUid and every other field stay admin-only.
