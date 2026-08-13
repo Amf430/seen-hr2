@@ -18,7 +18,7 @@ import { sortTasks, dueStateOf, managerPulse, isStaleTask, roleFor,
          STATUS_AR, PRIORITY_AR } from '../lib/task-flow.js';
 import { isStale, go } from '../lib/nav.js';
 import { isAdmin } from '../lib/perms.js';
-import { card, grid, stat, tableWrap, sectionHead, button, loading, callout } from '../lib/ui.js';
+import { card, tableWrap, sectionHead, button, loading, callout, pageHead, statCard } from '../lib/ui.js';
 
 export async function render(view, token) {
   const me = getMe();
@@ -35,19 +35,25 @@ export async function render(view, token) {
     return;
   }
 
-  const head = card('');
-  const bar = el('div', 'cluster');
+  /* ⚠️ رأس واحد بالإجراءات بدل بطاقة عنوان تشغل ثلث الشاشة بلا معلومة.
+     و«المهام المنجزة» زرّ هنا لا رابط في الشريط الجانبي (طلب المالك): الأرشيف
+     امتداد لهذه الصفحة لا وجهة مستقلّة — من يفتح مهام قسمه يبحث عن المفتوحة،
+     ويعود للمنجزة عند السؤال عمّا أُنجز. */
   let deptSel = null;
+  const headActions = [
+    button('مهمة جديدة', 'btn sm', () => openTaskForm(null), 'plus'),
+    button('المهام المنجزة', 'btn sm ghost', () => go('tasks-archive'), 'archive')
+  ];
+  view.appendChild(pageHead('مهام القسم',
+    'تابع ما وصلت إليه مهام قسمك، واعتمد المنجز منها.', ...headActions));
+
   if (depts.length > 1) {
-    deptSel = el('select', 'select-lg');
+    deptSel = el('select', '');
     deptSel.innerHTML = depts.map((d) => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
+    const bar = el('div', 'toolbar');
     bar.appendChild(deptSel);
+    view.appendChild(bar);
   }
-  head.appendChild(sectionHead({ text: 'مهام القسم', icon: 'check' },
-    button('مهمة جديدة', 'btn sm', () => openTaskForm(null))));
-  head.appendChild(el('p', 'desc', 'تابع ما وصلت إليه مهام قسمك، واعتمد المنجز منها.'));
-  if (deptSel) head.appendChild(bar);
-  view.appendChild(head);
 
   const host = el('div', '');
   view.appendChild(host);
@@ -56,7 +62,7 @@ export async function render(view, token) {
   /* موظفو القسم — للتكليف. المدير لا يكلّف خارج قسمه. */
   const staffOf = (d) => getUsers().filter((u) => u.role !== 'admin' && u.department === d);
 
-  let filterStatus = '', filterUid = '', onlyLate = false;
+  let filterStatus = '', filterUid = '', onlyLate = false, filterStale = false;
 
   async function draw() {
     host.innerHTML = '';
@@ -105,21 +111,32 @@ export async function render(view, token) {
       `${hitting.length} مهمة يستحقّ موعدها ومسؤولها في إجازة`,
       hitting.map((h) => `«${h.task.title}» — ${h.task.assigneeName} حتى ${h.leave.endDate}`).join(' · ')));
 
-    /* ⚠️ الترتيب مقصود: المنسيّة أولاً لأنها الوحيدة التي لا يذكّر بها أحد */
-    const g = grid(3);
-    g.append(
-      stat(String(pulse.stale), 'بلا حراك ٧ أيام', pulse.stale ? 'r' : 'ok'),
-      stat(String(pulse.overdue), 'متأخرة', pulse.overdue ? 'a' : 'ok'),
-      stat(String(pulse.awaitingMe), 'بانتظار اعتمادي', pulse.awaitingMe ? 'a' : '')
+    /* ⚠️ الأرقام أفعالٌ لا عدّادات: كل بطاقة تفرز القائمة على ما تعدّه.
+       «٣ متأخرة» رقمٌ ميت ما لم يوصلك إلى الثلاثة، والأدمن كان ينزل يفرز
+       يدوياً بعد قراءته.
+       ⚠️ الترتيب مقصود: المنسيّة أولاً لأنها الوحيدة التي لا يذكّر بها أحد. */
+    const sg = el('div', 'statgrid');
+    const jump = (setter) => () => { setter(); draw(); };
+    sg.append(
+      statCard({ label: 'بلا حراك ٧ أيام', value: pulse.stale, ico: 'alert',
+        tone: pulse.stale ? 'bad' : 'good',
+        sub: pulse.stale ? 'لا أحد يذكّر بها — اضغط لعرضها' : 'كل المهام تتحرّك',
+        onClick: pulse.stale ? jump(() => { filterStale = !filterStale; onlyLate = false; }) : null }),
+      statCard({ label: 'متأخرة', value: pulse.overdue, ico: 'clock',
+        tone: pulse.overdue ? 'warn' : 'good',
+        sub: pulse.overdue ? 'تجاوزت موعدها — اضغط لعرضها' : 'لا شيء تجاوز موعده',
+        onClick: pulse.overdue ? jump(() => { onlyLate = !onlyLate; filterStale = false; }) : null }),
+      statCard({ label: 'بانتظار اعتمادي', value: pulse.awaitingMe, ico: 'inbox',
+        tone: pulse.awaitingMe ? 'warn' : '',
+        sub: pulse.awaitingMe ? 'أرسلها الموظف وتنتظر قرارك' : 'لا شيء ينتظر قرارك',
+        onClick: pulse.awaitingMe ? jump(() => { filterStatus = filterStatus === 'review' ? '' : 'review'; }) : null })
     );
-    const kpi = card('');
-    kpi.appendChild(g);
-    if (pulse.stale) kpi.appendChild(el('p', 'help',
+    host.appendChild(sg);
+    if (pulse.stale) host.appendChild(el('p', 'help',
       'المهمة المنسيّة أخطر من المتأخرة: المتأخرة يسأل عنها أحد، والمنسيّة لا يذكرها أحد.'));
-    host.appendChild(kpi);
 
     /* ── الفلاتر ── */
-    const fc = card('');
+    const fc = el('div', 'filterbar');
     const fbar = el('div', 'cluster');
     const stSel = el('select', '');
     stSel.innerHTML = '<option value="">كل الحالات</option>' +
@@ -128,11 +145,19 @@ export async function render(view, token) {
     const uSel = el('select', '');
     uSel.innerHTML = '<option value="">كل الموظفين</option>' +
       staffOf(dept).map((u) => `<option value="${esc(u.id)}"${filterUid === u.id ? ' selected' : ''}>${esc(u.name)}</option>`).join('');
-    const lateBtn = button(onlyLate ? '✓ المتأخرة فقط' : 'المتأخرة فقط',
-      'btn sm ' + (onlyLate ? '' : 'ghost'), () => { onlyLate = !onlyLate; draw(); });
+    const lateBtn = button('المتأخرة فقط', 'btn sm ' + (onlyLate ? '' : 'ghost'),
+      () => { onlyLate = !onlyLate; filterStale = false; draw(); }, onlyLate ? 'check' : 'clock');
+    const staleBtn = button('بلا حراك', 'btn sm ' + (filterStale ? '' : 'ghost'),
+      () => { filterStale = !filterStale; onlyLate = false; draw(); }, filterStale ? 'check' : 'alert');
     stSel.onchange = () => { filterStatus = stSel.value; draw(); };
     uSel.onchange  = () => { filterUid = uSel.value; draw(); };
-    fbar.append(stSel, uSel, lateBtn);
+    fbar.append(stSel, uSel, lateBtn, staleBtn);
+    /* ⚠️ زرّ المسح يظهر عند وجود فرز فعّال وحده: زرٌّ دائم لا يفعل شيئاً
+       يعلّم المستخدم تجاهل الأزرار. */
+    if (filterStatus || filterUid || onlyLate || filterStale) {
+      fbar.appendChild(button('مسح الفرز', 'btn sm ghost',
+        () => { filterStatus = ''; filterUid = ''; onlyLate = false; filterStale = false; draw(); }, 'x'));
+    }
     fc.appendChild(fbar);
     host.appendChild(fc);
 
@@ -140,6 +165,7 @@ export async function render(view, token) {
     if (filterStatus) list = list.filter((t) => t.status === filterStatus);
     if (filterUid)    list = list.filter((t) => t.assigneeUid === filterUid);
     if (onlyLate)     list = list.filter((t) => dueStateOf(t, today).kind === 'overdue');
+    if (filterStale)  list = list.filter((t) => isStaleTask(t, today));
 
     const c = card('');
     c.appendChild(sectionHead({ text: `المهام (${list.length})`, icon: 'check' }));

@@ -210,7 +210,7 @@ tr.row-total td {
      المختصرة تصفّر أي padding-block-end يُكتب قبلها. حصل فعلاً — كان الدوك
      يغطّي آخر صفّ من كل جدول وآخر زرّ في كل نموذج. */
   .content { padding: var(--sp-4, 16px);
-             padding-block-end: calc(56px + var(--sp-6, 24px) + env(safe-area-inset-bottom,0px)) }
+             padding-block-end: calc(52px + var(--sp-8, 32px) + env(safe-area-inset-bottom,0px)) }
   .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)) }
   .grid.cols-3 { grid-template-columns: repeat(2, minmax(0, 1fr)) }
 }
@@ -385,8 +385,9 @@ body.is-locked {
   box-shadow:none !important;
   border-radius:0 !important;
   object-fit:contain;
-  /* الرمز الأبيض على العنّابي الداكن — بلا خلفية ولا إطار */
-  inline-size:38px; block-size:38px;
+  /* ⚠️ الرمز الملوّن (mark.png) على الشريط الأبيض — النسخة البيضاء
+     كانت تختفي تماماً بعد أن صار الشريط فاتحاً. */
+  inline-size:36px; block-size:36px;
 }
 
 /* شاشتا الدخول وتغيير كلمة المرور: اللوقو كاملاً بنصّه */

@@ -3,34 +3,80 @@
    تركيب لا قيمة لإعادة استخدامه: الدخول، بطاقة الحضور، ولوحة القيادة.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* ══════════ login + first-password screens ══════════ */
-#loginScreen,#pwScreen{position:relative;
+/* ══════════ شاشة الدخول ══════════
+   ⚠️ بألوان النظام لا بالهوية وحدها (تصحيح المالك): بُنيت أول مرة عمقاً
+   عنّابياً داكناً بزرّ ذهبي — فبدت شاشةً من تطبيق آخر. النظام كلّه أبيض
+   وأسطح دافئة والعنّابي لمسة، وشاشة الدخول أول ما يُرى منه فيجب أن تَعِد
+   بما بعدها.
+
+   الفكرة من مرجع المالك باقية: شعار عائم فوق بطاقة، وعمق خلفها — لكن
+   العمق هنا ضوء لا ظلام. */
+#loginScreen,#pwScreen{position:relative;overflow:hidden;
   min-block-size:100dvh;display:flex;align-items:center;justify-content:center;
   padding:var(--sp-6) var(--sp-4);
-  background:radial-gradient(1200px 600px at 80% -10%,#6e2222 0%,var(--maroon) 45%,var(--maroon-ink) 100%)}
-#loginScreen::after,#pwScreen::after{content:"";position:absolute;inset:0;
-  background:radial-gradient(600px 300px at 15% 110%,rgba(184,148,90,.16),transparent 70%);
-  pointer-events:none}
+  background:var(--surface)}
 
+/* كتلتان ضبابيّتان تنجرفان — لمسة لون على أرضية فاتحة، بلا حلقة رسم */
+.login-orbs{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.login-orbs i{position:absolute;display:block;border-radius:50%;
+  filter:blur(80px);will-change:transform}
+.login-orbs i:nth-child(1){inline-size:420px;block-size:420px;
+  inset-block-start:-120px;inset-inline-end:-100px;
+  background:radial-gradient(circle,rgba(106,6,62,.10),transparent 70%);
+  animation:orbA 24s ease-in-out infinite alternate}
+.login-orbs i:nth-child(2){inline-size:480px;block-size:480px;
+  inset-block-end:-180px;inset-inline-start:-140px;
+  background:radial-gradient(circle,rgba(178,135,100,.12),transparent 72%);
+  animation:orbB 30s ease-in-out infinite alternate}
+@keyframes orbA{to{transform:translate3d(-50px,40px,0) scale(1.1)}}
+@keyframes orbB{to{transform:translate3d(60px,-30px,0) scale(1.06)}}
+
+/* ⚠️ الحركة زخرفية بالكامل — من يطلب تقليلها يرى نفس الأرضية ساكنة */
+@media (prefers-reduced-motion:reduce){ .login-orbs i{animation:none} }
+
+/* البطاقة كبقيّة بطاقات النظام: بيضاء بحدّ — لا زجاج ولا تدرّج */
 .login-card{position:relative;z-index:1;
-  inline-size:100%;max-inline-size:420px;
-  background:var(--card);border-radius:var(--r-xl);
-  box-shadow:var(--e-4);padding:var(--sp-10) var(--sp-8);text-align:center}
-.login-card .brand-mark{inline-size:56px;block-size:56px;border-radius:var(--r-lg);
-  background:var(--maroon);color:#fff;
-  font-size:var(--fs-2xl);font-weight:var(--fw-black);
-  display:grid;place-items:center;margin:0 auto var(--sp-4);
-  box-shadow:0 0 0 4px var(--maroon-tint),0 0 0 5px rgba(184,148,90,.35)}
-.login-card h1{font-size:var(--fs-xl);color:var(--maroon);line-height:var(--lh-heading)}
+  inline-size:100%;max-inline-size:400px;
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:var(--r-2xl);
+  box-shadow:var(--e-3);
+  padding:var(--sp-8) var(--sp-7);text-align:center;
+  color:var(--ink)}
+
+/* ⚠️ الشعار بلا إطار دائري: صورته ١٨١٤×١٨٣٣ تحمل اسم الشركة نصّاً، وحشرُها
+   في دائرة ٧٨px بحشوة يقصّ النصّ ويجعله غير مقروء. يُعرض بحجمه الطبيعي على
+   البطاقة مباشرةً — العلامة تُقرأ، ولا إطار يزاحمها. */
+.login-card .brand-logo{inline-size:auto;block-size:88px;max-inline-size:70%;
+  object-fit:contain;display:block;margin:0 auto var(--sp-5)}
+
+.login-card h1{font-size:var(--fs-2xl);color:var(--ink);
+  line-height:var(--lh-heading);letter-spacing:var(--ls-flat)}
 .login-card p.sub{color:var(--muted-strong);font-size:var(--fs-sm);
-  margin-block:var(--sp-1) var(--sp-7)}
-.login-card .field{text-align:start}
-.login-card .btn{inline-size:100%;min-block-size:var(--control-h-lg);
-  font-size:var(--fs-md);border-radius:var(--r-md);margin-block-start:var(--sp-2)}
+  margin-block:var(--sp-2) var(--sp-7)}
+
+.login-card .field{text-align:start;margin-block-end:var(--sp-4)}
+.login-card .field label{color:var(--muted-strong);font-size:var(--fs-caption)}
+/* الحقول كحقول النظام تماماً — نفس الحدّ ونفس حلقة التركيز */
+.login-card input{inline-size:100%;color:var(--ink);
+  background:var(--card);
+  border:1px solid var(--border-strong);
+  border-radius:var(--r-md);min-block-size:var(--control-h-lg);
+  padding-inline:var(--sp-4);font-size:var(--fs-base)}
+.login-card input::placeholder{color:var(--muted)}
+.login-card input:focus{outline:none;border-color:var(--maroon-2);
+  box-shadow:var(--ring)}
+
+/* الزرّ الرئيسي عنّابي ممتلئ — نفس زرّ النظام، لا تدرّج ذهبي */
+.login-card .btn{inline-size:100%;min-block-size:48px;
+  font-size:var(--fs-base);font-weight:var(--fw-bold);border-radius:var(--r-md);
+  margin-block-start:var(--sp-2)}
 .login-card .btn.link,.login-card .btn--link{inline-size:auto;min-block-size:auto;
-  margin-block-start:var(--sp-3);font-size:var(--fs-sm)}
+  margin-block-start:var(--sp-4);font-size:var(--fs-sm)}
+
 .login-card .dev-credit{margin-block-start:var(--sp-6);
-  padding-block-start:var(--sp-4);border-block-start:1px solid var(--line-2)}
+  padding-block-start:var(--sp-4);border-block-start:1px solid var(--border-soft)}
+.login-card .err{color:var(--red);font-size:var(--fs-sm);margin-block-start:var(--sp-3)}
 
 /* password field with reveal toggle */
 .pw-wrap{position:relative}
@@ -50,14 +96,17 @@
   .login-card{padding:var(--sp-7) var(--sp-5);border-radius:var(--r-lg)}
 }
 
-/* ══════════ attendance hero ══════════ */
+/* ══════════ بطاقة الحضور ══════════
+   ⚠️ كانت لوحاً عنّابياً داكناً بتدرّج وتوهّج ذهبي وظلّ ثقيل — أثقل عنصر في
+   النظام وأول ما يراه الموظف كل صباح. صارت بيضاء كبقيّة البطاقات (قرار
+   المالك: الأبيض أصل والعنّابي لهجة)، والعنّابي في الساعة وحدها.
+
+   ⚠️ الساعة كانت 3.5rem بوزن ٨٠٠ وظلّ نصّي — تصرخ ولا تُقرأ أسرع. صارت
+   بوزن ٧٠٠ وتتبّع سالب كبقيّة أرقام النظام. */
 .attend-hero{position:relative;overflow:hidden;
-  background:linear-gradient(160deg,var(--maroon-2) 0%,var(--maroon) 55%,var(--maroon-ink) 100%);
-  color:#fff;border-radius:var(--r-xl);box-shadow:var(--e-hero);
-  padding:var(--sp-7) var(--sp-6) var(--sp-6);margin-block-end:var(--sp-4)}
-.attend-hero::after{content:"";position:absolute;inset-block-start:-70px;inset-inline-end:-50px;
-  inline-size:220px;block-size:220px;pointer-events:none;
-  background:radial-gradient(circle,rgba(184,148,90,.35),transparent 70%)}
+  background:var(--card);color:var(--ink);
+  border:1px solid var(--border);border-radius:var(--r-lg);
+  padding:var(--sp-6);margin-block-end:var(--sp-4)}
 .attend-hero>*{position:relative;z-index:1}
 
 .hero__grid{display:grid;gap:var(--sp-5);align-items:center;
@@ -66,44 +115,44 @@
 .hero__side--start{align-items:flex-start;text-align:start}
 .hero__side--end{align-items:flex-end;text-align:end}
 
-.clock-day{font-size:var(--fs-md);font-weight:var(--fw-bold);color:var(--a-white-80)}
-.clock-date{font-size:var(--fs-sm);color:var(--a-white-56)}
-.clock-time{font-size:clamp(2.5rem,10vw,3.5rem);font-weight:var(--fw-black);
-  line-height:1.05;letter-spacing:var(--ls-num);
-  font-variant-numeric:tabular-nums lining-nums;
-  text-shadow:0 2px 14px rgba(0,0,0,.28)}
+.clock-day{font-size:var(--fs-sm);font-weight:var(--fw-medium);color:var(--muted-strong)}
+.clock-date{font-size:var(--fs-caption);color:var(--muted-strong)}
+.clock-time{font-size:clamp(2.25rem,8vw,3rem);font-weight:var(--fw-bold);
+  line-height:1;letter-spacing:var(--ls-stat);color:var(--maroon);
+  font-variant-numeric:tabular-nums lining-nums}
 
 .shift-line{display:inline-flex;align-items:center;gap:var(--sp-2);
   padding:var(--sp-1) var(--sp-3);border-radius:var(--r-pill);
-  background:var(--a-white-12);border:1px solid var(--a-white-16);
-  font-size:var(--fs-sm);font-weight:var(--fw-medium)}
+  background:var(--surface-3);border:1px solid var(--border);
+  color:var(--ink-2);font-size:var(--fs-caption);font-weight:var(--fw-medium)}
+.shift-line .ic{color:var(--muted-strong)}
 
-/* geofence / branch status — home of the per-employee radius + branches work */
+/* حالة النطاق الجغرافي — اللون يحمل المعنى مع النقطة، لا وحده */
 .hero__geo{display:inline-flex;align-items:center;gap:var(--sp-2);
   padding:var(--sp-1) var(--sp-3);border-radius:var(--r-pill);
-  font-size:var(--fs-caption);font-weight:var(--fw-bold);
-  background:var(--a-white-12);color:var(--a-white-80)}
+  font-size:var(--fs-caption);font-weight:var(--fw-medium);
+  background:var(--surface-3);color:var(--muted-strong)}
 .hero__geo::before{content:"";inline-size:6px;block-size:6px;border-radius:50%;background:currentColor}
-.hero__geo.is-in{background:rgba(138,255,192,.16);color:#8affc0}
-.hero__geo.is-out{background:rgba(255,180,180,.16);color:#ffb4b4}
-.hero__geo.is-anywhere{background:rgba(184,148,90,.22);color:#f0d6a8}
+.hero__geo.is-in{background:var(--green-bg);color:var(--green)}
+.hero__geo.is-out{background:var(--red-bg);color:var(--red)}
+.hero__geo.is-anywhere{background:var(--amber-bg);color:var(--amber)}
 
 /* work timer */
 .work-timer{display:flex;flex-direction:column;align-items:center;gap:2px;
   min-block-size:56px;justify-content:center;
   padding-block-start:var(--sp-4);margin-block-start:var(--sp-4);
-  border-block-start:1px solid var(--a-white-16)}
-.work-timer .wt-label{font-size:var(--fs-sm);font-weight:var(--fw-bold);color:var(--a-white-80)}
-.work-timer .wt-val{font-size:var(--fs-2xl);font-weight:var(--fw-black);
+  border-block-start:1px solid var(--border-soft)}
+.work-timer .wt-label{font-size:var(--fs-caption);font-weight:var(--fw-medium);color:var(--muted-strong)}
+.work-timer .wt-val{font-size:var(--fs-xl);font-weight:var(--fw-bold);letter-spacing:var(--ls-stat);
   font-variant-numeric:tabular-nums lining-nums;letter-spacing:var(--ls-num)}
-.work-timer .wt-idle{font-size:var(--fs-base);color:var(--a-white-56)}
-.work-timer.live{color:#8affc0}
-.work-timer.live .wt-label{color:#8affc0}
+.work-timer .wt-idle{font-size:var(--fs-sm);color:var(--muted-strong)}
+.work-timer.live{color:var(--green)}
+.work-timer.live .wt-label{color:var(--green)}
 .work-timer.live .wt-label::before{content:"";display:inline-block;
-  inline-size:8px;block-size:8px;border-radius:50%;background:#8affc0;
+  inline-size:8px;block-size:8px;border-radius:50%;background:var(--green);
   margin-inline-end:var(--sp-2);animation:pulse 1.6s ease-in-out infinite}
-.work-timer.done{color:#f0d6a8}
-.work-timer.done .wt-label{color:#f0d6a8}
+.work-timer.done{color:var(--amber)}
+.work-timer.done .wt-label{color:var(--amber)}
 
 /* the one action, inside the hero */
 .hero__actions{display:flex;gap:var(--sp-3);flex-wrap:wrap;
@@ -116,7 +165,7 @@
 
 /* shift-progress rail under the clock */
 .hero__progress{block-size:6px;border-radius:var(--r-pill);
-  background:var(--a-white-16);overflow:hidden;margin-block-start:var(--sp-3)}
+  background:var(--surface-3);overflow:hidden;margin-block-start:var(--sp-3)}
 .hero__progress>i{display:block;block-size:100%;border-radius:var(--r-pill);
   background:linear-gradient(90deg,var(--gold),#e2c48f);
   transition:inline-size var(--dur-3) var(--ease)}
@@ -143,7 +192,7 @@
   padding:var(--sp-5) var(--sp-6);border-radius:var(--r-lg);
   background:linear-gradient(135deg,var(--maroon-2) 0%,var(--maroon) 55%,var(--maroon-ink) 100%);
   color:#fff;box-shadow:var(--e-hero);margin-block-end:var(--sp-5)}
-.period-band__label{font-size:var(--fs-caption);color:var(--a-white-56);
+.period-band__label{font-size:var(--fs-caption);color:var(--muted-strong);
   text-transform:none;letter-spacing:var(--ls-flat)}
 .period-band__value{font-size:var(--fs-xl);font-weight:var(--fw-black);
   line-height:var(--lh-heading);margin-block-start:2px}
@@ -271,3 +320,237 @@
   gap:var(--sp-4);flex-wrap:wrap;margin-block-end:var(--sp-2)}
 .pagehead--row .pagehead__title{font-size:var(--fs-xl)}
 .pagehead__acts{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-inline-start:auto}
+
+/* ══════════ خطّ إجازات الفريق ══════════
+   صفّ لكل موظف، وأعمدة بعدد أيام الشهر. الشبكة تجيب «من غائب اليوم؟»،
+   وهذا يجيب «متى يغيب كلٌّ منهم؟» — سؤال الموافقة على طلب جديد.
+
+   ⚠️ الأعمدة بعدد أيام الشهر (--tl-days) لا بعرض ثابت لكل يوم: فبراير ٢٨
+   ومارس ٣١، والعرض الثابت يجعل الشهرين مختلفَي الطول فتُقارَن أطوالهما خطأً.
+
+   ⚠️ الاتجاه: الشبكة داخل صفحة rtl ترتّب العمود الأول يميناً تلقائياً،
+   فاليوم الأول في اليمين كبقيّة الواجهة. لا تضع direction:ltr هنا. */
+.tl{overflow-x:auto;padding-block-start:var(--sp-2)}
+.tl__row{display:grid;grid-template-columns:minmax(150px,190px) 1fr;
+  align-items:center;gap:var(--sp-3);min-inline-size:640px}
+.tl__row--head{margin-block-end:var(--sp-2)}
+
+.tl__who{display:flex;align-items:center;gap:var(--sp-2);min-inline-size:0}
+.tl__id{min-inline-size:0}
+.tl__id b{display:block;font-size:var(--fs-sm);color:var(--ink);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tl__id span{display:block;font-size:var(--fs-micro);color:var(--muted-strong);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.tl__scale,.tl__track{display:grid;
+  grid-template-columns:repeat(var(--tl-days,30),minmax(0,1fr))}
+.tl__day{font-size:var(--fs-micro);color:var(--muted-strong);text-align:center;
+  line-height:1.6}
+.tl__day.is-today{color:var(--maroon);font-weight:var(--fw-bold)}
+
+.tl__track{position:relative;block-size:34px;border-radius:var(--r-sm);
+  background:var(--surface-3);
+  /* خطوط الأيام — تدرّج متكرّر أرخص من ٣١ عنصراً في كل صفّ */
+  background-image:repeating-linear-gradient(to left,
+    var(--border-soft) 0 1px, transparent 1px calc(100% / var(--tl-days,30)));
+  margin-block-end:var(--sp-2)}
+
+/* خطّ اليوم — يعبر كل الصفوف فيُقرأ «أين نحن الآن» */
+.tl__now{position:absolute;inset-block:-2px;inline-size:2px;
+  background:var(--maroon-2);opacity:.55;border-radius:1px;
+  inset-inline-start:calc((var(--at) - 0.5) * (100% / var(--tl-days,30)));
+  pointer-events:none;z-index:1}
+
+.tl__bar{grid-row:1;position:relative;z-index:2;
+  grid-column:var(--from) / span var(--span);
+  display:flex;align-items:center;justify-content:center;
+  block-size:22px;align-self:center;margin-block:6px;
+  border-radius:var(--r-pill);padding-inline:var(--sp-2);
+  font-size:var(--fs-micro);font-weight:var(--fw-medium);
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.tl__lbl{overflow:hidden;text-overflow:ellipsis}
+
+/* المعتمَدة ممتلئة، والمعلّقة متقطّعة — احتمال لا التزام */
+.tl__bar--approved{background:var(--info-bg);color:var(--info);
+  box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--info) 25%,transparent)}
+.tl__bar--pending{background:var(--amber-bg);color:var(--amber);
+  border:1px dashed var(--amber)}
+/* الاستئذان يوم واحد — لا تسع تسميته، فتُخفى ويبقى العنوان في title */
+.tl__bar--point .tl__lbl{display:none}
+
+/* الطرف المقصوص يُسطَّح: الإجازة تتجاوز حدّ الشهر ولم تبدأ فيه */
+.tl__bar.is-clip-start{border-start-start-radius:2px;border-end-start-radius:2px}
+.tl__bar.is-clip-end{border-start-end-radius:2px;border-end-end-radius:2px}
+
+.tl__legend{display:flex;gap:var(--sp-4);flex-wrap:wrap;
+  margin-block-start:var(--sp-3);padding-block-start:var(--sp-3);
+  border-block-start:1px solid var(--border-soft)}
+.tl__key{display:inline-flex;align-items:center;gap:var(--sp-2);
+  font-size:var(--fs-caption);color:var(--muted-strong)}
+.tl__swatch{inline-size:22px;block-size:10px;border-radius:var(--r-pill);flex:none}
+.tl__swatch--now{inline-size:2px;block-size:16px;background:var(--maroon-2);
+  border-radius:1px}
+
+/* ══════════ شريط الإعلان في الرئيسية ══════════
+   ⚠️ طلب المالك: الإعلان يصل الموظف حيث يقف، لا في صفحة يدخلها باختياره.
+   العاجل والمهمّ يُعرضان كاملَين، والعادي سطراً واحداً — وإلا صارت الرئيسية
+   لوحَ إعلانات ودُفنت بطاقة الحضور تحته. */
+.annbar{display:grid;grid-template-columns:auto 1fr;gap:var(--sp-3) var(--sp-4);
+  align-items:start;padding:var(--sp-4) var(--sp-5);margin-block-end:var(--sp-3);
+  border:1px solid var(--border);border-radius:var(--r-lg);background:var(--card);
+  border-inline-start:3px solid var(--muted)}
+.annbar--urgent{border-inline-start-color:var(--red);background:var(--red-bg)}
+.annbar--important{border-inline-start-color:var(--amber);background:var(--amber-bg)}
+.annbar__tag{display:inline-flex;align-items:center;gap:var(--sp-1);
+  font-size:var(--fs-micro);font-weight:var(--fw-bold);
+  padding:3px 9px;border-radius:var(--r-pill);
+  background:var(--card);color:var(--ink-2);white-space:nowrap}
+.annbar--urgent .annbar__tag{color:var(--red)}
+.annbar--important .annbar__tag{color:var(--amber)}
+.annbar__body{min-inline-size:0}
+.annbar__title{display:block;font-size:var(--fs-base);font-weight:var(--fw-bold);color:var(--ink)}
+.annbar__text{font-size:var(--fs-sm);color:var(--ink-2);line-height:var(--lh-base);
+  margin:4px 0 0;white-space:pre-wrap}
+.annbar__acts{grid-column:1 / -1;display:flex;gap:var(--sp-2);flex-wrap:wrap}
+.annbar__done{display:inline-flex;align-items:center;gap:var(--sp-1);
+  font-size:var(--fs-caption);font-weight:var(--fw-medium);color:var(--green)}
+
+/* الإعلان العادي — سطر واحد يقود لصفحته */
+.annline{display:flex;align-items:center;gap:var(--sp-3);inline-size:100%;
+  padding:var(--sp-3) var(--sp-4);margin-block-end:var(--sp-3);
+  background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);
+  font-family:inherit;font-size:var(--fs-sm);color:var(--ink-2);
+  cursor:pointer;text-align:start;
+  transition:border-color var(--dur-1) var(--ease)}
+.annline:hover{border-color:var(--border-strong)}
+.annline>span{flex:1;min-inline-size:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.annline .ic{flex:none;color:var(--muted-strong)}
+.annline__more{flex:none;font-size:var(--fs-caption);color:var(--muted-strong)}
+.annline__go{flex:none;opacity:.5;transform:scaleX(-1)}
+
+/* ══════════ كشف الحضور الشهري ══════════
+   مبنيّ على مرجع المالك: تقويم ملوّن بأوقات الدخول. كان «أدائي» يقول «٦ أيام
+   غياب» ولا يقول متى — رقمٌ يتّهم ولا يُراجَع. هنا يرى الموظف أي يوم بالضبط. */
+.sheet{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;
+  margin-block-start:var(--sp-3)}
+.sheet__head{font-size:var(--fs-micro);color:var(--muted-strong);text-align:center;
+  padding-block-end:var(--sp-1)}
+.sheet__day{min-block-size:52px;border-radius:var(--r-sm);
+  border:1px solid var(--border-soft);background:var(--card);
+  padding:var(--sp-1);display:flex;flex-direction:column;gap:2px;
+  align-items:center;justify-content:center;text-align:center}
+.sheet__n{font-size:var(--fs-caption);font-weight:var(--fw-medium);color:var(--ink-2)}
+.sheet__t{font-size:var(--fs-micro);color:var(--muted-strong);line-height:1.2}
+
+/* اللون يحمل الحالة، والوقت المكتوب يحملها أيضاً — لا يُقرأ باللون وحده */
+.sheet__day.is-present{background:var(--green-bg);border-color:transparent}
+.sheet__day.is-present .sheet__n,.sheet__day.is-present .sheet__t{color:var(--green)}
+.sheet__day.is-late{background:var(--amber-bg);border-color:transparent}
+.sheet__day.is-late .sheet__n,.sheet__day.is-late .sheet__t{color:var(--amber)}
+.sheet__day.is-leave{background:var(--info-bg);border-color:transparent}
+.sheet__day.is-leave .sheet__n,.sheet__day.is-leave .sheet__t{color:var(--info)}
+.sheet__day.is-absent{background:var(--red-bg);border-color:transparent}
+.sheet__day.is-absent .sheet__n{color:var(--red)}
+.sheet__day.is-missing{background:var(--violet-bg);border-color:transparent}
+.sheet__day.is-missing .sheet__n,.sheet__day.is-missing .sheet__t{color:var(--violet)}
+.sheet__day.is-today{outline:2px solid var(--maroon-2);outline-offset:-2px}
+
+.sheet__legend{display:flex;gap:var(--sp-3);flex-wrap:wrap;
+  margin-block-start:var(--sp-4);padding-block-start:var(--sp-3);
+  border-block-start:1px solid var(--border-soft)}
+.sheet__key{display:inline-flex;align-items:center;gap:var(--sp-1);
+  font-size:var(--fs-micro);color:var(--muted-strong)}
+.sheet__sw{inline-size:10px;block-size:10px;border-radius:3px;flex:none}
+.sheet__sw.is-present{background:var(--green)}
+.sheet__sw.is-late{background:var(--amber)}
+.sheet__sw.is-leave{background:var(--info)}
+.sheet__sw.is-absent{background:var(--red)}
+.sheet__sw.is-missing{background:var(--violet)}
+
+/* ══════════ آخر النشاط ══════════ */
+.actlist{display:flex;flex-direction:column}
+.actrow{display:grid;grid-template-columns:auto 1fr auto;align-items:center;
+  gap:var(--sp-3);padding-block:var(--sp-3);
+  border-block-start:1px solid var(--border-soft)}
+.actrow:first-child{border-block-start:0}
+.actrow__date{display:flex;flex-direction:column;align-items:center;line-height:1.1;
+  min-inline-size:34px}
+.actrow__date b{font-size:var(--fs-md);color:var(--ink);letter-spacing:var(--ls-stat)}
+.actrow__date span{font-size:var(--fs-micro);color:var(--muted-strong)}
+.actrow__time{font-size:var(--fs-sm);color:var(--ink-2)}
+
+/* ══════════ حركة الساعة ══════════
+   ⚠️ الحركة على الخانة المتغيّرة وحدها — كتابة الثلاث كل ثانية تهزّ الساعة
+   كلها ستّين مرة في الدقيقة. المنطق في attend-panel.js يقارن قبل الكتابة.
+
+   ⚠️ النقطتان تنبضان لأنهما العلامة الوحيدة على أن الساعة حيّة: رقمٌ ساكن
+   لا يقول إن كان يعمل أم تجمّد. وهي حركة بمعنى لا زخرفة. */
+/* ⚠️ direction:ltr على الساعة وحدها. الوقت ٠٨:٣٠:٤٥ يُقرأ ساعةً فدقيقةً
+   فثانيةً من اليسار حتى في النصّ العربي — وهو تسلسل رقمي لا نصّ. وتركُه
+   لاتجاه الصفحة يقلبه فتصير الثواني في اليمين والساعات في اليسار، فيُقرأ
+   الوقت مقلوباً. حصل فعلاً: ظهرت 15:35:48 والثواني في مقدّمة السطر.
+   والحاوية بعرض المحتوى فلا تكسر محاذاة البطاقة العربية حولها. */
+.clock-time{display:inline-flex;align-items:baseline;direction:ltr}
+.clock-seg{display:inline-block;min-inline-size:1.9ch;text-align:center}
+.clock-seg.is-tick{animation:segTick .28s var(--ease)}
+/* الثواني أصغر وأخفت — هي الأقلّ أهمية والأكثر تغيّراً */
+.clock-seg--s{font-size:.5em;opacity:.55;min-inline-size:1.6ch;
+  align-self:flex-end;margin-left:2px}
+.clock-sep{opacity:.35;animation:sepBlink 1s steps(2,start) infinite;
+  margin-inline:1px}
+
+@keyframes segTick{
+  from{opacity:.25;transform:translateY(-14%)}
+  to{opacity:1;transform:none}
+}
+@keyframes sepBlink{ 50%{opacity:.9} }
+
+/* ⚠️ من يطلب تقليل الحركة يرى ساعة ساكنة تماماً — ولا يفقد أي معلومة:
+   الأرقام نفسها هي المعلومة، والحركة تأكيد بصري لا أكثر. */
+@media (prefers-reduced-motion:reduce){
+  .clock-seg.is-tick{animation:none}
+  .clock-sep{animation:none;opacity:.5}
+}
+
+/* ══════════ بطاقة الحالة والزرّ ══════════
+   مبنيّة على مرجع المالك: «اليوم / سجّلت حضورك ٠٨:٠٢» وبجوارها الزرّ. */
+.attend-hero .work-timer{margin-block-start:var(--sp-5);padding-block-start:var(--sp-4);
+  border-block-start:1px solid var(--border-soft)}
+
+/* ══════════ صفّ الساعة والفعل ══════════
+   ⚠️ طلب المالك: الساعة والزرّ جنباً إلى جنب. كان الزرّ في بطاقة ثانية أسفل
+   جدولٍ يكرّر ما في مؤقّت الدوام فوقه وتقويم الكشف تحته — فيقرأ الموظف
+   حالته ثلاث مرّات قبل أن يصل إلى الزرّ الذي فتح الصفحة لأجله. */
+.hero__row{display:grid;grid-template-columns:1fr auto;gap:var(--sp-6);
+  align-items:center}
+.hero__clock{min-inline-size:0}
+.hero__act{display:flex;align-items:center}
+
+/* ══════════ بطاقة اليوم ══════════
+   ⚠️ صغيرة وهادئة عمداً (طلب المالك: «لطيف وناعم مو كبير»). كان الزرّ بعرض
+   الشاشة وارتفاع ٥٦px — يصرخ في كل مرة تُفتح فيها الصفحة وإن كان الموظف
+   قد سجّل أصلاً. البطاقة تقول الحالة، والزرّ فيها بحجم فعلٍ لا إعلان. */
+.todaycard{display:flex;align-items:center;gap:var(--sp-4);
+  padding:var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4);
+  border:1px solid var(--border);border-radius:var(--r-lg);background:var(--card)}
+.todaycard__info{display:flex;flex-direction:column;gap:1px;min-inline-size:0}
+.todaycard__label{font-size:var(--fs-micro);color:var(--muted);letter-spacing:var(--ls-flat)}
+.todaycard .work-timer{margin:0;padding:0;border:0;min-block-size:0;
+  align-items:flex-start;text-align:start}
+
+/* ══════════ زرّ الحضور ══════════
+   الحضور فعلٌ إيجابي فيمتلئ، والانصراف يُنهي فيُحدَّد بلا ملء. */
+.attendbtn{min-height:36px;padding-inline:var(--sp-4);border-radius:var(--r-md);
+  font-size:var(--fs-sm);font-weight:var(--fw-medium);gap:6px;flex:none;
+  --btn-bg:var(--green);--btn-fg:#fff;--btn-bd:var(--green);--btn-bg-h:#186236}
+.attendbtn .ic{font-size:.95em}
+.attendbtn--out{--btn-bg:var(--card);--btn-fg:var(--red);
+  --btn-bd:color-mix(in oklab,var(--red) 35%,transparent);--btn-bg-h:var(--red-bg)}
+.attendbtn--late{--btn-bg:var(--amber);--btn-fg:#fff;--btn-bd:var(--amber);--btn-bg-h:#a5670f}
+.attendbtn:disabled{opacity:.5}
+
+/* على الضيّق يتكدّسان — الزرّ تحت الساعة لا بجوارها بعرض نصف الإبهام */
+@media (max-width:640px){
+  .hero__row{grid-template-columns:1fr;gap:var(--sp-4)}
+  .hero__act{min-inline-size:0}
+}

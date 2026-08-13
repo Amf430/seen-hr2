@@ -1407,3 +1407,55 @@ label.btn{cursor:pointer}
   gap:var(--sp-2);font-size:var(--fs-caption);color:var(--ink-2)}
 .personcard__pay{font-weight:var(--fw-bold);color:var(--ink)}
 .personcard__flag{margin-block-start:var(--sp-1)}
+
+/* اسم مع صورته الرمزية داخل خلية جدول */
+.cellwho{display:inline-flex;align-items:center;gap:var(--sp-2);min-inline-size:0}
+.cellwho b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* المصدر داخل صفحة الحضور — أعرض من مبدّل العرض لأنه اختيار رئيسي */
+.viewtoggle--wide{margin-block-end:var(--sp-4);align-self:flex-start}
+.viewtoggle--wide .viewtoggle__btn{padding:8px 18px;font-size:var(--fs-sm)}
+
+/* ══════════ لوح بيانات الموظف ══════════
+   يفتح من بطاقة الموظف. لوح جانبي لا صفحة: الأدمن يمسح القائمة بحثاً عن
+   معلومة واحدة، والانتقال ثم الرجوع يفقده موضعه وفرزه في كل مرّة. */
+.pdrawer__scrim{position:fixed;inset:0;z-index:var(--z-scrim);
+  background:var(--scrim);animation:fade var(--dur-2) var(--ease)}
+.pdrawer{position:fixed;inset-block:0;inset-inline-start:0;z-index:var(--z-modal);
+  inline-size:min(420px,92vw);background:var(--card);
+  border-inline-end:1px solid var(--border);box-shadow:var(--e-3);
+  padding:var(--sp-6) var(--sp-5);overflow-y:auto;
+  display:flex;flex-direction:column;gap:var(--sp-5);
+  animation:drawerIn var(--dur-3) var(--ease)}
+/* ⚠️ الاتجاه: الصفحة rtl، فـ inset-inline-start هو الحافة **اليمنى**.
+   واللوح يجب أن يدخل من اليسار كمرجع التصميم — فيُستعمل left فيزيائياً. */
+@keyframes drawerIn{from{transform:translateX(-100%)}to{transform:translateX(0)}}
+@media (prefers-reduced-motion:reduce){
+  .pdrawer{animation:fade var(--dur-1) var(--ease)}
+}
+.pdrawer__x{position:absolute;inset-block-start:var(--sp-4);inset-inline-end:var(--sp-4)}
+.pdrawer__head{display:flex;flex-direction:column;align-items:center;
+  gap:var(--sp-2);text-align:center;padding-block-start:var(--sp-4)}
+.pdrawer__head .avatar{font-size:var(--fs-xl)}
+.pdrawer__name{font-size:var(--fs-xl);font-weight:var(--fw-bold);color:var(--ink);
+  margin:var(--sp-2) 0 0;line-height:var(--lh-heading)}
+.pdrawer__role{font-size:var(--fs-sm);color:var(--muted-strong);margin:0}
+.pdrawer__body{display:flex;flex-direction:column}
+.pdrawer__row{display:flex;align-items:center;justify-content:space-between;
+  gap:var(--sp-4);padding-block:var(--sp-3);
+  border-block-start:1px solid var(--border-soft)}
+.pdrawer__row:first-child{border-block-start:0}
+.pdrawer__k{display:inline-flex;align-items:center;gap:var(--sp-2);flex:none;
+  font-size:var(--fs-sm);color:var(--muted-strong)}
+.pdrawer__k .ic{font-size:1em;color:var(--muted)}
+.pdrawer__v{font-size:var(--fs-sm);color:var(--ink);text-align:end;min-inline-size:0;
+  overflow-wrap:anywhere}
+.pdrawer__acts{display:flex;gap:var(--sp-2);margin-block-start:auto;
+  padding-block-start:var(--sp-4);border-block-start:1px solid var(--border)}
+.pdrawer__acts .btn{flex:1}
+
+/* إجراءات داخل صفّ جدول — تظهر كما هي، والمحسوم يعرض «—» لا زرّاً معطّلاً */
+.rowacts{display:inline-flex;gap:2px}
+/* الفرز الثانوي في صفحة الحضور — أخفت من الصفّ الأول */
+.filters--tidy{display:flex;flex-wrap:wrap;gap:var(--sp-3);align-items:flex-end}
+.filters--sub{margin-block-start:var(--sp-3);padding-block-start:var(--sp-3);
+  border-block-start:1px solid var(--border-soft)}

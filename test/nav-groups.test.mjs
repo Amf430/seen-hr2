@@ -30,9 +30,20 @@ const idsFor = (role) => navFor(role).flatMap((g) => g.items.map((i) => i.id));
 
 group('١. حجم القائمة — سبب المرحلة كلها');
 
-eq('⚠️ الأدمن ١٨ رابطاً — كانت ٢٤ قبل إخراج الإعدادات', 18, count('admin'));
-eq('المدير ١٧', 17, count('manager'));
-eq('الموظف ١١', 11, count('employee'));
+/* ٢٤ ← ١٨ بإخراج الإعدادات، ← ١٧ بدمج مصدرَي الحضور، ← ١٥ بإخراج أرشيف
+   المهام وسجل الحركات إلى صفحتيهما */
+eq("⚠️ الأدمن ١٥ رابطاً — كانت ٢٤", 15, count("admin"));
+/* ⚠️ سجل الجهاز خرج من القائمة وصار تبويباً — ويجب أن يبقى قابلاً للفتح */
+ok('⚠️ zklog يُفتح رغم غيابه عن الشريط', canOpen('zklog', 'admin'));
+ok('ومحجوب عن المدير', !canOpen('zklog', 'manager'));
+eq('ورابط الحضور واحد لا اثنان', 1,
+   idsFor('admin').filter((id) => id === 'attendance' || id === 'zklog').length);
+/* ١٦ ← ١٥ بدمج «تسجيل حضوري» في الرئيسية */
+eq('المدير ١٥', 15, count('manager'));
+eq('الموظف ١٠', 10, count('employee'));
+/* ⚠️ «تسجيل حضوري» دُمج في الرئيسية — ويبقى قابلاً للفتح للروابط المحفوظة */
+ok('attend يُفتح رغم غيابه عن الشريط', canOpen('attend', 'employee'));
+eq('ولا رابط له في القائمة', [], idsFor('employee').filter((id) => id === 'attend'));
 
 for (const role of ROLES) {
   const big = navFor(role).filter((g) => g.group && g.items.length > 3)
@@ -40,6 +51,8 @@ for (const role of ROLES) {
   /* المجموعة المعنونة تُقرأ مجموعةً ما دامت ≤٣؛ وغير المعنونة مستثناة */
   if (role === 'manager') {
     eq('«الطلبات» عند المدير ٤ — نطاق واحد متماسك، مقبول', ['الطلبات=4'], big);
+  } else if (role === 'admin') {
+    eq('«التقارير» عند الأدمن ٤ — كلها تُقرأ ولا تُعدَّل', ['التقارير=4'], big);
   } else {
     eq(`لا مجموعة معنونة تتجاوز ٣ عناصر — ${role}`, [], big);
   }
@@ -47,7 +60,8 @@ for (const role of ROLES) {
 
 group('٢. الإعدادات — المزلق الذي يُعيد المستخدم للرئيسية بلا رسالة');
 
-eq('سبعة إعدادات', 7, SETTINGS_PAGES.length);
+/* صارت ثمانية بانضمام «سجل الحركات» — إعدادُ نظامٍ يُقرأ عند التحقيق */
+eq('ثمانية في مركز الإعدادات', 8, SETTINGS_PAGES.length);
 eq('ولا واحد منها في الشريط الجانبي', [],
    SETTINGS_PAGES.map((s) => s.id).filter((id) => idsFor('admin').includes(id)));
 for (const s of SETTINGS_PAGES) {
@@ -113,7 +127,13 @@ eq('لا دور خارج الثلاثة', [],
    [...new Set(allItems.flatMap((i) => i.roles))].filter((r) => !ROLES.includes(r)));
 eq('شارة واحدة فقط — updateBadges تكتب على أول عنصر بها', 1,
    allItems.filter((i) => i.badge).length);
-eq('والشارة على «بانتظار موافقتك»', 'inbox', allItems.find((i) => i.badge).id);
+eq('والشارة على طلبات الاستئذان والإجازات', 'inbox', allItems.find((i) => i.badge).id);
+
+/* ⚠️ صفحتان خرجتا من الشريط إلى داخل صفحتيهما — ويجب أن تبقيا قابلتين للفتح */
+ok('أرشيف المهام يُفتح من «مهام القسم»', canOpen('tasks-archive', 'manager'));
+ok('وسجل الحركات من «الإعدادات»', canOpen('audit', 'admin'));
+eq('ولا واحدة منهما في الشريط', [],
+   ['tasks-archive', 'audit'].filter((id) => idsFor('admin').includes(id)));
 
 group('٧. شريط الوجهات السفلي (الجوال)');
 

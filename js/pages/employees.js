@@ -6,6 +6,7 @@ import { refreshUsers, toggleSuspend, deleteEmployee, restoreAccess,
 import { requestsOfUser } from '../lib/requests.js';
 import { db, doc, updateDoc } from '../lib/firebase.js';
 import { openEmpForm } from '../components/employee-form.js';
+import { openPersonDrawer } from '../components/person-drawer.js';
 import { openTypedConfirm } from '../components/review-modals.js';
 import { go, rerender, isStale } from '../lib/nav.js';
 import { money, plural } from '../lib/format.js';
@@ -179,8 +180,14 @@ export async function render(view, token) {
     for (const u of list) {
       const c = el('button', 'card card--link personcard');
       c.type = 'button';
-      c.onclick = () => go('profile', u.id);
-      c.setAttribute('aria-label', `فتح بروفايل ${u.name || ''}`);
+      /* ⚠️ لوح جانبي لا انتقال: الأدمن يمسح القائمة بحثاً عن معلومة واحدة،
+         والانتقال لصفحة كاملة ثم الرجوع يفقده موضعه وفرزه في كل مرّة. */
+      c.onclick = () => openPersonDrawer(u, {
+        isAdmin,
+        onEdit: (x) => openEmpForm(x, afterChange),
+        onProfile: (x) => go('profile', x.id)
+      });
+      c.setAttribute('aria-label', `بيانات ${u.name || ''}`);
 
       const top = el('div', 'personcard__top');
       top.appendChild(avatar(u.name, 42));

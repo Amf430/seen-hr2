@@ -117,18 +117,25 @@ function placeBead(instant = false) {
   const on = box.querySelector('.dock__item.active');
   if (!bead) return;
   if (!on) { bead.style.opacity = '0'; return; }
+
   const boxRect = box.getBoundingClientRect();
   const onRect = on.getBoundingClientRect();
   /* الدوك مخفيّ على سطح المكتب فمستطيله صفر — لا نكتب قياساً باطلاً */
   if (!boxRect.width) return;
 
-  /* ⚠️ أول وضع بلا انتقال: المؤشّر يبدأ عند translateX(0) أي فوق آخر وجهة،
-     فيراه المستخدم ينزلق من مكان خاطئ عند كل فتح للتطبيق. الانتقال معناه
+  /* ⚠️ أول وضع بلا انتقال: الحبّة تبدأ عند translateX(0) أي فوق أول وجهة،
+     فيراها المستخدم تنزلق من مكان خاطئ عند كل فتح للتطبيق. الانتقال معناه
      «انتقلتَ من هنا إلى هنا»، ولا انتقال في أول رسم. */
   if (instant) bead.style.transition = 'none';
+
+  /* ⚠️ الحبّة دائرة تتمركز على الوجهة لا شريط بعرضها: مقاسها ثابت من CSS
+     (--bead)، والموضع مركزُ الوجهة ناقص نصف القطر. الشريط بعرض الوجهة كان
+     يتمدّد ويتقلّص مع طول التسمية فيبدو كأنه يتنفّس عند كل انتقال. */
+  const size = parseFloat(getComputedStyle(box).getPropertyValue('--bead')) || 46;
   bead.style.opacity = '1';
-  bead.style.inlineSize = onRect.width + 'px';
-  bead.style.transform = `translateX(${onRect.left - boxRect.left}px)`;
+  bead.style.transform =
+    `translateX(${onRect.left - boxRect.left + onRect.width / 2 - size / 2}px)`;
+
   if (instant) {
     void bead.offsetWidth;      /* يُجبر الحساب قبل إعادة الانتقال */
     bead.style.transition = '';

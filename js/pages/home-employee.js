@@ -13,15 +13,20 @@
      performance  أدائي          — التزام الدورة بالأرقام
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { el, esc } from '../lib/dom.js';
-import { getMe, getSettings } from '../lib/state.js';
+import { el, esc, toast } from '../lib/dom.js';
+import { getMe, getSettings, getRequests } from '../lib/state.js';
 import { attendPanel } from '../components/attend-panel.js';
 import { miniRow } from '../components/request-card.js';
 import { ownRequests } from './requests-mine.js';
 import { go, isStale } from '../lib/nav.js';
 import { docsOf, docStatus } from '../lib/documents.js';
-import { contractDaysLeft } from '../lib/dates.js';
-import { card, grid, stat, empty, sectionHead, button } from '../lib/ui.js';
+import { contractDaysLeft, ymdKsa, cycleOf, AR_DAYS } from '../lib/dates.js';
+import { fetchAttendance, buildDailyStatus } from '../lib/attendance.js';
+import { mergeEarliestIn } from '../lib/hr-stats.js';
+import { monthGridOf, monthSummary, minToHm } from '../lib/timesheet.js';
+import { hm } from '../lib/format.js';
+import { announcementsFor, isLive, myAck, acknowledge, PRIORITY_AR } from '../lib/announcements.js';
+import { card, grid, stat, empty, sectionHead, button, statCard, loading } from '../lib/ui.js';
 import { readLeaderboard } from '../lib/leaderboard.js';
 import { topPunctualCard } from '../components/top-punctual.js';
 import { icon } from '../lib/icons.js';
@@ -40,8 +45,32 @@ export function render(view, token) {
   const me = getMe();
   const S = getSettings();
 
-  /* الحضور أولاً — هو ما يفتح الموظف الصفحة لأجله كل صباح */
+  /* ── الإعلان أولاً ──
+     ⚠️ طلب المالك (٢٠٢٦-٠٨-١٣): الإعلان يصل الموظف في رئيسيته لا في صفحة
+     يدخلها باختياره. الإعلان الذي يحتاج فتح صفحة ليُقرأ ليس إعلاناً.
+
+     ⚠️ الحاوية تُوضع الآن ويُملأ محتواها بعد الجلب: لا نؤخّر بطاقة الحضور —
+     وهي ما يفتح الموظف الصفحة لأجله — انتظاراً لقراءة شبكة.
+
+     ⚠️ العاجل وحده يُعرض كاملاً؛ وما دونه سطر واحد برابط. لو عُرض كل إعلان
+     كاملاً في الرئيسية لصارت لوحَ إعلانات ودُفنت بطاقة الحضور تحته. */
+  const annHost = el('div', '');
+  view.appendChild(annHost);
+  paintAnnouncements(annHost, me, token);
+
+  /* الحضور — هو ما يفتح الموظف الصفحة لأجله كل صباح */
   attendPanel(view);
+
+  /* ── كشف حضوري ──
+     ⚠️ صفحة «تسجيل حضوري» دُمجت هنا (طلب المالك ٢٠٢٦-٠٨-١٣): كانت نسخة
+     طبق الأصل من هذه الصفحة — نفس بطاقة الساعة ونفس الجدول ونفس الزرّ.
+     رابطان يفتحان الشيء ذاته.
+
+     وما أُضيف بدل التكرار هو ما كان ينقص فعلاً: **أي أيام** حضر وأيها تأخّر.
+     كان «أدائي» يقول «٦ أيام غياب» ولا يقول متى — رقمٌ يتّهم ولا يُراجَع. */
+  const sheetHost = el('div', '');
+  view.appendChild(sheetHost);
+  paintTimesheet(sheetHost, me, token);
 
   /* ── ما يحتاج انتباهه ──
      ⚠️ يُعرض هنا لا في صفحته: مستند منتهٍ أو عقد يقارب الانتهاء لا ينفع أن
@@ -130,4 +159,139 @@ export function render(view, token) {
     const c = topPunctualCard(data, { meName: me.name });
     if (c) view.appendChild(c);
   });
+}
+
+/* ═══ شريط الإعلانات في الرئيسية ═══
+   ⚠️ الإقرار من هنا مباشرةً: الأدمن يحتاج أن يعرف من قرأ، والموظف لا يفتح
+   صفحة الإعلانات ليقرّ. زرٌّ واحد في مكان القراءة أصدق من رحلة صفحتين.
+
+   ⚠️ فشل الجلب لا يُظهر خطأً: الرئيسية تعمل بلا إعلانات، ورسالة حمراء في
+   أعلى الشاشة كل صباح لأن قراءةً ثانوية فشلت أسوأ من غياب الإعلان. */
+async function paintAnnouncements(host, me, token) {
+  let list = [];
+  try { list = await announcementsFor(me, 10); }
+  catch (e) { console.error('home-ann', e); return; }
+  if (isStale(token)) return;
+
+  const today = ymdKsa();
+  const live = list.filter((a) => isLive(a, today))
+    .sort((a, b) => (b.publishAt?.seconds || 0) - (a.publishAt?.seconds || 0));
+  if (!live.length) return;
+
+  /* العاجل والمهمّ يُعرضان كاملَين؛ والعادي سطراً واحداً */
+  const loud = live.filter((a) => a.priority === 'urgent' || a.priority === 'important').slice(0, 2);
+  const quiet = live.filter((a) => !loud.includes(a));
+
+  host.innerHTML = '';
+  for (const a of loud) {
+    const box = el('div', 'annbar annbar--' + esc(a.priority || 'normal'));
+    box.innerHTML =
+      `<span class="annbar__tag">${icon(a.priority === 'urgent' ? 'alert' : 'megaphone')}` +
+        `${esc(PRIORITY_AR[a.priority] || 'إعلان')}</span>` +
+      `<div class="annbar__body">` +
+        `<b class="annbar__title">${esc(a.title || '')}</b>` +
+        `<p class="annbar__text">${esc(a.body || '')}</p>` +
+      `</div>`;
+    const acts = el('div', 'annbar__acts');
+    /* ⚠️ زرّ الإقرار يظهر لمن لم يُقرّ وحده — ولا يظهر إطلاقاً إن كان الإعلان
+       لا يطلب إقراراً. عرضُه لمن أقرّ يجعله يضغطه ثانيةً بلا معنى. */
+    if (a.requireAck) {
+      myAck(a.id, me.id).then((done) => {
+        if (isStale(token)) return;
+        if (done) { acts.appendChild(el('span', 'annbar__done', icon('check') + 'تم اطّلاعك')); return; }
+        const b = button('أقرّ بالاطّلاع', 'btn sm', async () => {
+          b.disabled = true;
+          try { await acknowledge(a.id); acts.innerHTML = ''; acts.appendChild(el('span', 'annbar__done', icon('check') + 'تم اطّلاعك')); }
+          catch (e) { console.error(e); toast('تعذّر تسجيل الاطّلاع', 'err'); b.disabled = false; }
+        }, 'check');
+        acts.appendChild(b);
+      }).catch((e) => console.error('ack', e));
+    }
+    acts.appendChild(button('كل الإعلانات', 'btn sm ghost', () => go('announcements')));
+    box.appendChild(acts);
+    host.appendChild(box);
+  }
+
+  if (quiet.length) {
+    const line = el('button', 'annline');
+    line.type = 'button';
+    line.onclick = () => go('announcements');
+    line.innerHTML = `${icon('megaphone')}<span>${esc(quiet[0].title || 'إعلان جديد')}</span>` +
+      (quiet.length > 1 ? `<b class="annline__more">و${quiet.length - 1} غيره</b>` : '') +
+      `<span class="annline__go">${icon('back')}</span>`;
+    host.appendChild(line);
+  }
+}
+
+/* ═══ كشف الحضور الشهري ═══
+   مبنيّ على المرجع الذي أرسله المالك: تقويم ملوّن بأوقات الدخول + آخر نشاط.
+
+   ⚠️ الحالة تأتي من buildDailyStatus — نفس الدالة التي يعتمدها المسير. لا
+   حسبة ثانية هنا: حسبتان للتأخير تتباعدان تعنيان رقمين مختلفين لنفس الموظف.
+
+   ⚠️ المصدران يُدمجان بـ mergeEarliestIn: من بصم على الجهاز ٠٧:٥٥ ثم سجّل
+   من جواله ٠٨:٢٠ حضر السابعة والخمسين. أخذُ مصدرٍ واحد يظلم من يستعمل الآخر.
+
+   ⚠️ بلا compensate — التعويض شاشة أدمن. الموظف يرى تأخيره كما هو، ولا
+   يُبنى على شاشته وعدٌ بتعويض يقرّره غيره. */
+async function paintTimesheet(host, me, token) {
+  const cyc = cycleOf(new Date());
+  host.appendChild(loading('جارٍ قراءة كشف حضورك…'));
+
+  let recs = [];
+  try {
+    const [zk, web] = await Promise.all([
+      fetchAttendance(cyc, 'zkAttendance').catch(() => []),
+      fetchAttendance(cyc, 'attendance').catch(() => [])
+    ]);
+    recs = mergeEarliestIn(zk, web);
+  } catch (e) { console.error('timesheet', e); }
+  if (isStale(token)) return;
+
+  const rows = buildDailyStatus(cyc, [me], getRequests(), recs)
+    .filter((r) => r.u.id === me.id);
+  const today = ymdKsa();
+  const now = new Date();
+  const grid2 = monthGridOf(rows, now.getFullYear(), now.getMonth(), today);
+  const sum = monthSummary(rows);
+
+  host.innerHTML = '';
+
+  const sg = el('div', 'statgrid');
+  sg.append(
+    statCard({ label: 'أيام حضرتها', value: `${sum.attended}/${sum.workDays}`, ico: 'check',
+      tone: sum.onTimePct >= 90 ? 'good' : sum.onTimePct >= 70 ? 'warn' : 'bad',
+      sub: sum.onTimePct === null ? 'لا أيام عمل بعد' : `${sum.onTimePct}٪ في الوقت` }),
+    statCard({ label: 'متوسّط دخولك', value: minToHm(sum.avgInMin), ico: 'clock',
+      sub: sum.avgInMin === null ? 'لم تسجّل دخولاً بعد' : 'في هذه الدورة' }),
+    statCard({ label: 'مرات التأخير', value: sum.late, ico: 'alert',
+      tone: sum.late ? 'warn' : 'good',
+      sub: sum.late ? 'يُخصم عليها بدقائقها' : 'لا تأخير — أحسنت' }),
+    statCard({ label: 'أيام الإجازة', value: sum.leave, ico: 'calendar', tone: 'info',
+      sub: 'معتمَدة في هذه الدورة' })
+  );
+  host.appendChild(sg);
+
+  const cal = card('');
+  cal.appendChild(sectionHead({ text: 'كشف حضوري', icon: 'calendar' }));
+  cal.appendChild(el('p', 'desc', `${esc(cyc.label)} — لون كل يوم يقول حالته`));
+  const box = el('div', 'sheet');
+  AR_DAYS.forEach((d) => box.appendChild(el('div', 'sheet__head', esc(d))));
+  for (let i = 0; i < grid2.lead; i++) box.appendChild(el('div', ''));
+  for (const c of grid2.cells) {
+    const cell = el('div', 'sheet__day' + (c.cls ? ' is-' + c.cls : '') +
+      (c.isToday ? ' is-today' : ''));
+    cell.innerHTML = `<span class="sheet__n num">${c.day}</span>` +
+      (c.inAt ? `<span class="sheet__t num">${esc(hm(c.inAt))}</span>`
+              : c.cls === 'leave' ? '<span class="sheet__t">إجازة</span>' : '');
+    if (c.status) cell.title = `${c.date} — ${c.status}`;
+    box.appendChild(cell);
+  }
+  cal.appendChild(box);
+  cal.appendChild(el('div', 'sheet__legend',
+    ['present:في الوقت', 'late:متأخر', 'leave:إجازة', 'absent:غائب', 'missing:نسيان بصمة']
+      .map((x) => { const [k, l] = x.split(':');
+        return `<span class="sheet__key"><i class="sheet__sw is-${k}"></i>${l}</span>`; }).join('')));
+  host.appendChild(cal);
+
 }
