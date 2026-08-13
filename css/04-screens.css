@@ -254,3 +254,20 @@
   display:block; font-size:var(--fs-sm); color:var(--muted-strong);
   line-height:var(--lh-snug); margin-block-start:2px;
 }
+
+/* ══════════ رأس الصفحة — التحية ══════════
+   تفتح لوحة الأدمن بحال الشركة لا بصفّ إداري. كان أول ما يُرى شريطَ الدورة. */
+.pagehead{margin-block-end:var(--sp-2)}
+.pagehead__when{font-size:var(--fs-sm);color:var(--muted-strong);line-height:var(--lh-snug)}
+/* ⚠️ بلا letter-spacing: العنوان عربي وحروفه متّصلة، والتتبّع يشوّهه.
+   مرجع التصميم يضع ‎-0.02em‎ هنا وهو لاتيني. */
+.pagehead__title{font-size:var(--fs-2xl);font-weight:var(--fw-bold);color:var(--ink);
+  line-height:var(--lh-heading);letter-spacing:var(--ls-flat);margin:4px 0 0}
+.pagehead__sub{font-size:var(--fs-base);color:var(--muted-strong);
+  line-height:var(--lh-snug);margin:6px 0 0}
+
+/* رأس الصفحة بأزرار — نفس بنية تحية اللوحة مع صفّ إجراءات */
+.pagehead--row{display:flex;align-items:flex-end;justify-content:space-between;
+  gap:var(--sp-4);flex-wrap:wrap;margin-block-end:var(--sp-2)}
+.pagehead--row .pagehead__title{font-size:var(--fs-xl)}
+.pagehead__acts{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-inline-start:auto}

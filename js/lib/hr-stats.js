@@ -169,6 +169,7 @@ export function weekWindow(now = new Date()) {
   return { start, end, key: ymd(start) + '_' + ymd(end), label: `${ymd(start)} ← ${ymd(end)}` };
 }
 
+
 export function weeklyPunctuality(users, zkRecs, webRecs, requests, now = new Date()) {
   const win = weekWindow(now);
   const rows = buildDailyStatus(win, users, requests, mergeEarliestIn(zkRecs, webRecs));

@@ -10,11 +10,44 @@ import { el, esc } from './dom.js';
 import { contractDaysLeft } from './dates.js';
 import { icon } from './icons.js';
 import { labelKey, labelRules } from './table-labels.js';
+import { sparkline, delta } from './charts.js';
+import { initials, hueOf } from './format.js';
 
 /* بطاقة رقم */
 export function stat(n, label, cls = '') {
   return el('div', 'stat ' + cls,
     `<div class="n">${esc(n)}</div><div class="l">${esc(label)}</div>`);
+}
+
+/* ═══════════════════ بطاقة الإحصاء الغنيّة ═══════════════════
+
+   الرقم وحده يقول «كم»، ولا يقول «إلى أين». هذه تضيف الاتجاه: خطّ صغير
+   للأسبوع، وسطر فرق عن الدورة السابقة. الأدمن كان يفتح لوحته فيرى ٨٧٪ ولا
+   يعرف أهي ارتفاع أم هبوط.
+
+   { label, value, sub, tone, ico, spark:[…], delta:{pct,good,text}, onClick }
+   tone: '' | 'good' | 'bad' | 'warn' | 'info'
+
+   ⚠️ الرقم يأخذ --ls-stat (تتبّع سالب) وهو **للأرقام وحدها**. لا تُمرَّر
+   قيمة عربية هنا: التتبّع السالب يلصق الحروف المتّصلة ويشوّهها.            */
+export function statCard({ label, value, sub, tone = '', ico, spark, delta: dlt, onClick }) {
+  const c = el(onClick ? 'button' : 'div', 'statcard' + (tone ? ' statcard--' + tone : '') +
+    (onClick ? ' statcard--link' : ''));
+  c.innerHTML =
+    `<div class="statcard__top">` +
+      `<span class="statcard__label">${esc(label)}</span>` +
+      (ico ? `<span class="statcard__ic">${icon(ico)}</span>` : '') +
+    `</div>` +
+    `<div class="statcard__mid">` +
+      `<div class="statcard__value num">${esc(value)}</div>` +
+      (sub ? `<div class="statcard__sub">${esc(sub)}</div>` : '') +
+    `</div>` +
+    `<div class="statcard__foot">` +
+      (dlt ? delta(dlt.pct, dlt) : '<span></span>') +
+      (spark?.length > 1 ? sparkline(spark, { color: 'currentColor' }) : '') +
+    `</div>`;
+  if (onClick) { c.type = 'button'; c.onclick = onClick; }
+  return c;
 }
 
 /* صف مفتاح/قيمة */
@@ -34,6 +67,27 @@ export function card(title, desc, ico) {
   if (title) c.appendChild(el('h3', '', (ico ? icon(ico) : '') + esc(title)));
   if (desc)  c.appendChild(el('p', 'desc', esc(desc)));
   return c;
+}
+
+/* ═══ رأس الصفحة ═══
+   عنوان كبير + سطر شارح + أزرار. يوحّد افتتاح كل شاشة بدل أن تبدأ كل صفحة
+   ببطاقة مختلفة الشكل.
+
+   ⚠️ العنوان موجود أصلاً في الترويسة العلوية (setPageHeader)، لكنه هناك
+   ضيّق ومقصوص بثلاث نقاط. هذا هو العنوان الذي يُقرأ. */
+export function pageHead(title, sub, ...actions) {
+  const h = el('header', 'pagehead pagehead--row');
+  const box = el('div', '',
+    `<h1 class="pagehead__title">${esc(title)}</h1>` +
+    (sub ? `<p class="pagehead__sub">${esc(sub)}</p>` : ''));
+  h.appendChild(box);
+  const live = actions.filter(Boolean);
+  if (live.length) {
+    const cluster = el('div', 'pagehead__acts');
+    live.forEach((a) => cluster.appendChild(a));
+    h.appendChild(cluster);
+  }
+  return h;
 }
 
 /* عنوان قسم مع أزرار على اليسار */
@@ -156,6 +210,18 @@ export function pulseBand(cells) {
     box.appendChild(cell);
   }
   return box;
+}
+
+/* ═══ صورة رمزية بالأحرف الأولى ═══
+   تسبق الاسم في صفوف الطلبات فيُتعرَّف على الشخص قبل قراءة اسمه.
+   ⚠️ زخرفية بالكامل: aria-hidden لأن الاسم مكتوب بجوارها، فنطقُ «را» قبل
+   «ريم الأحمد» ضجيج لقارئ الشاشة. واللون مشتقّ من الاسم فيثبت عبر الشاشات. */
+export function avatar(name, size = 34) {
+  const a = el('span', 'avatar', esc(initials(name)));
+  a.setAttribute('aria-hidden', 'true');
+  a.style.inlineSize = a.style.blockSize = size + 'px';
+  a.style.setProperty('--h', hueOf(name));
+  return a;
 }
 
 /* رقاقة حالة بنقطة — النقطة تحمل المعنى مع النص، فلا يُقرأ باللون وحده */

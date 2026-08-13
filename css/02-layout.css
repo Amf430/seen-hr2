@@ -19,52 +19,56 @@
    كل نقاط الاستجابة الخاصة بالهيكل هنا؛ نقاط المكوّنات في ملفاتها.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* ══════════ sidebar nav (grouped) ══════════ */
+/* ══════════ sidebar nav (grouped) ══════════
+   ⚠️ قرار المالك (٢٠٢٦-٠٨-١٣): الشريط أبيض لا عنّابي.
+   كان أرضية عنّابية داكنة بتدرّج، فيسحب الانتباه من المحتوى في كل شاشة.
+   صار سطحاً هادئاً، والعنّابي فيه لمستان: الرابط النشط، وعلامة الهوية.
+   ══════════ */
 .sidebar{position:sticky;inset-block-start:0;z-index:var(--z-nav);
   inline-size:var(--sidebar-w);flex:none;block-size:100dvh;
   display:flex;flex-direction:column;
-  background:linear-gradient(180deg,var(--maroon) 0%,var(--maroon-ink) 145%);
-  color:#fff;border-inline-end:1px solid var(--a-white-08)}
+  background:var(--surface-2);
+  color:var(--ink);border-inline-end:1px solid var(--border)}
 
 .nav{flex:1;min-block-size:0;overflow-y:auto;overscroll-behavior:contain;
   padding:var(--sp-3) var(--sp-3) var(--sp-5);
-  scrollbar-color:var(--a-white-16) transparent}
+  scrollbar-color:var(--border-strong) transparent}
 
 .nav-group{margin-block-start:var(--sp-4);padding-block-start:var(--sp-3);
-  border-block-start:1px solid var(--a-white-08)}
+  border-block-start:1px solid var(--border-soft)}
 .nav-group:first-child{margin-block-start:0;padding-block-start:0;border-block-start:0}
 
 /* ⚠️ روابط التنقّل <a> بلا أي صنف — buildNav تبنيها هكذا عمداً، فالانتقاء
    بالعنصر داخل .nav لا بصنف. لا تكتب .nav-item: لا وجود له في الصفحة. */
 .nav a{position:relative;display:flex;align-items:center;gap:var(--sp-3);
-  inline-size:100%;min-block-size:40px;
-  padding-block:var(--sp-2);padding-inline:var(--sp-4) var(--sp-3);
-  margin-block-end:2px;
+  inline-size:100%;min-block-size:36px;
+  padding-block:var(--sp-2);padding-inline:var(--sp-3);
+  margin-block-end:1px;
   background:transparent;border:0;border-radius:var(--r-md);
-  color:var(--a-white-80);font-size:var(--fs-base);font-weight:var(--fw-medium);
-  /* روابط التنقّل صارت <a href> حقيقية (انظر buildNav) — والمتصفح يسطّرها
-     افتراضياً، فتُلغى هنا. اللون أعلاه يتغلّب على لون الروابط العام. */
+  color:var(--ink-2);font-size:var(--fs-sm);font-weight:var(--fw-regular);
   text-decoration:none;
   text-align:start;cursor:pointer;
   transition:background var(--dur-1) var(--ease),color var(--dur-1) var(--ease)}
-.nav a::before{content:"";position:absolute;inset-block:9px;
-  inset-inline-start:0;inline-size:3px;border-radius:var(--r-pill);
-  background:transparent;transition:background var(--dur-1) var(--ease)}
-.nav a:hover{background:var(--a-white-08);color:#fff}
+.nav a:hover{background:var(--surface-3);color:var(--ink)}
+/* اللمسة العنّابية الأولى: الرابط النشط بطاقة بيضاء بحدّ وخيط عنّابي */
 .nav a.active{background:var(--card);color:var(--maroon);
-  font-weight:var(--fw-bold);box-shadow:var(--e-1)}
-.nav a.active::before{background:var(--gold)}
-.nav a:focus-visible{outline-color:var(--focus-on-dark)}
+  font-weight:var(--fw-bold);box-shadow:var(--e-1);
+  border:1px solid var(--border)}
+.nav a.active::before{content:\;position:absolute;inset-block:8px;
+  inset-inline-start:-1px;inline-size:3px;border-radius:var(--r-pill);
+  background:var(--maroon-2)}
+.nav a:focus-visible{outline:var(--focus-w) solid var(--focus);outline-offset:1px}
 
-.nav a .ic{flex:none;inline-size:22px;text-align:center;
-  font-size:var(--fs-md);line-height:1}
+.nav a .ic{flex:none;inline-size:20px;text-align:center;
+  font-size:var(--fs-base);line-height:1;color:var(--muted-strong)}
+.nav a.active .ic{color:var(--maroon-2)}
 .nav a .badge{margin-inline-start:auto}
-.nav a.active .badge{background:var(--maroon);color:#fff}
 
 /* بطاقة المستخدم أسفل الشريط — الصنف .foot لا .sidebar__foot */
-.sidebar .foot .who{display:block;color:#fff;font-weight:var(--fw-bold);
+.sidebar .foot{border-block-start:1px solid var(--border)}
+.sidebar .foot .who{display:block;color:var(--ink);font-weight:var(--fw-bold);
   font-size:var(--fs-sm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sidebar .foot .role{display:block;color:var(--a-white-56);font-size:var(--fs-caption)}
+.sidebar .foot .role{display:block;color:var(--muted-strong);font-size:var(--fs-caption)}
 .dev-credit{font-size:var(--fs-micro);color:var(--muted);text-align:center;
   margin-block-start:var(--sp-3);line-height:var(--lh-snug)}
 
@@ -138,7 +142,7 @@
     border-block-start:1px solid var(--line);
     /* ⚠️ حافة الأمان: شريط الإيماءة في آيفون يغطّي أسفل الشاشة، فبلا هذا
        تقع التسميات تحته ويصير النقر على «الرئيسية» إيماءةَ خروج. */
-    padding-block-end:env(safe-area-inset-bottom,0);
+    padding-block-end:env(safe-area-inset-bottom,0px);
   }
   @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
     .dock{background:var(--card)}

@@ -11,13 +11,15 @@ import { approveRun, getRun, diffAgainstRun } from '../lib/payroll-runs.js';
 import { adjustmentsInRange, applyAll } from '../lib/adjustments.js';
 import { openTypedConfirm } from '../components/review-modals.js';
 import { go, isStale, rerender } from '../lib/nav.js';
-import { card, empty, tableWrap, grid, stat, sectionHead, button, callout } from '../lib/ui.js';
+import { card, empty, tableWrap, grid, stat, sectionHead, button, callout, pageHead } from '../lib/ui.js';
 
 export async function render(view, token) {
   const cycles = recentCyclesList(12);
   const cfg = payrollConfig();
 
-  const head = card('مسير الرواتب — الدورة من 26 إلى 25', null, 'money',
+  view.appendChild(pageHead('مسير الرواتب', 'الدورة من ٢٦ إلى ٢٥ — المستحق لكل موظف حسب بصمة الجهاز'));
+
+  const head = card(null, null, 'money',
     `قيمة اليوم = الراتب ÷ ${cfg.daysPerMonth} · قيمة الساعة = قيمة اليوم ÷ ${cfg.hoursPerDay}. ` +
     'الخصم بالساعات للتأخير والخروج المبكر، والغياب بخصم يوم كامل. المصدر: بصمات جهاز ZKTeco فقط.');
   const dd = el('select', 'select-lg');
