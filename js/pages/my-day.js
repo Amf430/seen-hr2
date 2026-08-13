@@ -1,5 +1,9 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   يومي — مهام النظام التي اخترتَها ليومك، وقائمتك الشخصية
+   قائمتي — مهام النظام التي اخترتَها ليومك، وتذكيراتك الخاصة
+
+   ⚠️ الاسم «قائمتي» لا «يومي» (طلب المالك ٢٠٢٦-٠٨-١٣): «يومي» تقول متى
+   تُقرأ ولا تقول ما فيها، وتزاحم «مهامي» في الذهن — كلتاهما ضمير متكلّم
+   على شيء مؤقّت. و«قائمتي» تقول الشيء نفسه: قائمة، وهي لك.
 
    ⚠️ **قائمة مسطّحة لا بطاقات** (مرجع المالك: Microsoft To Do). النسخة الأولى
    كانت أربع بطاقات لكل قسم عنوانٌ ووصفٌ وإطار — فبند التذكير الواحد يجلس
@@ -45,7 +49,7 @@ export async function render(view, token) {
   const head = el('header', 'dayhead');
   head.innerHTML =
     `<div>
-       <h1 class="dayhead__title">يومي</h1>
+       <h1 class="dayhead__title">قائمتي</h1>
        <p class="dayhead__sub">${esc(greeting())}، ${esc(firstName(me.name || ''))}</p>
      </div>
      <span class="dayhead__date">${esc(fmtDayDate())}</span>`;
@@ -97,7 +101,7 @@ export async function render(view, token) {
       'رسمية · لها مدير · تدخل التقارير',
       button('اختر من مهامي', 'btn sm ghost', openPick, 'plus')));
     if (!v.tasks.length) {
-      host.appendChild(el('p', 'daylist__empty', 'لم تختر مهمة ليومك بعد.'));
+      host.appendChild(el('p', 'daylist__empty', 'لم تختر مهمة لقائمتك بعد.'));
     } else {
       const l = el('div', 'daylist');
       v.tasks.forEach(({ item, task }) => l.appendChild(taskRow(item, task)));
@@ -107,7 +111,7 @@ export async function render(view, token) {
     /* ══════════ القائمة الشخصية ══════════
        ⚠️ الوعد يُكتب في الشاشة لا في تعليق: الوعد الذي لا يُقرأ لا يُصدَّق،
        والقائمة التي يظنّها الموظف مقروءة لا يكتب فيها ما ينفعه. */
-    host.appendChild(sectionLabel(`قائمتي الشخصية (${v.personal.length})`,
+    host.appendChild(sectionLabel(`تذكيراتي الخاصة (${v.personal.length})`,
       'لك وحدك — لا يراها مديرك ولا الموارد البشرية، ولا تدخل تقاريرك ولا تقييمك',
       null, 'shield'));
     if (!v.personal.length) {
@@ -218,7 +222,7 @@ export async function render(view, token) {
          </span>`;
       r.querySelector('.as-link').onclick = () => go('task', task.id);
     }
-    r.appendChild(rowAction('أزل من يومي', 'x', () => save(removeItem(items, item.id))));
+    r.appendChild(rowAction('أزل من قائمتي', 'x', () => save(removeItem(items, item.id))));
     return r;
   }
 
@@ -277,7 +281,7 @@ export async function render(view, token) {
     const chosen = new Set(items.filter((x) => x.ref && !x.done).map((x) => x.ref));
     const avail = tasks.filter((t) => !chosen.has(t.id));
     const m = openModal(`
-      <h3>اختر مهامّ ليومك</h3>
+      <h3>اختر مهامّ لقائمتك</h3>
       ${avail.length ? '' : '<div class="empty">كل مهامك النشِطة في يومك بالفعل.</div>'}
       <div class="picklist">${avail.map((t) => `
         <label class="checkbox"><input type="checkbox" value="${esc(t.id)}">
@@ -285,7 +289,7 @@ export async function render(view, token) {
             t.dueDate ? ' · ' + esc(t.dueDate) : ''}</span></label>`).join('')}</div>
       <div class="row">
         <button class="btn ghost" id="pkCancel">إلغاء</button>
-        <button class="btn" id="pkOk"${avail.length ? '' : ' disabled'}>أضف ليومي</button>
+        <button class="btn" id="pkOk"${avail.length ? '' : ' disabled'}>أضف لقائمتي</button>
       </div>`);
     m.$('#pkCancel').onclick = m.close;
     m.$('#pkOk').onclick = () => {

@@ -187,7 +187,7 @@ async function paintTodoReminders(host, token) {
 
   const c = card('');
   c.appendChild(sectionHead({ text: 'تذكيراتك', icon: 'list' },
-    button('قائمتي', 'btn sm ghost', () => go('my-day'), 'back')));
+    button('افتح قائمتي', 'btn sm ghost', () => go('my-day'), 'back')));
   const box = el('div', 'todo-strip');
   due.slice(0, 5).forEach((x) => {
     const late = x.remindAt < ymdKsa();
