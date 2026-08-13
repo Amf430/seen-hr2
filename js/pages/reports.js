@@ -1,12 +1,14 @@
 import { el, esc } from '../lib/dom.js';
 import { getRequests } from '../lib/state.js';
-import { card, grid, stat, tableWrap, empty, sectionHead, button } from '../lib/ui.js';
+import { card, grid, stat, tableWrap, empty, sectionHead, button, pageHead } from '../lib/ui.js';
 import { exportRequests } from '../lib/excel.js';
 import { STATUS_AR } from '../lib/dates.js';
 
 export function render(view) {
   const reqs = getRequests();
   const byType = (t) => reqs.filter((r) => r.type === t).length;
+
+  view.appendChild(pageHead('تحليلات الطلبات', 'توزيع الاستئذانات والإجازات عبر النظام'));
 
   const g = grid(4);
   g.append(

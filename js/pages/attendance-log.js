@@ -13,10 +13,15 @@ import { photoUsage, purgePhotosBefore } from '../lib/photo.js';
 import { adjustmentsInRange, applyAll } from '../lib/adjustments.js';
 import { openTypedConfirm } from '../components/review-modals.js';
 import { logAction } from '../lib/audit.js';
-import { card, empty, tableWrap, sectionHead, button, callout } from '../lib/ui.js';
+import { card, empty, tableWrap, sectionHead, button, callout, pageHead } from '../lib/ui.js';
 
 export async function render(view, token, opt) {
   const cycles = recentCyclesList(12);
+
+  view.appendChild(pageHead(
+    opt.isDevice ? 'سجل جهاز البصمة' : 'الحضور من الجوال',
+    opt.isDevice ? 'سجل مستقل قادم من جهاز ZKTeco — لا يعدّله أحد'
+                 : 'تسجيل ذاتي بالموقع الجغرافي — فرز باليوم أو بالموظف'));
 
   const head = card(
     opt.isDevice ? 'سجل جهاز البصمة' : 'الحضور من الجوال',

@@ -1,4 +1,5 @@
 import { el, esc, toast, openModal } from '../lib/dom.js';
+import { icon } from '../lib/icons.js';
 import { getMe, getUsers } from '../lib/state.js';
 import { refreshUsers, toggleSuspend, deleteEmployee, restoreAccess,
          findOrphanHistory, linkPreviousUids } from '../lib/users.js';
@@ -7,10 +8,10 @@ import { db, doc, updateDoc } from '../lib/firebase.js';
 import { openEmpForm } from '../components/employee-form.js';
 import { openTypedConfirm } from '../components/review-modals.js';
 import { go, rerender, isStale } from '../lib/nav.js';
-import { money } from '../lib/format.js';
+import { money, plural } from '../lib/format.js';
 import { roleLabel } from '../lib/perms.js';
 import { describeRule } from '../lib/geo.js';
-import { card, tableWrap, empty, contractCell, button, rowMenu } from '../lib/ui.js';
+import { card, tableWrap, empty, contractCell, button, rowMenu, pageHead, avatar } from '../lib/ui.js';
 import { docsOf, worstDocState, kindLabel } from '../lib/documents.js';
 
 export async function render(view, token) {
@@ -26,6 +27,19 @@ export async function render(view, token) {
      يستطيع رؤية الرواتب. ما يمنعه فعلاً على السيرفر شيئان: لا يرى أحداً خارج
      قسمه، ولا يكتب راتباً إطلاقاً. */
   const isAdmin = me.role === 'admin';
+
+  /* رأس موحّد لكل صفحات الأدمن — نفس بنية تحية اللوحة */
+  view.appendChild(pageHead(
+    isAdmin ? 'ملفات الموظفين' : 'موظفو قسمي',
+    isAdmin ? 'البيانات والعقود والرواتب والصلاحيات'
+            : 'بيانات موظفي قسمك — تقدر تضيف موظفاً جديداً لقسمك'));
+
+  /* ⚠️ تفضيل هذا الجهاز وحده — قاعدة localStorage في CLAUDE.md: لا شيء يخصّ
+     الحقيقة. من يفتح من جواله يفضّل البطاقات، ومن يراجع الرواتب من مكتبه
+     يفضّل الجدول، وليس لأحدهما أن يفرض على الآخر. */
+  const VIEW_KEY = 'seen-hr:empView';
+  let mode = localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'grid';
+  let dept = '';
 
   const bar = el('div', 'toolbar');
   bar.innerHTML = `<input id="empSearch" class="search-input" placeholder="بحث بالاسم أو القسم أو الرقم الوظيفي…">`;
@@ -45,13 +59,52 @@ export async function render(view, token) {
 
   function draw() {
     const s = (view.querySelector('#empSearch')?.value || '').trim();
-    let list = [...getUsers()].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    const all = [...getUsers()].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    let list = all;
     if (s) list = list.filter((u) =>
       (u.name || '').includes(s) || (u.department || '').includes(s) || String(u.empId || '').includes(s));
+    if (dept) list = list.filter((u) => (u.department || '') === dept);
 
     host.innerHTML = '';
-    if (!list.length) { host.appendChild(empty('لا يوجد موظفون')); return; }
-    host.appendChild(el('p', 'desc', `${list.length} موظف`));
+
+    /* ── شريط التصفية: رقاقات الأقسام + مبدّل العرض ── */
+    const depts = [...new Set(all.map((u) => u.department).filter(Boolean))].sort();
+    const filters = el('div', 'filterbar');
+    const chips = el('div', 'chipset');
+    const chip = (label, value) => {
+      const b = el('button', 'chipbtn' + (dept === value ? ' is-on' : ''), esc(label));
+      b.type = 'button';
+      b.setAttribute('aria-pressed', String(dept === value));
+      b.onclick = () => { dept = value; draw(); };
+      return b;
+    };
+    chips.appendChild(chip('الكل', ''));
+    depts.forEach((d) => chips.appendChild(chip(d, d)));
+    filters.appendChild(chips);
+
+    const toggle = el('div', 'viewtoggle');
+    toggle.setAttribute('role', 'group');
+    toggle.setAttribute('aria-label', 'طريقة العرض');
+    const vbtn = (m, label, ico) => {
+      const b = el('button', 'viewtoggle__btn' + (mode === m ? ' is-on' : ''), icon(ico) + esc(label));
+      b.type = 'button';
+      b.setAttribute('aria-pressed', String(mode === m));
+      b.onclick = () => { mode = m; localStorage.setItem(VIEW_KEY, m); draw(); };
+      return b;
+    };
+    toggle.append(vbtn('grid', 'بطاقات', 'dashboard'), vbtn('list', 'جدول', 'list'));
+    filters.appendChild(toggle);
+    host.appendChild(filters);
+
+    /* ⚠️ العدّ يذكر الأقسام كما في مرجع التصميم: «٣ موظفين في قسمين» أوضح من
+       «٣ موظف» — الرقم وحده لا يقول كيف تتوزّع الشركة. */
+    const shownDepts = new Set(list.map((u) => u.department).filter(Boolean)).size;
+    host.appendChild(el('p', 'desc',
+      plural(list.length, ['موظف واحد', 'موظفان', 'موظفين']) +
+      (shownDepts ? ' في ' + plural(shownDepts, ['قسم واحد', 'قسمين', 'أقسام']) : '')));
+
+    if (!list.length) { host.appendChild(empty('لا يوجد موظفون مطابقون', 'people')); return; }
+    if (mode === 'grid') { drawGrid(list); return; }
 
     const wrap = tableWrap(`
       <table>
@@ -108,6 +161,52 @@ export async function render(view, token) {
       tb.appendChild(tr);
     });
     host.appendChild(wrap);
+  }
+
+  /* ═══ عرض البطاقات ═══
+     يقابل «Directory» في مرجع التصميم: صورة رمزية، اسم ومسمّى، نطاق الحضور،
+     حالة الحساب، والقسم في القدم.
+
+     ⚠️ الحالة هنا **حالة الحساب** (نشط/معلّق) لا حالة الحضور اليوم كما في
+     المرجع. سبب الفرق أن حالة الحضور تحتاج جلب سجلات اليوم لكل موظف — قراءة
+     مفوترة لا تحتاجها هذه الشاشة، وصفحة «الحضور من الجوال» تعرضها أصلاً.
+     ورسمُ «حاضر» بلا جلب يعني ادّعاءً لا بيانات تسنده.
+
+     ⚠️ الراتب في البطاقة للأدمن وحده — تجميلاً كالجدول تماماً، لا حمايةً:
+     القاعدة تمنح مدير القسم الوثيقة كاملة (قرار المالك ٢٠٢٦-٠٨-١٢). */
+  function drawGrid(list) {
+    const g = el('div', 'peoplegrid');
+    for (const u of list) {
+      const c = el('button', 'card card--link personcard');
+      c.type = 'button';
+      c.onclick = () => go('profile', u.id);
+      c.setAttribute('aria-label', `فتح بروفايل ${u.name || ''}`);
+
+      const top = el('div', 'personcard__top');
+      top.appendChild(avatar(u.name, 42));
+      top.appendChild(el('div', 'personcard__id',
+        `<b class="personcard__name">${esc(u.name || '—')}</b>` +
+        `<span class="personcard__role">${esc(u.jobTitle || 'موظف')}</span>`));
+      c.appendChild(top);
+
+      const mid = el('div', 'personcard__mid',
+        `<span class="personcard__where">${icon('pin')}${esc(describeRule(u))}</span>` +
+        `<span class="pill pill--dot ${u.status === 'active' ? 'active' : 'suspended'}">` +
+          `${u.status === 'active' ? 'نشط' : 'معلّق'}</span>`);
+      c.appendChild(mid);
+
+      const foot = el('div', 'personcard__foot',
+        `<span>${esc(u.department || 'بلا قسم')}</span>` +
+        (isAdmin && u.salary ? `<span class="num personcard__pay">${esc(money(u.salary))}</span>` : ''));
+      c.appendChild(foot);
+
+      /* العقد المنتهي أو المقارب يظهر في البطاقة — هو أكثر ما يحتاج إجراءً */
+      const cc = contractCell(u.contractEnd);
+      if (cc.includes('pill')) c.appendChild(el('div', 'personcard__flag', cc));
+
+      g.appendChild(c);
+    }
+    host.appendChild(g);
   }
 
   try { await refreshUsers(); } catch (e) { console.error(e); }

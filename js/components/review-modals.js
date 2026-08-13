@@ -36,13 +36,15 @@ function reasonModal({ title, help, placeholder, confirmLabel, busyLabel, run })
   };
 }
 
-export function openReject(r) {
+/* onDone اختيارية: تُستدعى بعد نجاح الرفض ليحدّث المستدعي عرضه في مكانه.
+   المستدعون القدامى يمرّرون معاملاً واحداً ويعملون كما هم. */
+export function openReject(r, onDone) {
   reasonModal({
     title: 'رفض الطلب',
     placeholder: 'اكتب سبب الرفض…',
     confirmLabel: 'تأكيد الرفض',
     busyLabel: 'جارٍ الرفض…',
-    run: (reason) => reject(r, reason)
+    run: async (reason) => { await reject(r, reason); onDone?.(); }
   });
 }
 

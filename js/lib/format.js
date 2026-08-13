@@ -30,6 +30,70 @@ export function fmtDate(d) {
   return x.toLocaleDateString('ar-SA-u-ca-gregory', { year: 'numeric', month: '2-digit', day: '2-digit' });
 }
 
+/* ═══ التحية حسب الساعة ═══
+   تفتح لوحة الأدمن بجملة بشرية بدل صفّ إداري. الحدود بتوقيت الرياض لأن
+   التاريخ المُمرَّر محلّي، والنظام كلّه يعمل على UTC+3.
+   ⚠️ «مساء الخير» تبدأ من الثانية عشرة ظهراً لا من السادسة: العربية لا تعرف
+   «بعد الظهر» تحيةً، وقول «صباح الخير» في الثالثة عصراً خطأ صريح. */
+export function greeting(d = new Date()) {
+  const h = new Date(d).getHours();
+  if (h < 5)  return 'مساء الخير';
+  if (h < 12) return 'صباح الخير';
+  return 'مساء الخير';
+}
+
+/* الاسم الأول وحده — «ريم الأحمد» تصير «ريم».
+   التحية بالاسم الكامل تبدو رسميةً كخطاب لا كتحية. */
+export function firstName(full) {
+  return String(full ?? '').trim().split(/\s+/)[0] || '';
+}
+
+/* ═══ الأحرف الأولى للصورة الرمزية ═══
+   «ريم الأحمد» ← «را». كلمتان لا أكثر: ثلاثة أحرف لا تسع دائرة ٣٢px.
+   ⚠️ «عبد الله بن سعود» ← «عب» لا «عا»: الكلمة الثانية «الله» تبدأ بـ«ا»
+   التعريف، فتُسقط أداة التعريف من الكلمة الثانية فصاعداً. */
+export function initials(full) {
+  const words = String(full ?? '').trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return '؟';
+  const strip = (w) => (w.length > 2 && w.startsWith('ال') ? w.slice(2) : w);
+  const a = words[0][0] || '';
+  const b = words.length > 1 ? (strip(words[1])[0] || '') : '';
+  return (a + b) || '؟';
+}
+
+/* ═══ درجة لون ثابتة من الاسم ═══
+   نفس الاسم يعطي نفس اللون في كل شاشة وكل جلسة — الصورة الرمزية علامةُ تعرّف،
+   ولون يتغيّر مع كل عرض يُبطل الغرض.
+   ⚠️ مشتقّة من الاسم لا من الترتيب في القائمة: الترتيب يتغيّر بالفرز والبحث. */
+export function hueOf(str) {
+  const s = String(str ?? '');
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+  return Math.abs(h) % 360;
+}
+
+/* ═══ العدّ العربي ═══
+   «٣ موظف في 2 أقسام» عربية مكسورة. الصحيح «٣ موظفين في قسمين».
+
+   ⚠️ العربية ثلاثة أعداد لا اثنان: مفرد، ومثنّى، وجمع — والجمع نفسه ينقسم
+   إلى جمع قلّة (٣–١٠) وجمع كثرة (١١+) الذي يعود للمفرد المنصوب.
+   forms = [مفرد، مثنّى، جمع]. */
+export function plural(n, forms) {
+  const [one, two, many] = forms;
+  if (n === 1) return one;
+  if (n === 2) return two;
+  if (n >= 3 && n <= 10) return `${n} ${many}`;
+  return `${n} ${one}`;
+}
+
+/* اسم اليوم والتاريخ — لرأس الصفحة وحده */
+export function fmtDayDate(d = new Date()) {
+  const x = new Date(d);
+  if (isNaN(x)) return '—';
+  return x.toLocaleDateString('ar-SA-u-ca-gregory',
+    { weekday: 'long', day: 'numeric', month: 'long' });
+}
+
 /* طابع زمني من Firestore أو Date → تاريخ ووقت */
 export function fmtDT(ts) {
   if (!ts) return '—';

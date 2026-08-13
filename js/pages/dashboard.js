@@ -12,20 +12,23 @@
 
 import { el, esc } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
-import { getUsers, getRequests } from '../lib/state.js';
+import { getUsers, getRequests, getMe } from '../lib/state.js';
 import { cycleOf, ymd } from '../lib/dates.js';
-import { fmtDate as fd, money, hhmm, hm } from '../lib/format.js';
+import { fmtDate as fd, money, hhmm, hm, greeting, firstName, fmtDayDate } from '../lib/format.js';
 import { fetchAttendance } from '../lib/attendance.js';
 import { canApprove } from '../lib/perms.js';
 import { go, isStale } from '../lib/nav.js';
 import { setProfileUid } from '../lib/state.js';
 import { workforce, todayAttendance, contracts, payrollSummary, requestPulse, actionItems,
          weeklyPunctuality, weekWindow } from '../lib/hr-stats.js';
+import { dailySeries, anniversariesToday } from '../lib/pulse.js';
+import { donut, barList } from '../lib/charts.js';
+import { hasChain, ownsCurrentStep } from '../lib/requests.js';
 import { publishLeaderboard, readLeaderboard } from '../lib/leaderboard.js';
 import { topPunctualCard } from '../components/top-punctual.js';
 import { expiringDocs, kindLabel } from '../lib/documents.js';
-import { card, grid, stat, empty, tableWrap, sectionHead, button, bar, pulseBand } from '../lib/ui.js';
-import { miniRow } from '../components/request-card.js';
+import { card, grid, stat, empty, tableWrap, sectionHead, button, statCard } from '../lib/ui.js';
+import { miniRow, approvalRow } from '../components/request-card.js';
 import { monthlyExport } from '../lib/excel.js';
 
 export async function render(view, token) {
@@ -33,18 +36,17 @@ export async function render(view, token) {
   const users = getUsers();
   const reqs = getRequests();
 
-  /* ── شريط الدورة ── */
-  const band = el('div', 'period-band');
-  band.innerHTML = `
-    <div>
-      <div class="period-band__label">الدورة الشهرية الحالية</div>
-      <div class="period-band__value">${esc(cyc.label)}</div>
-    </div>
-    <div class="period-band__side">
-      <div class="period-band__label">يبدأ عدّ جديد في</div>
-      <div class="period-band__value sm">${fd(cyc.nextReset)}</div>
-    </div>`;
-  view.appendChild(band);
+  /* ── الافتتاح: تحية ووقت ثم سطر يشرح اليوم ──
+     كان شريط الدورة أول ما تراه: صحيح ومفيد، لكنه يفتح الشاشة بمعلومة إدارية
+     لا بحال الشركة. الدورة انتقلت إلى سطر السياق تحت التحية. */
+  const me = getMe();
+  const now = new Date();
+  const head = el('header', 'pagehead');
+  head.innerHTML =
+    `<div class="pagehead__when">${esc(fmtDayDate(now))} · ${esc(hm(now))}</div>` +
+    `<h1 class="pagehead__title">${esc(greeting(now))}${me?.name ? '، ' + esc(firstName(me.name)) : ''}</h1>` +
+    `<p class="pagehead__sub">نبض الشركة اليوم · الدورة ${esc(cyc.label)} — يبدأ عدّ جديد في ${esc(fd(cyc.nextReset))}</p>`;
+  view.appendChild(head);
 
   /* ── القوى العاملة — تُرسم فوراً، لا تنتظر أي جلب ── */
   const wf = contracts(users);
@@ -54,15 +56,16 @@ export async function render(view, token) {
      العاملة وحدها. الحاوية تُستبدل لاحقاً بدل أن تبقى الشاشة فارغة —
      الأدمن يرى القوى العاملة فوراً بينما يُقرأ الحضور. */
   const pulseHost = el('div', '');
-  pulseHost.appendChild(pulseBand([
-    { label: 'داخل العمل الآن', value: '…', ico: 'dot', lead: true,
-      sub: 'جارٍ قراءة حضور اليوم' },
-    { label: 'على رأس العمل', value: w.active, ico: 'people' },
-    { label: 'يعملون عن بُعد', value: w.remote, ico: 'globe' },
-    { label: 'عقود تحتاج متابعة', value: wf.soon.length + wf.expired.length, ico: 'doc',
-      tone: wf.expired.length ? 'bad' : wf.soon.length ? 'warn' : '',
-      sub: wf.expired.length ? `${wf.expired.length} منها منتهٍ فعلاً` : 'خلال ٦٠ يوماً' }
-  ]));
+  const firstGrid = el('div', 'statgrid');
+  firstGrid.append(
+    statCard({ label: 'الحضور اليوم', value: '…', ico: 'dot', sub: 'جارٍ قراءة حضور اليوم' }),
+    statCard({ label: 'على رأس العمل', value: w.active, ico: 'people' }),
+    statCard({ label: 'يعملون عن بُعد', value: w.remote, ico: 'globe', tone: 'info' }),
+    statCard({ label: 'عقود تحتاج متابعة', value: wf.soon.length + wf.expired.length, ico: 'doc',
+      tone: wf.expired.length ? 'bad' : wf.soon.length ? 'warn' : 'good',
+      sub: wf.expired.length ? `${wf.expired.length} منها منتهٍ فعلاً` : 'خلال ٦٠ يوماً' })
+  );
+  pulseHost.appendChild(firstGrid);
   view.appendChild(pulseHost);
 
   /* ── حاويات تُملأ بعد الجلب ── */
@@ -89,15 +92,15 @@ export async function render(view, token) {
   else waiting.forEach((r) => rc.appendChild(miniRow(r)));
   view.appendChild(rc);
 
-  /* ── الأقسام ── */
-  if (w.departments.length) {
-    const dc = card('التوزيع حسب القسم', null, 'building');
-    const max = w.departments[0][1] || 1;
-    dc.innerHTML += w.departments.map(([name, n]) => `
-      <div class="row-between mt-2"><span>${esc(name)}</span><b class="num">${n}</b></div>
-      ${bar((n / max) * 100, 'var(--maroon)')}`).join('');
-    view.appendChild(dc);
-  }
+  /* ⚠️ «التوزيع حسب القسم» انتقل إلى الصفّ غير المتماثل بجوار حلقة اليوم،
+     ويُبنى بعد الجلب من w2 لا من w — الأولى كانت تُلتقط قبل وصول القائمة
+     فتعرض أقساماً فارغة. */
+
+  /* ── تحديثات اليوم ──
+     يقابل «Today's updates» في مرجع التصميم: ثلاثة أعمدة بأيقونات ملوّنة.
+     المصادر هنا حقيقية — إعلان منشور، وذكرى التحاق من hireDate. ولا أعياد
+     ميلاد: الحقل غير موجود في وثيقة الموظف، ورسمُه فارغاً يوحي بأننا نتتبّعه. */
+  const updHost = el('div', ''); view.appendChild(updHost);
 
   /* ── اختصارات ── */
   const qc = card('');
@@ -172,24 +175,69 @@ export async function render(view, token) {
   const ta = todayAttendance(staff, todayRecs, reqs);
   const rateColor = (r) => r >= 90 ? 'var(--green)' : r >= 70 ? 'var(--amber)' : 'var(--red)';
 
+  /* ⚠️ سلسلة الأسبوع من المصدرين معاً: الجوال وجهاز البصمة مستقلّان، ومن
+     يقرأ أحدهما وحده يرى نصف الحضور. dailySeries تعدّ الموظفين لا السجلات
+     فلا يُحسب من بصم في الاثنين مرّتين. */
+  const series = dailySeries([...weekWeb, ...weekZk], weekWindow());
+  const spark = series.map((d) => d.count);
+
   pulseHost.innerHTML = '';
-  pulseHost.appendChild(pulseBand([
+  const sg = el('div', 'statgrid');
+  sg.append(
     ta.expected
-      ? { label: 'داخل العمل الآن', value: ta.inNow, unit: `/ ${ta.expected}`, ico: 'dot',
-          lead: true, tone: 'good',
-          meter: ta.rate !== null ? { pct: ta.rate, color: rateColor(ta.rate) } : null,
-          sub: ta.rate !== null ? `سجّل حضوره ${ta.checkedIn} من ${ta.expected} — ${ta.rate}٪` : '' }
-      : { label: 'اليوم', value: 'راحة', ico: 'calendar', lead: true,
-          sub: 'راحة أو عطلة رسمية — لا دوام مجدول' },
-    { label: 'لم يسجّلوا', value: ta.expected ? ta.absent : '—', ico: 'alert',
-      tone: ta.absent ? 'bad' : '',
-      sub: ta.expected ? `من أصل ${ta.expected} عليهم وردية` : 'لا دوام اليوم' },
-    { label: 'في إجازة', value: ta.onLeave, ico: 'doc',
-      sub: `${w2.active} على رأس العمل · ${w2.remote} عن بُعد` },
-    { label: 'عقود تحتاج متابعة', value: wf2.soon.length + wf2.expired.length, ico: 'doc',
-      tone: wf2.expired.length ? 'bad' : wf2.soon.length ? 'warn' : '',
-      sub: wf2.expired.length ? `${wf2.expired.length} منها منتهٍ فعلاً` : 'خلال ٦٠ يوماً' }
-  ]));
+      ? statCard({ label: 'الحضور اليوم', value: `${ta.rate ?? 0}٪`, ico: 'dot',
+          tone: ta.rate >= 90 ? 'good' : ta.rate >= 70 ? 'warn' : 'bad',
+          sub: `سجّل ${ta.checkedIn} من ${ta.expected} · داخل العمل الآن ${ta.inNow}`,
+          spark, onClick: () => go('attendance') })
+      : statCard({ label: 'اليوم', value: 'راحة', ico: 'calendar',
+          sub: 'راحة أو عطلة رسمية — لا دوام مجدول' }),
+    statCard({ label: 'لم يسجّلوا', value: ta.expected ? ta.absent : '—', ico: 'alert',
+      tone: ta.absent ? 'bad' : 'good',
+      sub: ta.expected ? `من أصل ${ta.expected} عليهم وردية` : 'لا دوام اليوم',
+      onClick: ta.expected ? () => go('attendance') : null }),
+    statCard({ label: 'في إجازة', value: ta.onLeave, ico: 'doc', tone: 'info',
+      sub: `${w2.active} على رأس العمل · ${w2.remote} عن بُعد` }),
+    statCard({ label: 'عقود تحتاج متابعة', value: wf2.soon.length + wf2.expired.length, ico: 'doc',
+      tone: wf2.expired.length ? 'bad' : wf2.soon.length ? 'warn' : 'good',
+      sub: wf2.expired.length ? `${wf2.expired.length} منها منتهٍ فعلاً` : 'خلال ٦٠ يوماً',
+      onClick: () => go('employees') })
+  );
+  pulseHost.appendChild(sg);
+
+  /* ── صفّ غير متماثل: حلقة اليوم بجوار توزيع الأقسام ── */
+  const split = el('div', 'split');
+
+  const ringCard = card('');
+  ringCard.appendChild(sectionHead({ text: 'لقطة اليوم', icon: 'dot' },
+    button('كل السجل', 'btn sm ghost', () => go('attendance'))));
+  const ring = el('div', 'ringbox');
+  const segs = [
+    { value: ta.checkedIn, color: 'var(--green)', label: 'سجّل حضوره' },
+    { value: ta.onLeave,   color: 'var(--info)',  label: 'في إجازة' },
+    { value: ta.absent,    color: 'var(--red)',   label: 'لم يسجّل' }
+  ];
+  ring.innerHTML = donut(segs, {
+    centerValue: ta.expected ? `${ta.rate ?? 0}٪` : '—',
+    centerLabel: ta.expected ? `من ${ta.expected}` : 'لا دوام',
+    emptyLabel: 'لا دوام مجدول اليوم'
+  }) + `<div class="legend">${segs.map((s) => `
+      <div class="legend__row">
+        <span class="legend__dot" style="background:${s.color}"></span>
+        <span class="legend__label">${esc(s.label)}</span>
+        <span class="legend__value num">${s.value}</span>
+      </div>`).join('')}</div>`;
+  ringCard.appendChild(ring);
+
+  const deptCard = card('');
+  deptCard.appendChild(sectionHead({ text: 'التوزيع حسب القسم', icon: 'building' },
+    button('الموظفون', 'btn sm ghost', () => go('employees'))));
+  deptCard.innerHTML += w2.departments.length
+    ? barList(w2.departments.map(([name, n]) => ({ label: name, value: n })))
+    : '';
+  if (!w2.departments.length) deptCard.appendChild(empty('لا أقسام بعد', 'building'));
+
+  split.append(deptCard, ringCard);
+  pulseHost.appendChild(split);
 
   /* من هو داخل العمل الآن */
   liveHost.innerHTML = '';
@@ -210,21 +258,115 @@ export async function render(view, token) {
     liveHost.appendChild(lc);
   }
 
-  /* تكلفة الرواتب */
+  /* ── صفّ: الطلبات المعلّقة | تفصيل الرواتب ── */
   const ps = payrollSummary(cyc, staff, reqs, zk);
+  const paySplit = el('div', 'split split--even');
+
+  /* الاعتمادات — قرار من اللوحة بلا فتح صفحة */
+  const apc = card('');
+  const pendingList = reqs.filter((r) =>
+    r.status === 'pending' && (hasChain(r) ? ownsCurrentStep(r) : canApprove(r)));
+  const paintApprovals = () => {
+    apc.innerHTML = '';
+    apc.appendChild(sectionHead({ text: 'بانتظار موافقتك', icon: 'inbox' },
+      button('كل الطلبات', 'btn sm ghost', () => go('inbox'))));
+    apc.appendChild(el('p', 'help', `${pendingList.length} بانتظار قرارك`));
+    if (!pendingList.length) { apc.appendChild(empty('لا شيء ينتظر قرارك', 'check')); return; }
+    /* ⚠️ القرار يُحدّث اللوحة في مكانها ولا ينقل المستخدم لصفحة الطلبات.
+       الغرض من الاعتماد هنا أن يُنجزه الأدمن دون مغادرة لوحته — ونقلُه بعد
+       كل موافقة يجعل اللوحة بابَ عبور لا مكانَ عمل، ويضيّع بقيّة ما كان
+       يقرؤه فيها.
+       أربعة صفوف فقط: اللوحة نظرة عامة، والبقيّة في صفحتها. */
+    pendingList.slice(0, 4).forEach((r) => apc.appendChild(approvalRow(r, () => {
+      const i = pendingList.indexOf(r);
+      if (i >= 0) pendingList.splice(i, 1);
+      paintApprovals();
+    })));
+    if (pendingList.length > 4)
+      apc.appendChild(el('p', 'help', `و${pendingList.length - 4} طلبات أخرى في صفحة الطلبات.`));
+  };
+  paintApprovals();
+
+  /* تفصيل الرواتب — إلى أين يذهب المسير، وأين نحن من الدورة */
   const pc = card('');
-  pc.appendChild(sectionHead({ text: 'تكلفة الرواتب — هذه الدورة', icon: 'money' },
+  pc.appendChild(sectionHead({ text: 'تفصيل الرواتب', icon: 'money' },
     button('فتح المسير', 'btn sm ghost', () => go('payroll'))));
-  const pg = grid(4);
-  pg.append(
-    stat(money(ps.salary), 'إجمالي الرواتب'),
-    stat(money(ps.total), 'إجمالي الخصومات', ps.total ? 'r' : ''),
-    stat(money(ps.net), 'المستحق', 'g'),
-    stat(hhmm(ps.lateMin + ps.earlyMin), 'تأخير وخروج مبكر', 'a')
-  );
-  pc.appendChild(pg);
-  pc.appendChild(el('p', 'help', 'محسوبة حتى اليوم من بصمات جهاز ZKTeco — نفس قواعد المسير بالضبط.'));
-  payHost.appendChild(pc);
+  pc.appendChild(el('p', 'help', 'إلى أين يذهب مسير هذه الدورة — محسوب حتى اليوم من بصمات الجهاز'));
+
+  /* ⚠️ الشرائح: المستحق + الخصومات = إجمالي الرواتب. لا نضيف «ضرائب» ولا
+     «بدلات» كما في مرجع التصميم — لا وجود لهما في بياناتنا، ورسمُهما بصفر
+     يوحي بأن النظام يتتبّعهما. */
+  const paySegs = [
+    { value: Math.max(0, ps.net), color: 'var(--green)', label: 'المستحق' },
+    { value: Math.max(0, ps.total), color: 'var(--red)', label: 'الخصومات' }
+  ];
+  const payRing = el('div', 'ringbox');
+  const gross = ps.salary || 1;
+  payRing.innerHTML = donut(paySegs, {
+    centerValue: money(ps.net), centerLabel: 'المستحق', centerSize: 15,
+    emptyLabel: 'لا مسير محسوب بعد'
+  }) + `<div class="legend">${paySegs.map((s) => `
+      <div class="legend__row">
+        <span class="legend__dot" style="background:${s.color}"></span>
+        <span class="legend__label">${esc(s.label)}</span>
+        <span class="legend__value num">${Math.round((s.value / gross) * 100)}٪</span>
+      </div>`).join('')}
+      <div class="legend__row">
+        <span class="legend__dot" style="background:var(--amber)"></span>
+        <span class="legend__label">تأخير وخروج مبكر</span>
+        <span class="legend__value num">${esc(hhmm(ps.lateMin + ps.earlyMin))}</span>
+      </div></div>`;
+  pc.appendChild(payRing);
+
+  /* تقدّم الدورة — أيام حقيقية، لا خطوات اعتماد لا وجود لها عندنا */
+  const dayMs = 86400000;
+  const spanDays = Math.max(1, Math.round((cyc.end - cyc.start) / dayMs) + 1);
+  const goneDays = Math.min(spanDays, Math.max(0, Math.round((new Date() - cyc.start) / dayMs) + 1));
+  const leftDays = Math.max(0, spanDays - goneDays);
+  const prog = el('div', 'cycleprog');
+  prog.innerHTML =
+    `<div class="cycleprog__head">` +
+      `<span>مضى ${goneDays} من ${spanDays} يوماً</span>` +
+      `<span>${leftDays ? `يُقفل بعد ${leftDays} يوماً` : 'تُقفل اليوم'}</span>` +
+    `</div>` +
+    `<span class="cycleprog__track"><i style="inline-size:${Math.round((goneDays / spanDays) * 100)}%"></i></span>`;
+  pc.appendChild(prog);
+
+  paySplit.append(apc, pc);
+  payHost.appendChild(paySplit);
+
+  /* ── تحديثات اليوم ── */
+  const anniv = anniversariesToday(staff, today);
+  const newHires = staff.filter((u) => typeof u.hireDate === 'string' &&
+    (new Date(today) - new Date(u.hireDate)) / 86400000 <= 30 &&
+    new Date(u.hireDate) <= new Date(today));
+  const updates = [
+    ...anniv.slice(0, 2).map((x) => ({
+      ico: 'people', tone: 'info', title: `${x.user.name} — ${x.years} سنوات`,
+      body: `التحق في ${fd(x.user.hireDate)}. شكراً على ${x.years} سنوات من العمل.` })),
+    ...newHires.slice(0, 2).map((u) => ({
+      ico: 'plus', tone: 'good', title: `${u.name} انضمّ حديثاً`,
+      body: `${u.jobTitle || 'موظف'} · ${u.department || '—'} — التحق في ${fd(u.hireDate)}.` })),
+    ...(wf2.expired.length ? [{ ico: 'alert', tone: 'bad',
+      title: `${wf2.expired.length} عقد منتهٍ`,
+      body: 'عقود تجاوزت تاريخ انتهائها ولم تُجدَّد بعد. افتح ملفات الموظفين لتجديدها.' }] : [])
+  ];
+  if (updates.length) {
+    const uc = card('');
+    uc.appendChild(sectionHead({ text: 'تحديثات اليوم', icon: 'megaphone' },
+      button('الإعلانات', 'btn sm ghost', () => go('announcements'))));
+    const ug = el('div', 'updates');
+    ug.innerHTML = updates.slice(0, 3).map((u) => `
+      <div class="update">
+        <span class="update__ic update__ic--${esc(u.tone)}">${icon(u.ico)}</span>
+        <div class="update__body">
+          <b class="update__title">${esc(u.title)}</b>
+          <p class="update__text">${esc(u.body)}</p>
+        </div>
+      </div>`).join('');
+    uc.appendChild(ug);
+    updHost.appendChild(uc);
+  }
 
   /* ما يحتاج إجراءً */
   const ds = expiringDocs(staff);
