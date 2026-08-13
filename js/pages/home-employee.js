@@ -355,7 +355,7 @@ async function paintTimesheet(host, me, token) {
   cal.appendChild(box);
   cal.appendChild(el('div', 'sheet__legend',
     ['present:في الوقت', 'late:متأخر', 'leave:إجازة', 'absent:غائب',
-     'missing:نسيان بصمة', 'off:راحة']
+     'missing:نسيان بصمة خروج', 'missingIn:نسيان بصمة حضور', 'off:راحة']
       .map((x) => { const [k, l] = x.split(':');
         return `<span class="sheet__key"><i class="sheet__sw is-${k}"></i>${l}</span>`; }).join('')));
   host.appendChild(cal);

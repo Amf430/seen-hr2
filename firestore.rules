@@ -561,8 +561,29 @@ service cloud.firestore {
         && d().source == 'web'
         && d().sessions is list
         && newN() == 1
-        && fresh(d().sessions[0].in)
-        && isOpen(d().sessions[0]);
+        && (
+          /* ── normal: an open session that starts now ── */
+          (fresh(d().sessions[0].in) && isOpen(d().sessions[0]))
+          ||
+          /* ── missed the check-in window (owner's decision, 2026-08-13) ──
+             The window closes four hours after the shift starts and there is
+             no late check-in any more. Someone who worked the day but never
+             punched in records the departure alone: a session with no `in`,
+             and the document says so.
+
+             ⚠️ `missedCheckIn` is required rather than inferred from a null
+             `in`. A rule that accepts any session whose `in` is missing
+             accepts a malformed session too, and a malformed session is read
+             later as attendance. The flag makes the intent explicit and makes
+             this branch impossible to reach by accident.
+
+             ⚠️ Closed on arrival — `out` is set and `in` never will be. The
+             update branch below refuses to touch a session whose `in` is
+             null, so this cannot be reopened into a fake attendance later. */
+          (d().get('missedCheckIn', false) == true
+            && d().sessions[0].in == null
+            && fresh(d().sessions[0].out))
+        );
 
       allow update: if isActive()
         && id == request.auth.uid + '_' + p().date

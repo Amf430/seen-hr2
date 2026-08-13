@@ -12,7 +12,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* الأصناف التي تُرجعها buildDailyStatus في حقل cls */
-const CLASSES = ['present', 'late', 'absent', 'leave', 'missing'];
+const CLASSES = ['present', 'late', 'absent', 'leave', 'missing', 'missingIn'];
 
 const pct = (num, den) => (den > 0 ? Math.round((num / den) * 100) : 0);
 
@@ -46,7 +46,7 @@ export function teamSummaryOf(rows) {
       byUid.set(id, {
         uid: id, name: r.u.name || '', department: r.u.department || '',
         jobTitle: r.u.jobTitle || '',
-        days: 0, present: 0, late: 0, absent: 0, leave: 0, missing: 0,
+        days: 0, present: 0, late: 0, absent: 0, leave: 0, missing: 0, missingIn: 0,
         lateMin: 0, secs: 0
       });
     }
@@ -77,7 +77,7 @@ export function teamSummaryOf(rows) {
     employeeCount: employees.length,
     days,
     present: sum('present'), late: sum('late'), absent: sum('absent'),
-    leave: sum('leave'), missing: sum('missing'),
+    leave: sum('leave'), missing: sum('missing'), missingIn: sum('missingIn'),
     lateMin: sum('lateMin'), secs: sum('secs'),
     onTime:  pct(sum('present'), days),
     overall: pct(sum('present') + sum('late') + sum('leave'), days),

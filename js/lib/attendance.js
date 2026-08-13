@@ -264,6 +264,18 @@ export function buildDailyStatus(cyc, users, requests, recs, opts = {}) {
           excusable = permWindowOpen(dateStr);
           note += excusable ? ' · يمكن تقديم استئذان عنه' : ' · بدون عذر';
         }
+      } else if (lastOut) {
+        /* ═══ نسيان بصمة الحضور — قرار المالك ٢٠٢٦-٠٨-١٣ ═══
+           ⚠️ انصرافٌ بلا دخول ليس غياباً: الموظف كان هنا، ودليله بصمة
+           خروجه. فاتته نافذة الحضور (تُغلق بعد بداية ورديته بأربع ساعات)
+           فسجّل انصرافه وحده.
+
+           ⚠️ ولا تُحسب حضوراً أيضاً — لا وقت دخول يُقاس عليه تأخير. تبقى
+           حالة ثالثة تُصحَّح بطلب `attendanceFix` يعتمده المدير، وعندها
+           يُكتب وقت الدخول ويُعاد حساب اليوم. */
+        status = 'نسيان بصمة الحضور'; cls = 'missingIn';
+        note = `سجّل انصرافه ${hm(lastOut)} بلا بصمة دخول — يُصحَّح بطلب`;
+        if (permWindowOpen(dateStr)) note += ' · النافذة ما زالت مفتوحة';
       } else {
         status = 'غائب'; cls = 'absent';
         if (latePerm)       note = `استئذان تأخير حتى ${latePerm.time || ''}`;

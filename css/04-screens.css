@@ -681,3 +681,10 @@
   background:var(--muted)}
 .todo-strip__dot.is-late{background:var(--red)}
 .todo-strip__text{flex:1;min-inline-size:0;font-size:var(--fs-sm);color:var(--ink)}
+
+/* ⚠️ نسيان بصمة الحضور — حالة ثالثة بين الحاضر والغائب: الموظف كان هنا
+   (بصمة خروجه دليله) لكن لا وقت دخول يُقاس عليه تأخير. لونها بنفسجي فاتح
+   كأختها «نسيان بصمة الخروج» — الخطأ نفسه في الطرف الآخر من اليوم. */
+.sheet__day.is-missingIn{background:var(--violet-bg);border-color:transparent}
+.sheet__day.is-missingIn .sheet__n,.sheet__day.is-missingIn .sheet__t{color:var(--violet)}
+.sheet__sw.is-missingIn{background:var(--violet);opacity:.6}

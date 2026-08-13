@@ -113,6 +113,7 @@ export function complianceRate(cyc, users, requests, zkRecs) {
   return {
     days: n,
     present, late, leave, absent: c('absent'), missing: c('missing'),
+    missingIn: c('missingIn'),
     onTime:  Math.round((present / n) * 100),
     overall: Math.round(((present + late + leave) / n) * 100)
   };

@@ -1326,6 +1326,48 @@ await check('⚠️ a client-chosen updatedAt',             false,
 await check('no updatedAt at all',                     false,
   () => setDoc(doc(emp, todoPath), { items: [] }));
 
+
+/* ═══ انصرافٌ بلا دخول — قرار المالك ٢٠٢٦-٠٨-١٣ ═══
+
+   ⚠️ نافذة الحضور تُغلق بعد بداية الوردية بأربع ساعات، ولا حضور متأخر بعدها.
+   من داوم ولم يبصم دخولاً يسجّل انصرافه وحده: جلسة بلا `in`، والوثيقة تحمل
+   `missedCheckIn`. الوسم **مطلوب صراحةً** لا مشتقّاً من `in == null` — قاعدة
+   تقبل أي جلسة بلا `in` تقبل جلسةً مشوّهة أيضاً، وتُقرأ لاحقاً حضوراً. */
+console.log('\n\x1b[1m═══ 16. CHECK-OUT WITH NO CHECK-IN ═══\x1b[0m');
+
+const outOnly = (over = {}) => ({
+  ...attDoc(),
+  missedCheckIn: true,
+  sessions: [{ in: null, out: Timestamp.now(), outLoc: { lat: 21.5, lng: 39.1 }, source: 'web' }],
+  ...over
+});
+const missRef = () => doc(emp, 'attendance/empU_' + ymdKsa());
+
+await check('employee records a departure with no arrival', true,
+  () => setDoc(missRef(), outOnly()));
+
+/* ⚠️ بلا الوسم تُرفض: هذا ما يمنع كتابة جلسة مشوّهة تُقرأ حضوراً */
+await check('⚠️ same shape WITHOUT the missedCheckIn flag', false,
+  () => setDoc(missRef(), { ...outOnly(), missedCheckIn: false }));
+await check('⚠️ and with the flag missing entirely', false,
+  () => setDoc(missRef(), (() => { const d = outOnly(); delete d.missedCheckIn; return d; })()));
+
+/* ⚠️ ولا يفتح الوسمُ باباً لتزوير وقت الخروج */
+await check('backdated departure with the flag', false,
+  () => setDoc(missRef(), outOnly({
+    sessions: [{ in: null, out: Timestamp.fromMillis(Date.now() - 6 * 3600 * 1000), source: 'web' }] })));
+await check('flag plus a real check-in time', false,
+  () => setDoc(missRef(), outOnly({
+    sessions: [{ in: Timestamp.now(), out: Timestamp.now(), source: 'web' }] })));
+await check('two sessions at once', false,
+  () => setDoc(missRef(), outOnly({
+    sessions: [{ in: null, out: Timestamp.now(), source: 'web' },
+               { in: null, out: Timestamp.now(), source: 'web' }] })));
+await check('someone else records it for them', false,
+  () => setDoc(doc(emp2, 'attendance/empU_' + ymdKsa()), outOnly()));
+await check('for a past date', false,
+  () => setDoc(doc(emp, 'attendance/empU_2026-01-10'), outOnly({ date: '2026-01-10' })));
+
 console.log(`\n\x1b[1m═══ RESULT: ${pass} passed, ${fail} failed ═══\x1b[0m`);
 if (failures.length) { console.log('\nFAILURES:'); failures.forEach((f) => console.log('  • ' + f)); }
 await env.cleanup();
