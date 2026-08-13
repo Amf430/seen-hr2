@@ -13,10 +13,12 @@
 import { el, esc } from '../lib/dom.js';
 import { getMe, getUsers } from '../lib/state.js';
 import { archivedTasksForDept } from '../lib/tasks.js';
-import { searchArchive, PRIORITY_AR } from '../lib/task-flow.js';
+import { searchArchive, taskAnalytics, PRIORITY_AR, STATUS_AR } from '../lib/task-flow.js';
 import { isStale, go } from '../lib/nav.js';
 import { isAdmin } from '../lib/perms.js';
-import { card, empty, tableWrap, sectionHead, loading, callout } from '../lib/ui.js';
+import { card, empty, tableWrap, sectionHead, loading, callout, pageHead,
+         statCard, pill, button } from '../lib/ui.js';
+import { ymdKsa } from '../lib/dates.js';
 
 export async function render(view, token) {
   const me = getMe();
@@ -32,11 +34,16 @@ export async function render(view, token) {
     return;
   }
 
-  const head = card('');
-  head.appendChild(sectionHead({ text: 'أرشيف المهام', icon: 'archive' }));
-  head.appendChild(el('p', 'desc',
-    'المهام المعتمَدة التي مضى على إنجازها ٣٠ يوماً. تُنقل هنا تلقائياً لتبقى اللوحة اليومية خفيفة، ولا تُحذف أبداً.'));
+  /* ⚠️ رأس صفحة لا بطاقة عنوان: البطاقة كانت تشغل ثلث الشاشة بلا معلومة
+     واحدة، والأرشيف يُفتح للبحث لا للقراءة. */
+  view.appendChild(pageHead('المهام المنجزة والمقفلة',
+    'ما مضى على إنجازه ٣٠ يوماً — يُنقل هنا تلقائياً لتبقى اللوحة اليومية خفيفة، ولا يُحذف أبداً.',
+    button('رجوع لمهام القسم', 'btn sm ghost', () => go('team-tasks'), 'back')));
 
+  const sumHost = el('div', '');
+  view.appendChild(sumHost);
+
+  const head = card('');
   const bar = el('div', 'cluster');
   const q = el('input', 'grow');
   q.placeholder = 'ابحث في العنوان أو التفاصيل…';
@@ -83,6 +90,23 @@ export async function render(view, token) {
 
   function draw() {
     host.innerHTML = '';
+    /* ⚠️ الأرقام من نفس المصفوفة المجلوبة — الأرشيف كلّه في الذاكرة أصلاً،
+       فالملخّص مجاني. ولوحة اليوم لا تقرأ هذه المجموعة إطلاقاً. */
+    sumHost.innerHTML = '';
+    if (loaded.length) {
+      const an = taskAnalytics(loaded, ymdKsa());
+      const sg = el('div', 'statgrid statgrid--3');
+      sg.append(
+        statCard({ label: 'مهام مؤرشفة', value: an.total, ico: 'archive',
+          sub: 'محفوظة للمقارنة بين الدورات' }),
+        statCard({ label: 'أُنجزت في وقتها', value: an.onTimePct === null ? '—' : an.onTimePct + '٪',
+          ico: 'check', tone: an.onTimePct >= 80 ? 'good' : an.onTimePct >= 50 ? 'warn' : 'bad',
+          sub: 'محسوبة على المنجزة وحدها' }),
+        statCard({ label: 'متوسّط زمن الإنجاز', value: an.avgDays === null ? '—' : an.avgDays,
+          ico: 'clock', sub: an.avgDays === null ? 'لا بيانات كافية' : 'يوماً من الإنشاء للاعتماد' })
+      );
+      sumHost.appendChild(sg);
+    }
     const rows = searchArchive(loaded, {
       text: q.value, uid: uSel.value, minRating: Number(rSel.value) || 0
     });
@@ -97,7 +121,7 @@ export async function render(view, token) {
 
     const w = tableWrap(`
       <table class="tight">
-        <thead><tr><th>المهمة</th><th>المكلَّف</th><th class="num">أُنجزت</th>
+        <thead><tr><th>المهمة</th><th>المكلَّف</th><th>الحالة</th><th class="num">أُنجزت</th>
           <th class="num">التقييم</th><th class="num">الإعادات</th><th></th></tr></thead>
         <tbody></tbody>
       </table>`);
@@ -108,7 +132,10 @@ export async function render(view, token) {
         <td><b>${esc(t.title)}</b>
           <div class="cell-sub">${esc(PRIORITY_AR[t.priority] || '')}</div></td>
         <td>${esc(t.assigneeName || '—')}</td>
-        <td class="num">${esc(t.doneAtYmd || '—')}</td>
+        <td>${pill(t.cancelledAt || t.status === 'cancelled' ? '' : 'g',
+                   t.cancelledAt || t.status === 'cancelled'
+                     ? STATUS_AR.cancelled : (STATUS_AR[t.status] || t.status))}</td>
+        <td class="num">${esc(t.doneAtYmd || t.cancelledAtYmd || '—')}</td>
         <td class="num">${t.managerRating ? esc(t.managerRating) : '—'}</td>
         <td class="num ${t.reopenCount ? 'text-amber' : ''}">${t.reopenCount || '—'}</td>
         <td></td>`;
