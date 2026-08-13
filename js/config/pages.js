@@ -42,7 +42,8 @@ export const PAGES = {
   'set-branches': { title: 'الفروع ونطاق الحضور',   hint: 'مواقع الفروع ونطاق تسجيل الحضور لكل فرع' },
   'set-shifts':   { title: 'الورديات والعطل',       hint: 'الدوام الأسبوعي والعطل الرسمية والدوام الخاص' },
   'set-requests': { title: 'أنواع الطلبات والاعتمادات', hint: 'أسباب الاستئذان وأنواع الإجازات وجهات الاعتماد' },
-  'set-payroll':  { title: 'احتساب الرواتب',        hint: 'قيمة اليوم والساعة ودقائق السماح' }
+  'set-payroll':  { title: 'احتساب الرواتب',        hint: 'قيمة اليوم والساعة ودقائق السماح' },
+  settings:       { title: 'الإعدادات',             hint: 'الأقسام والفروع والورديات والطلبات والإجازات والرواتب' }
 };
 
 /* عنوان لوحة الأدمن يختلف عن عنوان الموظف لنفس المعرّف */
@@ -74,13 +75,28 @@ export const EMPLOYEES_MANAGER = { title: 'موظفو قسمي',
    لذلك بقيتا للأدمن وحده الآن، وهو نفس سلوك النسخة الحالية بالضبط (مدير
    القسم لا يملكهما اليوم أصلاً). لا تُمنح للمدير قبل إنشاء الفهرسين، وإلا
    ستظهر له الصفحة فارغة مع خطأ صلاحيات. */
+/* ── مبدأ التجميع ──
+   المجموعة تُقرأ مجموعةً ما دامت قصيرة؛ الثمانية تُقرأ قائمة. كانت «شؤون
+   الموظفين» تضمّ ثمانية عناصر تخلط الملفات والأداء والمهام والهيكل والإعلانات
+   وإعداداً — فبدت القائمة بلا بنية. الآن كل مجموعة نطاق واحد.
+
+   ⚠️ الإعدادات السبعة خرجت من هنا إلى صفحة «الإعدادات» (المعرّف settings).
+   كانت موزّعة على ثلاث مجموعات: set-org في «شؤون الموظفين» و set-payroll في
+   «الرواتب» وخمسة في «الإعدادات» — ثلاثة أماكن لشيء واحد.
+   **وخروجها من هنا يعني أن canOpen ترفضها**، فأُضيفت كلها في DETAIL_PAGES
+   أدناه. بلا ذلك يُعاد الأدمن للرئيسية بلا رسالة عند فتح أي إعداد.
+
+   ⚠️ المجموعة بلا عنوان تُستثنى من حدّ الثلاثة: لا ترويسة تُمسح بالعين فيها،
+   وهي كتلة الوصول السريع لا تصنيفاً. */
 export const NAV_GROUPS = [
   { group: '', items: [
     { id: 'home', icon: 'dashboard', label: 'لوحة القيادة', roles: ['admin'] },
     { id: 'home', icon: 'home', label: 'الرئيسية',     roles: ['employee', 'manager'] },
     { id: 'my-tasks', icon: 'check', label: 'مهامي', roles: ['employee', 'manager'] },
     { id: 'team-calendar', icon: 'calendar', label: 'تقويم الفريق', roles: ['employee', 'manager', 'admin'] },
-    { id: 'announcements', icon: 'megaphone', label: 'الإعلانات', roles: ['employee', 'manager'] }
+    /* ⚠️ بيت واحد للإعلانات. كانت هنا للموظف والمدير، وداخل «شؤون الموظفين»
+       للأدمن — نفس الصفحة في موضعين حسب من ينظر. */
+    { id: 'announcements', icon: 'megaphone', label: 'الإعلانات', roles: ['employee', 'manager', 'admin'] }
   ]},
 
   { group: 'الحضور والدوام', items: [
@@ -99,43 +115,48 @@ export const NAV_GROUPS = [
     { id: 'inbox',   icon: 'inbox', label: 'بانتظار موافقتك', roles: ['admin', 'manager'], badge: true },
     { id: 'new',     icon: 'plus', label: 'تقديم طلب',       roles: ['employee', 'manager'] },
     { id: 'mine',    icon: 'list', label: 'طلباتي',          roles: ['employee', 'manager'] },
-    { id: 'reports', icon: 'chart', label: 'تحليلات الطلبات', roles: ['admin'] },
     { id: 'hr-desk', icon: 'inbox', label: 'طلبات الموظفين',   roles: ['admin'] },
-    { id: 'hr-desk', icon: 'inbox', label: 'الموارد البشرية',  roles: ['employee', 'manager'] }
+    { id: 'hr-desk', icon: 'inbox', label: 'الموارد البشرية',  roles: ['employee', 'manager'] },
+    { id: 'reports', icon: 'chart', label: 'تحليلات الطلبات', roles: ['admin'] }
   ]},
 
-  { group: 'شؤون الموظفين', items: [
+  { group: 'الموظفون', items: [
     { id: 'employees', icon: 'people', label: 'ملفات الموظفين',  roles: ['admin', 'manager'] },
     /* ⚠️ تُفتح للمدير لأن استعلامها مقيَّد بـ where('department','==',…) ويقابله
        فهرس (department, date) في firestore.indexes.json. لا تنسخ هذا السطر لصفحة
        أخرى قبل أن تقيّد استعلامها وتنشر فهرسها — وإلا شاشة فارغة بخطأ صلاحيات. */
     { id: 'team-perf', icon: 'chart', label: 'أداء القسم',      roles: ['admin', 'manager'] },
+    { id: 'org',       icon: 'network', label: 'الهيكل التنظيمي', roles: ['admin'] },
+    { id: 'org',       icon: 'network', label: 'فريقي',           roles: ['manager'] }
+  ]},
+
+  { group: 'المهام', items: [
     { id: 'team-tasks', icon: 'check', label: 'مهام القسم',    roles: ['admin', 'manager'] },
     { id: 'tasks-archive', icon: 'archive', label: 'أرشيف المهام', roles: ['admin', 'manager'] },
-    { id: 'tasks-analytics', icon: 'chart', label: 'تحليلات المهام', roles: ['admin'] },
-    { id: 'announcements', icon: 'megaphone', label: 'الإعلانات', roles: ['admin'] },
-    { id: 'org',       icon: 'network', label: 'الهيكل التنظيمي', roles: ['admin'] },
-    { id: 'org',       icon: 'network', label: 'فريقي',           roles: ['manager'] },
-    { id: 'set-org',   icon: 'building', label: 'الأقسام والهيكل', roles: ['admin'] }
+    { id: 'tasks-analytics', icon: 'chart', label: 'تحليلات المهام', roles: ['admin'] }
   ]},
 
-  { group: 'الرواتب', items: [
-    { id: 'payroll',     icon: 'money', label: 'مسير الرواتب',   roles: ['admin'] },
-    { id: 'set-payroll', icon: 'scale', label: 'احتساب الرواتب', roles: ['admin'] }
-  ]},
-
-  { group: 'التقارير والسجلات', items: [
+  { group: 'الرواتب والتقارير', items: [
+    { id: 'payroll', icon: 'money', label: 'مسير الرواتب',   roles: ['admin'] },
     { id: 'monthly', icon: 'calendar',  label: 'تقارير الدورات', roles: ['admin'] },
     { id: 'audit',   icon: 'archive', label: 'سجل الحركات',    roles: ['admin'] }
   ]},
 
   { group: 'الإعدادات', items: [
-    { id: 'set-branches', icon: 'pin', label: 'الفروع ونطاق الحضور',        roles: ['admin'] },
-    { id: 'set-shifts',   icon: 'clock', label: 'الورديات والعطل',            roles: ['admin'] },
-    { id: 'set-requests', icon: 'tag', label: 'أنواع الطلبات والاعتمادات',  roles: ['admin'] },
-    { id: 'set-leave-policy', icon: 'calendar', label: 'سياسة الإجازات', roles: ['admin'] },
-    { id: 'set-task-templates', icon: 'check', label: 'قوالب المهام', roles: ['admin'] }
+    { id: 'settings', icon: 'gear', label: 'الإعدادات', roles: ['admin'] }
   ]}
+];
+
+/* الإعدادات السبعة — تُفتح من صفحة «الإعدادات» لا من الشريط الجانبي.
+   المصدر الوحيد لبطاقاتها، فلا تُكتب مرّتين. */
+export const SETTINGS_PAGES = [
+  { id: 'set-org',            icon: 'building', label: 'الأقسام والهيكل' },
+  { id: 'set-branches',       icon: 'pin',      label: 'الفروع ونطاق الحضور' },
+  { id: 'set-shifts',         icon: 'clock',    label: 'الورديات والعطل' },
+  { id: 'set-requests',       icon: 'tag',      label: 'أنواع الطلبات والاعتمادات' },
+  { id: 'set-leave-policy',   icon: 'calendar', label: 'سياسة الإجازات' },
+  { id: 'set-task-templates', icon: 'check',    label: 'قوالب المهام' },
+  { id: 'set-payroll',        icon: 'scale',    label: 'احتساب الرواتب' }
 ];
 
 /* الصفحة الافتراضية لكل دور */
@@ -155,6 +176,10 @@ export const HOME_FOR = { admin: 'home', manager: 'home', employee: 'home' };
 const DETAIL_PAGES = {
   /* بروفايل الموظف: يفتحه الأدمن ومدير القسم من جدول الموظفين */
   profile: ['admin', 'manager'],
+  /* ⚠️ صفحات الإعدادات السبع: خرجت من NAV_GROUPS إلى بطاقات صفحة «الإعدادات»،
+     فلولا وجودها هنا لرفضتها canOpen وأُعيد الأدمن للرئيسية بلا رسالة — وهو
+     نفس ما حصل مع صفحة المهمة. تُشتقّ من SETTINGS_PAGES فلا تتباعد قائمتان. */
+  ...Object.fromEntries(SETTINGS_PAGES.map((p) => [p.id, ['admin']])),
   /* صفحة المهمة: يفتحها المكلَّف من «مهامي»، والمدير من «مهام القسم».
      الصلاحية الحقيقية داخل الصفحة نفسها عبر roleFor()، وقاعدة
      match /tasks تحرس القراءة على السيرفر. */

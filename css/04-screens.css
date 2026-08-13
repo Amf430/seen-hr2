@@ -221,3 +221,36 @@
   padding:4px 10px; border-radius:8px; margin-top:6px;
   font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.85em;
 }
+
+/* ══════════ صفحة الإعدادات ══════════
+   بطاقة لكل إعداد بدل سبعة روابط موزّعة على ثلاث مجموعات في الشريط الجانبي.
+   البطاقة <a href> حقيقية، فالتنسيق يلغي تسطير الروابط ولونها العام. */
+.settings-hub__item{
+  display:flex; align-items:flex-start; gap:var(--sp-4);
+  text-decoration:none; color:inherit;
+  padding:var(--sp-5);
+  transition:box-shadow var(--dur-2) var(--ease), transform var(--dur-2) var(--ease),
+             border-color var(--dur-2) var(--ease);
+}
+.settings-hub__item:hover{
+  box-shadow:var(--e-2); transform:translateY(-2px); border-color:var(--line-strong);
+}
+/* الحركة تنقل معنى «قابل للضغط» — ومن يطلب تقليلها لا يفقد المعنى، فالظل يبقى */
+@media (prefers-reduced-motion:reduce){
+  .settings-hub__item{transition:box-shadow var(--dur-2) var(--ease)}
+  .settings-hub__item:hover{transform:none}
+}
+.settings-hub__ic{
+  flex:none; inline-size:40px; block-size:40px; border-radius:var(--r-md);
+  display:grid; place-items:center;
+  background:var(--maroon-tint); color:var(--maroon); font-size:var(--fs-lg);
+}
+.settings-hub__body{min-inline-size:0}
+.settings-hub__title{
+  display:block; font-size:var(--fs-md); font-weight:var(--fw-bold);
+  color:var(--maroon); line-height:var(--lh-heading);
+}
+.settings-hub__hint{
+  display:block; font-size:var(--fs-sm); color:var(--muted-strong);
+  line-height:var(--lh-snug); margin-block-start:2px;
+}

@@ -82,7 +82,7 @@ firebase deploy --only firestore:rules
 ⚠️ `payroll.js` و`attendance.js` تجرّان `firebase.js` وقت الاستيراد (SDK من gstatic)
 فلا تعملان في node إطلاقاً. تُختبران في المتصفح عبر `test/browser/suite.html`.
 
-خط الأساس الحالي: **١١٢٧ اختباراً كلها ناجحة** (٤١٠ قواعد · ٦٢٠ خالص · ٩٧ متصفح).
+خط الأساس الحالي: **١١٦٩ اختباراً كلها ناجحة** (٤١٠ قواعد · ٦٦٢ خالص · ٩٧ متصفح).
 أي انخفاض عن هذا الرقم يعني شيئاً كُسر.
 
 **حدّث هذا السطر مع كل دفعة اختبارات** — خط أساس قديم أسوأ من غيابه، لأن انخفاضاً
@@ -190,6 +190,7 @@ js/lib/               منطق نقي قابل للاختبار بـ node
   ── وحدات تجرّ firebase (لا تُختبر في node) ──
   tasks.js · announcements.js · calendar-io.js
 js/pages/             صفحة لكل شاشة، تُصدّر render(view, token)
+  settings-hub.js     «الإعدادات» — بطاقات السبعة، تُشتقّ من SETTINGS_PAGES
 js/components/        attend-panel · employee-form · modals · panels
 css/                  ٠٠-tokens → ٠٦-app بالترتيب
 firestore.rules       جدار الحماية الحقيقي — ٦٤٠ سطراً موثّقة

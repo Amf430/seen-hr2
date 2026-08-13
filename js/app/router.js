@@ -48,6 +48,7 @@ import * as setOrg         from '../pages/settings/departments.js';
 import * as setShifts      from '../pages/settings/shifts.js';
 import * as setRequests    from '../pages/settings/leave-types.js';
 import * as setPayroll     from '../pages/settings/payroll-config.js';
+import * as settingsHub    from '../pages/settings-hub.js';
 
 const RENDERERS = {
   attend:         attend.render,
@@ -81,7 +82,8 @@ const RENDERERS = {
   'set-org':      setOrg.render,
   'set-shifts':   setShifts.render,
   'set-requests': setRequests.render,
-  'set-payroll':  setPayroll.render
+  'set-payroll':  setPayroll.render,
+  settings:       settingsHub.render
 };
 
 async function render() {
