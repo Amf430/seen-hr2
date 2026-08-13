@@ -73,6 +73,17 @@ export function render(view, token) {
   view.appendChild(sheetHost);
   paintTimesheet(sheetHost, me, token);
 
+  /* ── تذكيرات القائمة الشخصية ──
+     ⚠️ بلا خادم لا يصل إشعارٌ والتطبيق مغلق — لا Push ولا رسالة، كلها تحتاج
+     Cloud Functions. فالتذكير معناه: يظهر هنا حين يحين موعده. ولا يُوعَد
+     الموظف بغير ذلك في أي نصّ ظاهر — تذكيرٌ لا يأتي أسوأ من لا تذكير.
+
+     ⚠️ ويُحمَّل بعد الرسم ولا يؤخّره: قراءةٌ ثانوية لا تُؤخّر بطاقة الحضور
+     وهي ما يفتح الموظف الصفحة لأجله. */
+  const todoHost = el('div', '');
+  view.appendChild(todoHost);
+  paintTodoReminders(todoHost, token);
+
   /* ── ما يحتاج انتباهه ──
      ⚠️ يُعرض هنا لا في صفحته: مستند منتهٍ أو عقد يقارب الانتهاء لا ينفع أن
      ينتظر حتى يفتح الموظف «ملفي». وهو مختصر بسطر — التفصيل في صفحته. */
@@ -160,6 +171,34 @@ export function render(view, token) {
     const c = topPunctualCard(data, { meName: me.name });
     if (c) view.appendChild(c);
   });
+}
+
+/* ═══ تذكيرات القائمة الشخصية ═══
+   ⚠️ الفشل صامت: القائمة الشخصية ميزة مساعدة، ورسالة خطأ في أعلى الرئيسية
+   كل صباح لأن قراءةً ثانوية فشلت أسوأ من غياب التذكير. */
+async function paintTodoReminders(host, token) {
+  let due = [];
+  try {
+    const { readTodos } = await import('../lib/todo-io.js');
+    const { dueReminders } = await import('../lib/todo.js');
+    due = dueReminders(await readTodos(), ymdKsa());
+  } catch (e) { console.error('todo-reminders', e); return; }
+  if (isStale(token) || !due.length) return;
+
+  const c = card('');
+  c.appendChild(sectionHead({ text: 'تذكيراتك', icon: 'list' },
+    button('قائمتي', 'btn sm ghost', () => go('my-day'), 'back')));
+  const box = el('div', 'todo-strip');
+  due.slice(0, 5).forEach((x) => {
+    const late = x.remindAt < ymdKsa();
+    box.appendChild(el('div', 'todo-strip__row',
+      `<span class="todo-strip__dot${late ? ' is-late' : ''}"></span>` +
+      `<span class="todo-strip__text">${esc(x.text)}</span>` +
+      `<span class="cell-sub">${esc(late ? 'منذ ' + x.remindAt : 'اليوم')}</span>`));
+  });
+  c.appendChild(box);
+  if (due.length > 5) c.appendChild(el('p', 'help', `و${due.length - 5} غيرها في قائمتك.`));
+  host.appendChild(c);
 }
 
 /* ═══ شريط الإعلانات في الرئيسية ═══

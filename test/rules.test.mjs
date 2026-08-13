@@ -1270,6 +1270,62 @@ await check('admin deletes any event',                true,  () => deleteDoc(doc
 await check('⚠️ employee still cannot read peer leave requests', false,
   () => getDocs(query(collection(emp, 'requests'), where('department', '==', 'المبيعات'))));
 
+
+/* ═══ القائمة الشخصية — الدفعة ٥ ═══
+
+   ⚠️⚠️ هذه أكثر قاعدة في النظام تعتمد على **ما هو غائب منها**: لا isAdmin()
+   ولا sameDept(). الوعد للموظف أن أحداً لا يقرأ قائمته، وأدمنٌ يقرأها يكسر
+   الوعد كما يكسره مديره — والقائمة التي يظنّها صاحبها مقروءة يكتب فيها ما
+   يصلح للعرض لا ما ينفعه، فتفقد سبب وجودها.
+
+   ⚠️ وقواعد Firestore **لا تنحدر إلى المجموعات الفرعية**: قاعدة
+   /users/{uid} تمنح المدير قراءةً بـsameDept()، وهذه المجموعة تحتها ولا
+   تصلها تلك القاعدة. الاختبارات أدناه تثبت ذلك بالتجربة لا بالافتراض. */
+console.log('\n\x1b[1m═══ 15. PERSONAL TO-DO LIST ═══\x1b[0m');
+
+const todoPath = 'users/empU/private/todos';
+const todoDoc  = (items) => ({ items, updatedAt: serverTimestamp() });
+
+await check('employee writes own list',                true,
+  () => setDoc(doc(emp, todoPath), todoDoc([{ id: 'a', text: 'اتصل بالعميل' }])));
+await check('employee reads own list',                 true,
+  () => getDoc(doc(emp, todoPath)));
+
+/* ⚠️ الثلاثة التالية هي الميزة كلها — لا الأداء ولا الشكل */
+await check('⚠️ MANAGER reads an employee list',        false,
+  () => getDoc(doc(mgr, todoPath)));
+await check('⚠️ ADMIN reads an employee list',          false,
+  () => getDoc(doc(admin, todoPath)));
+await check('⚠️ another employee reads it',             false,
+  () => getDoc(doc(emp2, todoPath)));
+await check('stranger reads it',                       false,
+  () => getDoc(doc(stranger, todoPath)));
+
+await check('manager writes into it',                  false,
+  () => setDoc(doc(mgr, todoPath), todoDoc([{ id: 'x', text: 'افعل هذا' }])));
+await check('admin writes into it',                    false,
+  () => setDoc(doc(admin, todoPath), todoDoc([])));
+await check('employee writes into ANOTHER list',       false,
+  () => setDoc(doc(emp, 'users/emp2U/private/todos'), todoDoc([])));
+
+/* ⚠️ السقوف: هذه أقلّ مسارات النظام إشرافاً — لا مدير يراجعها ولا اعتماد،
+   فمصفوفة بلا سقف تخزينٌ مجاني على حساب المالك. */
+await check('⚠️ list beyond 100 items',                 false,
+  () => setDoc(doc(emp, todoPath),
+    todoDoc(Array.from({ length: 101 }, (_, i) => ({ id: 'i' + i, text: 'س' })))));
+await check('exactly 100 items',                       true,
+  () => setDoc(doc(emp, todoPath),
+    todoDoc(Array.from({ length: 100 }, (_, i) => ({ id: 'i' + i, text: 'س' })))));
+await check('items as a string not a list',            false,
+  () => setDoc(doc(emp, todoPath), { items: 'سين', updatedAt: serverTimestamp() }));
+await check('⚠️ an extra field smuggled in',            false,
+  () => setDoc(doc(emp, todoPath), { items: [], updatedAt: serverTimestamp(), sharedWith: 'mgrU' }));
+/* ⚠️ الطابع من السيرفر: بدونه يكتب جهازٌ متأخّر الساعة فوق أحدث نسخة */
+await check('⚠️ a client-chosen updatedAt',             false,
+  () => setDoc(doc(emp, todoPath), { items: [], updatedAt: Timestamp.fromMillis(0) }));
+await check('no updatedAt at all',                     false,
+  () => setDoc(doc(emp, todoPath), { items: [] }));
+
 console.log(`\n\x1b[1m═══ RESULT: ${pass} passed, ${fail} failed ═══\x1b[0m`);
 if (failures.length) { console.log('\nFAILURES:'); failures.forEach((f) => console.log('  • ' + f)); }
 await env.cleanup();

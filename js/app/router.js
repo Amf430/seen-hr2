@@ -29,6 +29,7 @@ import * as myServices     from '../pages/my-services.js';
 import * as myPerformance  from '../pages/my-performance.js';
 import * as teamPerformance from '../pages/team-performance.js';
 import * as myTasks       from '../pages/my-tasks.js';
+import * as myDay         from '../pages/my-day.js';
 import * as teamTasks     from '../pages/team-tasks.js';
 import * as taskPage      from '../pages/task.js';
 import * as tasksAnalytics from '../pages/tasks-analytics.js';
@@ -63,6 +64,7 @@ const RENDERERS = {
   performance:    myPerformance.render,
   'team-perf':    teamPerformance.render,
   'my-tasks':     myTasks.render,
+  'my-day':       myDay.render,
   'team-tasks':   teamTasks.render,
   task:           taskPage.render,
   'tasks-analytics': tasksAnalytics.render,
