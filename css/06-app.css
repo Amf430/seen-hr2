@@ -205,7 +205,12 @@ tr.row-total td {
     opacity: 0; pointer-events: none; visibility: hidden;
     transition: opacity .22s ease, visibility .22s;
   }
-  .content { padding: var(--sp-4, 16px) }
+  /* ⚠️ المساحة السفلية تفسح لشريط الوجهات الثابت (.dock في 02-layout.css).
+     كُتبت هنا لا هناك لأن هذا الملف يُحمَّل أخيراً فيتغلّب: قاعدة padding
+     المختصرة تصفّر أي padding-block-end يُكتب قبلها. حصل فعلاً — كان الدوك
+     يغطّي آخر صفّ من كل جدول وآخر زرّ في كل نموذج. */
+  .content { padding: var(--sp-4, 16px);
+             padding-block-end: calc(56px + var(--sp-6, 24px) + env(safe-area-inset-bottom, 0)) }
   .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)) }
   .grid.cols-3 { grid-template-columns: repeat(2, minmax(0, 1fr)) }
 }

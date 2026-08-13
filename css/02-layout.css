@@ -119,3 +119,68 @@
   background:none;padding:var(--sp-2) 0}
 .back-link::before{content:"←";font-size:1.1em}
 .back-link:hover{text-decoration:underline;text-underline-offset:3px}
+
+/* ══════════ شريط الوجهات السفلي (الجوال) ══════════
+   الوصول قبله كان درجاً فيه ١٨ رابطاً خلف زرّ همبرغر — لمستان لبلوغ أكثر
+   شاشة تُفتح في اليوم. أربع وجهات + «المزيد» يفتح الدرج، فلا يضيع شيء.
+
+   ⚠️ كل ما هنا داخل ≤٨٦٠px — نفس نقطة تحوّل الشريط إلى درج. سطح المكتب لا
+   يرى الدوك إطلاقاً (hidden يبقى فعّالاً هناك عبر display:none أدناه). */
+.dock{display:none}
+
+@media (max-width:860px){
+  .dock{
+    position:fixed;inset-inline:0;inset-block-end:0;z-index:var(--z-nav);
+    display:flex;align-items:stretch;
+    background:rgba(255,255,255,.92);
+    -webkit-backdrop-filter:saturate(180%) blur(12px);
+    backdrop-filter:saturate(180%) blur(12px);
+    border-block-start:1px solid var(--line);
+    /* ⚠️ حافة الأمان: شريط الإيماءة في آيفون يغطّي أسفل الشاشة، فبلا هذا
+       تقع التسميات تحته ويصير النقر على «الرئيسية» إيماءةَ خروج. */
+    padding-block-end:env(safe-area-inset-bottom,0);
+  }
+  @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+    .dock{background:var(--card)}
+  }
+  .dock[hidden]{display:none}
+
+  .dock__item{
+    position:relative;flex:1 1 0;min-inline-size:0;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:2px;padding-block:var(--sp-2);
+    background:transparent;border:0;cursor:pointer;
+    color:var(--muted-strong);text-decoration:none;
+    font-size:var(--fs-micro);font-weight:var(--fw-medium);
+    /* هدف لمس ٤٤px — أقلّ منه يُخطئ الإبهام على الجوال */
+    min-block-size:56px;
+    transition:color var(--dur-1) var(--ease);
+  }
+  .dock__item.active{color:var(--maroon);font-weight:var(--fw-bold)}
+  .dock__item:focus-visible{outline:var(--focus-w) solid var(--focus);outline-offset:-3px}
+  .dock__ic{font-size:var(--fs-lg);line-height:1;display:block}
+  .dock__lbl{max-inline-size:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  /* المؤشّر المنزلق — يتحرّك بـ transform وحده فلا يُعيد التخطيط */
+  /* ⚠️ left:0 فيزيائية عمداً لا inset-inline-start المنطقية: placeBead تقيس
+     offsetLeft وهو فيزيائي دائماً، و translateX يحرّك يميناً دائماً مهما كان
+     الاتجاه. خلطُ الاثنين يضع المؤشّر عند الحافة اليمنى في RTL ثم يدفعه
+     يميناً خارج الشاشة — وهو ما حصل فعلاً: عرض ٣٩٠ وإزاحة ٣١٢ فاختفى. */
+  .dock__bead{
+    position:absolute;inset-block-start:0;left:0;
+    block-size:3px;border-radius:0 0 var(--r-pill) var(--r-pill);
+    background:var(--gold);opacity:0;
+    transition:transform var(--dur-3) var(--ease),
+               inline-size var(--dur-3) var(--ease),
+               opacity var(--dur-2) var(--ease);
+    pointer-events:none;
+  }
+  /* ⚠️ الحركة زينة لا معنى: من يطلب تقليلها يرى المؤشّر ينتقل بلا انزلاق،
+     ولا يفقد أي معلومة. */
+  @media (prefers-reduced-motion:reduce){
+    .dock__bead{transition:opacity var(--dur-1) var(--ease)}
+  }
+
+  .dock__item .badge{position:absolute;inset-block-start:6px;inset-inline-end:22%}
+
+}

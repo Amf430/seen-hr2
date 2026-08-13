@@ -10,7 +10,7 @@
    السبعة التي خرجت من الشريط إلى صفحة «الإعدادات».
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { PAGES, NAV_GROUPS, SETTINGS_PAGES, HOME_FOR, canOpen, navFor }
+import { PAGES, NAV_GROUPS, SETTINGS_PAGES, DOCK_FOR, HOME_FOR, canOpen, navFor, dockFor }
   from '../js/config/pages.js';
 
 let pass = 0, fail = 0;
@@ -114,6 +114,32 @@ eq('لا دور خارج الثلاثة', [],
 eq('شارة واحدة فقط — updateBadges تكتب على أول عنصر بها', 1,
    allItems.filter((i) => i.badge).length);
 eq('والشارة على «بانتظار موافقتك»', 'inbox', allItems.find((i) => i.badge).id);
+
+group('٧. شريط الوجهات السفلي (الجوال)');
+
+for (const role of ROLES) {
+  const d = dockFor(role);
+  eq(`أربع وجهات لـ ${role} — والخامس «المزيد» زرّ لا وجهة`, 4, d.length);
+  /* ⚠️ الحارس الأهم: وجهة لا يملكها الدور تُعيده للرئيسية بمجرّد لمسها */
+  eq(`⚠️ كل وجهة يفتحها ${role} فعلاً`, [],
+     d.filter((i) => !canOpen(i.id, role)).map((i) => i.id));
+  eq(`لكل وجهة أيقونة — ${role}`, [], d.filter((i) => !i.icon || i.icon === 'dot').map((i) => i.id));
+  eq(`ولكل وجهة تسمية قصيرة — ${role}`, [], d.filter((i) => !i.short).map((i) => i.id));
+  /* التسمية تشغل خُمس شاشة ٣٩٠px ≈ ٧٨px، فالطويلة تُقصّ بثلاث نقاط */
+  eq(`ولا تسمية أطول من ٨ محارف — ${role}`, [],
+     d.filter((i) => i.short.length > 8).map((i) => i.short));
+  eq(`لا وجهة مكرّرة — ${role}`, 4, new Set(d.map((i) => i.id)).size);
+  ok(`الرئيسية أول وجهة — ${role}`, d[0].id === 'home');
+  eq(`وكل وجهة في الشريط الجانبي أيضاً — ${role}`, [],
+     d.map((i) => i.id).filter((id) => !idsFor(role).includes(id)));
+}
+
+eq('الأدوار الثلاثة كلها لها دوك', 3, Object.keys(DOCK_FOR).length);
+eq('⚠️ الشارة تصل الدوك — المدير يرى طلباته المنتظرة بلا فتح الدرج',
+   true, dockFor('manager').some((i) => i.id === 'inbox' && i.badge));
+eq('والأدمن كذلك', true, dockFor('admin').some((i) => i.id === 'inbox' && i.badge));
+eq('والموظف بلا شارة — لا يعتمد شيئاً', 0, dockFor('employee').filter((i) => i.badge).length);
+eq('دور مجهول يُرجع دوكاً فارغاً لا انهياراً', 0, dockFor('لا-دور').length);
 
 console.log(`\n\x1b[1m═══ النتيجة: ${pass} ناجح، ${fail} فاشل ═══\x1b[0m`);
 process.exit(fail ? 1 : 0);
