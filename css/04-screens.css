@@ -453,7 +453,18 @@
 .sheet__day.is-absent .sheet__n{color:var(--red)}
 .sheet__day.is-missing{background:var(--violet-bg);border-color:transparent}
 .sheet__day.is-missing .sheet__n,.sheet__day.is-missing .sheet__t{color:var(--violet)}
+
+/* ⚠️ الراحة رماديّة لا بيضاء: الأبيض كان يعني «راحة» و«لم يأتِ بعد» معاً،
+   فيبدو نصف الشهر القادم راحةً ونصف الراحة يوماً قادماً. */
+.sheet__day.is-off{background:var(--surface-3);border-color:transparent}
+.sheet__day.is-off .sheet__n,.sheet__day.is-off .sheet__t{color:var(--muted)}
+/* اليوم الذي لم يأتِ بعد: أبيض باهت — لا حكم عليه */
+.sheet__day.is-future{opacity:.5}
 .sheet__day.is-today{outline:2px solid var(--maroon-2);outline-offset:-2px}
+
+/* اسم الشهر على أول خانة من كل شهر — الدورة تعبر شهرين */
+.sheet__m{font-size:var(--fs-micro);color:var(--muted-strong);line-height:1;
+  letter-spacing:var(--ls-flat)}
 
 .sheet__legend{display:flex;gap:var(--sp-3);flex-wrap:wrap;
   margin-block-start:var(--sp-4);padding-block-start:var(--sp-3);
@@ -466,6 +477,7 @@
 .sheet__sw.is-leave{background:var(--info)}
 .sheet__sw.is-absent{background:var(--red)}
 .sheet__sw.is-missing{background:var(--violet)}
+.sheet__sw.is-off{background:var(--border-strong)}
 
 /* ══════════ آخر النشاط ══════════ */
 .actlist{display:flex;flex-direction:column}

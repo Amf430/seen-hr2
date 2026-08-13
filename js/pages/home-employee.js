@@ -20,10 +20,11 @@ import { miniRow } from '../components/request-card.js';
 import { ownRequests } from './requests-mine.js';
 import { go, isStale } from '../lib/nav.js';
 import { docsOf, docStatus } from '../lib/documents.js';
-import { contractDaysLeft, ymdKsa, cycleOf, AR_DAYS } from '../lib/dates.js';
+import { contractDaysLeft, ymdKsa, cycleOf, ymd, AR_DAYS, AR_MONTHS } from '../lib/dates.js';
 import { fetchAttendance, buildDailyStatus } from '../lib/attendance.js';
 import { mergeEarliestIn } from '../lib/hr-stats.js';
-import { monthGridOf, monthSummary, minToHm } from '../lib/timesheet.js';
+import { cycleGridOf, monthSummary, minToHm } from '../lib/timesheet.js';
+import { resolveShift } from '../lib/shifts.js';
 import { hm } from '../lib/format.js';
 import { announcementsFor, isLive, myAck, acknowledge, PRIORITY_AR } from '../lib/announcements.js';
 import { card, grid, stat, empty, sectionHead, button, statCard, loading } from '../lib/ui.js';
@@ -251,8 +252,14 @@ async function paintTimesheet(host, me, token) {
   const rows = buildDailyStatus(cyc, [me], getRequests(), recs)
     .filter((r) => r.u.id === me.id);
   const today = ymdKsa();
-  const now = new Date();
-  const grid2 = monthGridOf(rows, now.getFullYear(), now.getMonth(), today);
+  /* ⚠️ نفس resolveShift التي بنى بها buildDailyStatus الصفوف — لا حسبة
+     ثانية. تلك تتخطّى يوم الراحة بـ`continue` فلا يصل الشبكةَ صفٌّ يقول
+     «راحة»، والشبكة وحدها لا تفرّق حينها بين راحةٍ ويومٍ لم يأتِ بعد. */
+  const isOff = (dateStr, dow) => {
+    const s = resolveShift(dateStr, dow, me.department, me);
+    return !s || s.type === 'off';
+  };
+  const grid2 = cycleGridOf(rows, ymd(cyc.start), ymd(cyc.end), today, isOff);
   const sum = monthSummary(rows);
 
   host.innerHTML = '';
@@ -278,18 +285,25 @@ async function paintTimesheet(host, me, token) {
   const box = el('div', 'sheet');
   AR_DAYS.forEach((d) => box.appendChild(el('div', 'sheet__head', esc(d))));
   for (let i = 0; i < grid2.lead; i++) box.appendChild(el('div', ''));
+  let lastMonth = -1;
   for (const c of grid2.cells) {
     const cell = el('div', 'sheet__day' + (c.cls ? ' is-' + c.cls : '') +
-      (c.isToday ? ' is-today' : ''));
-    cell.innerHTML = `<span class="sheet__n num">${c.day}</span>` +
+      (c.isFuture ? ' is-future' : '') + (c.isToday ? ' is-today' : ''));
+    /* ⚠️ اسم الشهر على أول خانة وعلى أول يوم من الشهر التالي: الدورة تعبر
+       شهرين، و«٢٦» وحده لا يقول أيّ ٢٦ — يوليو أم أغسطس. */
+    const mark = (c.month !== lastMonth) ? `<span class="sheet__m">${esc(AR_MONTHS[c.month])}</span>` : '';
+    lastMonth = c.month;
+    cell.innerHTML = mark + `<span class="sheet__n num">${c.day}</span>` +
       (c.inAt ? `<span class="sheet__t num">${esc(hm(c.inAt))}</span>`
-              : c.cls === 'leave' ? '<span class="sheet__t">إجازة</span>' : '');
+              : c.cls === 'leave' ? '<span class="sheet__t">إجازة</span>'
+              : c.isOff ? '<span class="sheet__t">راحة</span>' : '');
     if (c.status) cell.title = `${c.date} — ${c.status}`;
     box.appendChild(cell);
   }
   cal.appendChild(box);
   cal.appendChild(el('div', 'sheet__legend',
-    ['present:في الوقت', 'late:متأخر', 'leave:إجازة', 'absent:غائب', 'missing:نسيان بصمة']
+    ['present:في الوقت', 'late:متأخر', 'leave:إجازة', 'absent:غائب',
+     'missing:نسيان بصمة', 'off:راحة']
       .map((x) => { const [k, l] = x.split(':');
         return `<span class="sheet__key"><i class="sheet__sw is-${k}"></i>${l}</span>`; }).join('')));
   host.appendChild(cal);
