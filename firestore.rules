@@ -775,7 +775,16 @@ service cloud.firestore {
         || (taskAssignee()
             && only(['status','progress','startedAt','employeeFeedback','checklist',
                      'lastMessageAt','messageCount','timeEntries','actualSecs',
-                     'blockReason'])
+                     'blockReason','blockedAt','reviewAt'])
+            /* ⚠️ طابعا سجل النشاط: مسموحان للمكلَّف لأنه هو من يوقف ويرسل
+               للاعتماد، ومقيَّدان بـfresh() فلا يُؤرَّخ حدثٌ في الماضي. سجلٌّ
+               يقبل تاريخاً يختاره كاتبه ليس سجلاً. غيابهما مقبول — السجل
+               مشتقّ ويتدرّج إلى ما قبلهما. */
+            /* ⚠️ الفحص على **ما تغيّر** لا على ما هو موجود: d() تحمل الوثيقة
+               بعد الكتابة كاملةً، فطابعٌ قديم لم يُلمس يفشل fresh() ويُسقط
+               كل كتابة تالية على المهمة. */
+            && (!changedAny(['blockedAt']) || fresh(d().blockedAt))
+            && (!changedAny(['reviewAt'])  || fresh(d().reviewAt))
             && d().status in ['in_progress','blocked','review']
             /* ⚠️ 'cancelled' غائبة عمداً: الإلغاء قرار إداري. لو مُنح
                للمكلَّف لصار مخرجاً من أي مهمة ثقيلة بضغطة واحدة. */
@@ -796,6 +805,9 @@ service cloud.firestore {
 
       function deptUnchanged() {
         return d().departments == p().departments && d().department == p().department;
+      }
+      function changedAny(keys) {
+        return d().diff(p()).affectedKeys().hasAny(keys);
       }
 
       allow delete: if isAdmin();

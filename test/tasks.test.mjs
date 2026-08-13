@@ -15,6 +15,8 @@ import {
   /* الدفعة ١ — إصلاح العيوب الثلاثة */
   progressOf, blockInfo, CLOSED_STATUSES, workloadBy, urgentPressure,
   URGENT_SOFT_CAP, STATUSES,
+  /* الدفعة ٢ — سجل النشاط المشتقّ */
+  buildTimeline, filterTimeline, EVENT_AR,
   /* المرحلة ٧ */
   duePeriodsFor, recurringTaskId, isoWeekKey, MAX_BACKFILL_DAYS,
   leaveCovering, tasksHittingLeave,
@@ -524,6 +526,70 @@ eq('المتوقّفة',            1, pl.blocked);
 eq('⚠️ المنسيّة — أهمّها', 1, pl.stale);
 /* ⚠️ المغلقة والملغاة خارج «النشِط» */
 eq('والنشِط لا يشمل المغلقة', 5, pl.activeTotal);
+
+
+group('٢٢. ⚠️ سجل النشاط — مشتقّ لا مخزَّن');
+
+/* ⚠️⚠️ لماذا مشتقّ: «يُسجَّل تلقائياً» تعني كوداً على الخادم ولا خادم عندنا،
+   وأي حدث يكتبه متصفّح الموظف يستطيع تزويره — يكتب «المدير اعتمد المهمة»
+   وهو لم يعتمد. فالسجل يُركَّب من طوابع لا يكتبها إلا صاحب الصلاحية. */
+const tlTask = {
+  title: 'تقرير', createdAtYmd: '2026-08-01', createdByName: 'نورة',
+  assigneeName: 'سالم', startedAtYmd: '2026-08-03',
+  reviewAtYmd: '2026-08-06', doneAtYmd: '2026-08-08',
+  status: 'done', reopenCount: 1, managerRating: 4, employeeFeedback: 'تم التقرير'
+};
+const tlMsgs = [
+  { id: 'm1', ymd: '2026-08-04', authorName: 'سالم', text: 'بدأت', kind: 'msg', authorUid: 'u1' },
+  { id: 'm2', ymd: '2026-08-07', authorName: 'نورة', text: 'ملاحظة', kind: 'msg', authorUid: 'u2' }
+];
+const tl = buildTimeline(tlTask, tlMsgs);
+eq('الأقدم أولاً',            '2026-08-01', tl[0].ymd);
+eq('وأوّله الإنشاء',            'created',    tl[0].kind);
+eq('ويحمل من أنشأ',            'نورة',       tl[0].actor);
+eq('ومن كُلِّف بها في نصّه',    true, tl[0].text.includes('سالم'));
+eq('والأحدث آخراً',            '2026-08-08', tl[tl.length - 1].ymd);
+
+const kinds = tl.map((x) => x.kind);
+eq('البدء مشتقّ من startedAt',   true, kinds.includes('started'));
+eq('والإرسال للاعتماد',          true, kinds.includes('review'));
+eq('والاعتماد',                  true, kinds.includes('done'));
+eq('والإعادة للتحسين',           true, kinds.includes('reopened'));
+eq('والتعليقات في نفس الخيط',    2,    kinds.filter((k) => k === 'message').length);
+/* ⚠️ لا حدث بلا تاريخ: تاريخٌ مخترَع أسوأ من حدث غائب */
+eq('⚠️ لا يُضاف حدث بلا تاريخ',  0,    tl.filter((x) => !x.ymd).length);
+
+/* ⚠️ العدّاد يقول «كم مرّة» ولا يقول «متى» — سطر بعدده لا أسطر بتواريخ مخترَعة */
+eq('الإعادة سطر واحد بعددها', 1, tl.filter((x) => x.kind === 'reopened').length);
+eq('وعددها في نصّه',           true,
+   tl.find((x) => x.kind === 'reopened').text.includes('مرة'));
+
+/* ⚠️ حدثان في يوم واحد لا يتبادلان مكانيهما بين إعادتَي رسم */
+const sameDay = buildTimeline({ createdAtYmd: '2026-08-01', startedAtYmd: '2026-08-01',
+  doneAtYmd: '2026-08-01', status: 'done' }, []);
+eq('⚠️ ترتيب ثابت داخل اليوم', ['created', 'started', 'done'], sameDay.map((x) => x.kind));
+
+eq('null لا ينهار',        0, buildTimeline(null).length);
+eq('وبلا رسائل يعمل',      true, buildTimeline(tlTask).length > 0);
+eq('ومهمة فارغة لا تنهار', 0, buildTimeline({}).length);
+
+/* ⚠️ التوقّف الحالي وحده يظهر — الحقل يُستبدل فتاريخ ما قبله ضاع */
+const blk = buildTimeline({ createdAtYmd: '2026-08-01', status: 'blocked',
+  blockedAtYmd: '2026-08-05', blockReason: 'أنتظر العميل' }, []);
+eq('التوقّف يظهر بسببه', true,
+   blk.find((x) => x.kind === 'blocked').text.includes('أنتظر العميل'));
+eq('وبلا سبب يُقال ذلك', true,
+   buildTimeline({ createdAtYmd: '2026-08-01', status: 'blocked', blockedAtYmd: '2026-08-05' }, [])
+     .find((x) => x.kind === 'blocked').text.includes('بلا سبب'));
+
+/* ⚠️ ثلاثة مرشِّحات على نفس البيانات — صفر قراءة إضافية */
+eq('مرشِّح المحادثة',  2, filterTimeline(tl, 'chat').length);
+eq('ومرشِّح النشاط',  tl.length - 2, filterTimeline(tl, 'events').length);
+eq('و«الكل» لا يحذف', tl.length, filterTimeline(tl, 'all').length);
+eq('ووضع مجهول يرجع الكل', tl.length, filterTimeline(tl, 'xx').length);
+eq('null لا ينهار', 0, filterTimeline(null, 'chat').length);
+
+eq('لكل حدث نصّ عربي', true, !!EVENT_AR.created && !!EVENT_AR.cancelled);
 
 console.log(`\n\x1b[1m═══ النتيجة: ${pass} ناجح، ${fail} فاشل ═══\x1b[0m`);
 process.exit(fail ? 1 : 0);

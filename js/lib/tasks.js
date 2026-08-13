@@ -45,7 +45,15 @@ export function normalizeTask(id, data) {
     createdAtYmd:   ymdOf(data.createdAt),
     startedAtYmd:   ymdOf(data.startedAt),
     doneAtYmd:      ymdOf(data.doneAt),
-    lastMessageYmd: ymdOf(data.lastMessageAt)
+    lastMessageYmd: ymdOf(data.lastMessageAt),
+    /* ⚠️ طوابع سجل النشاط — مشتقّة هنا مرّة واحدة لا في كل شاشة. السجل نفسه
+       يُركَّب في buildTimeline النقيّة ولا يُخزَّن: تخزين نسخة ثانية منه
+       يعني مصدرين للحقيقة يتباعدان. */
+    blockedAtYmd:   ymdOf(data.blockedAt),
+    reviewAtYmd:    ymdOf(data.reviewAt),
+    cancelledAtYmd: ymdOf(data.cancelledAt),
+    archivedAtYmd:  ymdOf(data.archivedAt),
+    delegatedAtYmd: ymdOf(data.delegatedAt)
   };
 }
 
@@ -114,6 +122,10 @@ export async function moveTask(task, to, extra = {}) {
   /* ⚠️ طابع الإلغاء وسببه: «ملغاة» بلا سبب ولا تاريخ تُقرأ بعد شهرين ولا
      أحد يذكر لماذا — وهي المهام التي يُعاد فتح الجدل حولها. */
   if (to === 'cancelled') patch.cancelledAt = serverTimestamp();
+  /* ⚠️ طابع لكل حدث يملك المكلَّف إحداثه — والقاعدة تشترط fresh() عليهما
+     فلا يُؤرَّخ حدثٌ في الماضي. سجلٌّ يقبل تاريخاً يختاره كاتبه ليس سجلاً. */
+  if (to === 'blocked') patch.blockedAt = serverTimestamp();
+  if (to === 'review')  patch.reviewAt  = serverTimestamp();
   /* إعادة من review إلى in_progress = «يحتاج تحسين» — عدّادها مؤشر جودة */
   if (to === 'in_progress' && task.status === 'review') {
     patch.reopenCount = (task.reopenCount || 0) + 1;
@@ -155,7 +167,13 @@ export async function postMessage(taskId, text) {
 
 export function watchMessages(taskId, cb, onErr) {
   return onSnapshot(query(msgs(taskId), orderBy('createdAt', 'asc'), limit(200)),
-    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+    /* ⚠️ ymd هنا لا في الشاشة: buildTimeline ترتّب بالتاريخ النصّي، وتركُ
+       التحويل للشاشة يعني شاشةً تنسى توقيت الرياض فتضع رسالة الليلة في
+       اليوم التالي. */
+    (snap) => cb(snap.docs.map((d) => {
+      const x = d.data();
+      return { id: d.id, ...x, ymd: ymdOf(x.createdAt) };
+    })),
     onErr);
 }
 
@@ -267,7 +285,8 @@ export async function stopTimer(task, note = '') {
 export const delegateTask = (id, toUid, toName, untilYmd) =>
   updateDoc(ref(id), {
     delegatedToUid: toUid || '', delegatedToName: toName || '',
-    delegatedByUid: getMe().id, delegatedUntil: untilYmd || ''
+    delegatedByUid: getMe().id, delegatedByName: getMe().name,
+    delegatedAt: serverTimestamp(), delegatedUntil: untilYmd || ''
   });
 
 export const clearDelegation = (id) =>
