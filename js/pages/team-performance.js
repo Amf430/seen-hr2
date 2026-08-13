@@ -35,7 +35,8 @@ import { deptCoverageOf, coverageNote } from '../lib/zk-coverage.js';
 import { teamPerfExport } from '../lib/excel.js';
 import { isStale, go } from '../lib/nav.js';
 import { isAdmin } from '../lib/perms.js';
-import { card, grid, stat, empty, tableWrap, sectionHead, callout, button, loading } from '../lib/ui.js';
+import { card, empty, tableWrap, sectionHead, callout, button, loading,
+         pageHead, statCard } from '../lib/ui.js';
 
 export async function render(view, token) {
   const me = getMe();
@@ -57,10 +58,10 @@ export async function render(view, token) {
   const cycles = recentCyclesList(6);
 
   /* ── شريط الاختيار ── */
-  const head = card('');
-  head.appendChild(sectionHead({ text: admin ? 'أداء الأقسام' : 'أداء موظفي قسمي', icon: 'chart' }));
-  head.appendChild(el('p', 'desc',
+  /* ⚠️ رأس صفحة لا بطاقة عنوان (الهوية الجديدة) */
+  view.appendChild(pageHead(admin ? 'أداء الأقسام' : 'أداء موظفي قسمي',
     'محسوب من بصمات جهاز الحضور — وهو المصدر الذي يُحسب عليه المسير. أيام الراحة والعطل الرسمية مستثناة.'));
+  const head = card('');
 
   const bar = el('div', 'cluster');
   const cycSel = el('select', 'select-lg');
@@ -136,24 +137,33 @@ export async function render(view, token) {
     /* ── بطاقات المؤشرات ── */
     const t = sum.totals;
     const tr = trendOf(t, prevSum.totals);
-    /* ⚠️ نصّ خالص لا HTML: stat() تُمرّر قيمتها عبر esc()، فالوسم المحقون
-       يظهر للمستخدم كنصّ خام على الشاشة. اكتُشف بالنظر إلى البطاقة في
-       المتصفح — لا اختبار يقرأ ما تراه العين. */
-    const arrow = !tr ? ''
-      : tr.dir === 'up'   ? ` ▲${tr.delta}`
-      : tr.dir === 'down' ? ` ▼${Math.abs(tr.delta)}`
-      : ' =';
-
+    /* ⚠️ نصّ خالص لا HTML: statCard تُمرّر قيمتها عبر esc() (كما كانت stat
+       قبلها)، فالوسم المحقون يظهر للمستخدم كنصّ خام على الشاشة. اكتُشف
+       بالنظر إلى البطاقة في المتصفح — لا اختبار يقرأ ما تراه العين. */
     const kpi = card('');
     kpi.appendChild(sectionHead({ text: `${dept} — ${cyc.label}`, icon: 'chart' }));
-    const g = grid(3);
+    const g = el('div', 'statgrid statgrid--3');
     g.append(
-      stat(`${t.overall}%${arrow}`, 'الالتزام العام', t.overall >= 90 ? 'ok' : t.overall >= 75 ? 'a' : 'r'),
-      stat(`${t.onTime}%`, 'حضور في الوقت', t.onTime >= 90 ? 'ok' : t.onTime >= 75 ? 'a' : 'r'),
-      stat(String(t.employeeCount), 'موظفو القسم'),
-      stat(t.avgLateMinPerLateDay ? `${t.avgLateMinPerLateDay} د` : '—', 'متوسط التأخير في اليوم المتأخر', t.avgLateMinPerLateDay ? 'a' : ''),
-      stat(String(t.absent), 'أيام غياب', t.absent ? 'r' : 'ok'),
-      stat(String(t.missing), 'بصمات خروج ناقصة', t.missing ? 'a' : 'ok')
+      /* ⚠️ الفرق في حقله لا داخل الرقم: «63%▲63» تُقرأ رقماً واحداً مشوّهاً،
+         و statCard تعرضه سطراً مستقلاً بسهمه ولونه. واللون يأتي من `good`
+         صراحةً — ارتفاع الالتزام خبرٌ جيّد، بخلاف ارتفاع الغياب. */
+      statCard({ label: 'الالتزام العام', value: `${t.overall}%`, ico: 'chart',
+        tone: t.overall >= 90 ? 'good' : t.overall >= 75 ? 'warn' : 'bad',
+        sub: 'حضور في الوقت من أيام العمل',
+        delta: tr ? { pct: tr.delta, good: true } : null }),
+      statCard({ label: 'حضور في الوقت', value: `${t.onTime}%`, ico: 'check',
+        tone: t.onTime >= 90 ? 'good' : t.onTime >= 75 ? 'warn' : 'bad',
+        sub: 'بلا تأخير يُحتسب' }),
+      statCard({ label: 'موظفو القسم', value: t.employeeCount, ico: 'people',
+        sub: 'محسوبون في هذه الأرقام' }),
+      statCard({ label: 'متوسّط التأخير', value: t.avgLateMinPerLateDay ? `${t.avgLateMinPerLateDay} د` : '—',
+        ico: 'clock', tone: t.avgLateMinPerLateDay ? 'warn' : '',
+        sub: 'في اليوم المتأخّر وحده' }),
+      statCard({ label: 'أيام غياب', value: t.absent, ico: 'alert',
+        tone: t.absent ? 'bad' : 'good', sub: t.absent ? 'بلا إجازة معتمَدة' : 'لا غياب' }),
+      statCard({ label: 'بصمات خروج ناقصة', value: t.missing, ico: 'gap',
+        tone: t.missing ? 'warn' : 'good',
+        sub: t.missing ? 'تحتاج تصحيحاً' : 'لا نواقص' })
     );
     kpi.appendChild(g);
     if (tr) kpi.appendChild(el('p', 'help',
