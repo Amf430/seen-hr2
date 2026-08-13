@@ -215,12 +215,35 @@ export function shiftLabelOf(dow) {
    يمكن فرضه في قاعدة: التحقق منه يحتاج `get()` على settings و users في كل
    كتابة حضور، وهي قراءة مفوترة على حساب المالك في كل بصمة لكل موظف.
 
-   فالتعويض رصدٌ لا منع: كل سجل خارج نافذة ورديته يحمل `lateCheckIn: true`
-   ويظهر مُعلَّماً لمديره وللأدمن. الكشف بعد الفعل هو ما نملكه هنا، وقوله
-   صراحةً خير من وعد أمني لا سند له. */
+   ⚠️ وبعد قرار ٢٠٢٦-٠٨-١٣ لم يعد هناك «تسجيل متأخر يُوسم»: النافذة تُغلق
+   ولا حضور بعدها. فالتعويض على السيرفر أضعف مما كان — لأن الواجهة صارت
+   تمنع أكثر، والسيرفر لم يتغيّر. من يتجاوز الواجهة يسجّل حضوراً في أي وقت
+   من يومه، ولا يظهر عليه وسم يفضحه.
 
-/* تفتح النافذة قبل بداية الوردية بساعتين — من يجي بدري يقدر يسجّل */
-export const CHECK_IN_EARLY_MIN = 120;
+   الردّ العملي: الحضور الذي يُحسب عليه المسير **من جهاز البصمة** لا من
+   الجوال (مزلق ٧)، وسجلّ الجوال للموقع والصورة. فالتلاعب هنا لا يحرّك
+   راتباً بذاته. قوله صراحةً خير من وعد أمني لا سند له. */
+
+/* ═══ حدود النافذة — قرار المالك ٢٠٢٦-٠٨-١٣ ═══
+
+   ⚠️ **هذا القرار يعكس قرار ٢٠٢٦-٠٨-١٢** المسجَّل في CLAUDE.md، فلا تقرأ
+   القديم وتظنّه سارياً: كان «الحضور المتأخر مسموح لمن لم يسجّل اليوم إطلاقاً
+   وموسوماً lateCheckIn». صار الآن: **بعد النافذة لا تسجيل حضور إطلاقاً.**
+
+   ولماذا: «متأخر جداً» و«حاضر» كانا يدخلان النظام بالفعل نفسه — ضغطة على
+   نفس الزرّ — والفرق وسمٌ يقرؤه المدير إن انتبه له. من وصل الثانية ظهراً
+   لوردية تبدأ الثامنة لم يداوم يومه، وتسجيلُه «حضوراً» يجعل الرقم يقول
+   غير الواقع. الآن يُسجَّل ما جرى فعلاً: انصرافٌ بلا دخول، ويومٌ عليه
+   «نسيان بصمة الحضور» يُصحَّح بطلب يعتمده مديره.
+
+   ساعة قبل البداية بدل ساعتين: من يجي بدري يسجّل، والساعتان كانتا تفتحان
+   الباب من السادسة صباحاً لوردية الثامنة بلا سبب. */
+export const CHECK_IN_EARLY_MIN = 60;
+
+/* ⚠️ من **بداية الوردية** لا من فتح النافذة: أربع ساعات بعد الثامنة تعني
+   الثانية عشرة، لا الواحدة. حسابُها من `opensAt` يمدّ المهلة ساعةً زائدة
+   بصمت. */
+export const CHECK_IN_LATE_MIN = 240;
 
 /* → { opensAt, closesAt } | null   (null = يوم راحة، فلا نافذة ولا قفل) */
 export function checkInWindow(baseDate, shift) {
@@ -228,7 +251,10 @@ export function checkInWindow(baseDate, shift) {
   if (!win) return null;
   const opensAt = new Date(win.start.getTime() - CHECK_IN_EARLY_MIN * 60000);
 
-  let closesAt = win.end;
+  /* ⚠️ الأقرب من الاثنين: بداية الوردية + أربع ساعات، أو نهايتها. وردية
+     مدّتها ثلاث ساعات لا تُفتح نافذة حضورها بعد انتهائها بساعة. */
+  const byPolicy = new Date(win.start.getTime() + CHECK_IN_LATE_MIN * 60000);
+  let closesAt = byPolicy < win.end ? byPolicy : win.end;
   if (shift && shift.checkInCutoff) {
     const c = hmToDate(baseDate, shift.checkInCutoff);
     /* ⚠️ قفل صريح قبل بداية الوردية يخصّ اليوم التالي لا الماضي — وردية
@@ -238,16 +264,21 @@ export function checkInWindow(baseDate, shift) {
   return { opensAt, closesAt };
 }
 
-/* → { ok, reason, closesAt, opensAt, late }
+/* → { ok, reason, closesAt, opensAt }
 
-   القرار المعتمَد من المالك (٢٠٢٦-٠٨-١٢) حرفياً: «بعد الساعة ٤ العصر ما
-   يبان تسجيل حضور… إلا إذا كان الشخص ما سجّل حضور ولا مرة، فهنا يبان له.
-   أما إذا كان فيه تسجيل حضور قديم — خلاص.»
+   ⚠️ قرار المالك ٢٠٢٦-٠٨-١٣ — **ناسخٌ لقرار ٢٠٢٦-٠٨-١٢**:
+   بعد إغلاق النافذة **لا تسجيل حضور إطلاقاً**، وسواءٌ سجّل اليوم أم لم
+   يسجّل. الوسم `lateCheckIn` والمعامل `allowLate` سقطا معاً — لا تُعدهما.
 
-     hasSessionToday=false + بعد القفل → مسموح، موسوماً lateCheckIn
-     hasSessionToday=true  + بعد القفل → ممنوع، انتهى يومه */
+     قبل الفتح          → early   (لم يبدأ وقت التسجيل)
+     داخل النافذة       → open
+     بعدها ولديه جلسة   → done    (أنهى يومه)
+     بعدها بلا جلسة     → missedIn (فاتته البصمة — يُسجَّل انصرافه ويُصحَّح بطلب)
+
+   ⚠️ والفرق بين `done` و`missedIn` ليس تجميلاً: الأول أنهى يومه فلا شيء
+   يفعله، والثاني أمامه إجراء — انصرافٌ يُسجَّل الآن وطلب تصحيح بعده. */
 export function checkInAllowed(now, shift, opts = {}) {
-  const { hasSessionToday = false, allowLate = true } = opts;
+  const { hasSessionToday = false } = opts;
   const w = checkInWindow(now, shift);
 
   /* ⚠️ يوم الراحة يبقى مفتوحاً كما هو اليوم. لا نمنع أحداً من العمل في
@@ -257,9 +288,8 @@ export function checkInAllowed(now, shift, opts = {}) {
   if (now < w.opensAt)  return { ok: false, reason: 'early', opensAt: w.opensAt, closesAt: w.closesAt };
   if (now <= w.closesAt) return { ok: true,  reason: 'open',  closesAt: w.closesAt };
 
-  if (hasSessionToday)  return { ok: false, reason: 'done',   closesAt: w.closesAt };
-  if (allowLate)        return { ok: true,  reason: 'late', late: true, closesAt: w.closesAt };
-  return { ok: false, reason: 'closed', closesAt: w.closesAt };
+  if (hasSessionToday)  return { ok: false, reason: 'done',     closesAt: w.closesAt };
+  return { ok: false, reason: 'missedIn', closesAt: w.closesAt };
 }
 
 /* ═══ حالة زرّ اللوحة — دالة نقيّة عمداً ═══
@@ -277,13 +307,19 @@ export function attendButtonState({ loaded, loadErr, hasOpenSession, gate }) {
 
   if (!gate || !gate.ok) {
     const r = gate && gate.reason;
+    /* ⚠️ من فاتته نافذة الحضور ليس بلا إجراء: يُسجَّل انصرافه الآن — وهو ما
+       جرى فعلاً — ويحمل يومه «نسيان بصمة الحضور» يُصحَّح بطلب يعتمده مديره.
+       تعطيلُ الزرّ عليه يترك اليوم غياباً كاملاً وهو داوم. */
+    if (r === 'missedIn') {
+      return { kind: 'out-missing', disabled: false, reason: r,
+        label: 'تسجيل انصراف', missedIn: true };
+    }
     return { kind: 'blocked', disabled: true, reason: r,
       label: r === 'done'  ? 'أنهيت دوامك اليوم'
            : r === 'early' ? 'لم يبدأ وقت التسجيل بعد'
            : 'انتهى وقت تسجيل الحضور لورديتك' };
   }
-  return { kind: 'in', disabled: false, late: !!gate.late,
-    label: gate.late ? 'تسجيل حضور متأخر' : 'تسجيل حضور' };
+  return { kind: 'in', disabled: false, label: 'تسجيل حضور' };
 }
 
 /* ⚠️ بقيت للتوافق ولا تُستعمل في تعطيل أي زر.

@@ -76,7 +76,10 @@ export function monthSummary(rows) {
   const count = (k) => list.filter((r) => r.cls === k).length;
   const present = count('present'), late = count('late'), leave = count('leave');
   const absent = count('absent'), missing = count('missing');
-  const workDays = present + late + absent + missing;   /* الإجازة خارج المقام */
+  /* ⚠️ نسيان بصمة الحضور يومُ عملٍ حضره الموظف — يدخل المقام ولا يدخل
+     «في الوقت»: لا وقت دخول يُقاس عليه. مثل نسيان بصمة الخروج تماماً. */
+  const missingIn = count('missingIn');
+  const workDays = present + late + absent + missing + missingIn;   /* الإجازة خارج المقام */
 
   /* متوسّط وقت الدخول — بالدقائق من منتصف الليل، لمن سجّل دخولاً فعلاً */
   const ins = list.map((r) => r.firstIn).filter(Boolean)
@@ -85,8 +88,8 @@ export function monthSummary(rows) {
   const avgInMin = ins.length ? Math.round(ins.reduce((a, b) => a + b, 0) / ins.length) : null;
 
   return {
-    workDays, present, late, absent, leave, missing,
-    attended: present + late,
+    workDays, present, late, absent, leave, missing, missingIn,
+    attended: present + late + missingIn,
     onTimePct: workDays ? Math.round((present / workDays) * 100) : null,
     avgInMin
   };
