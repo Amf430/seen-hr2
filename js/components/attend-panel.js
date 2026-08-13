@@ -48,9 +48,18 @@ export function attendPanel(view) {
 
   /* ── بطاقة الساعة ── */
   const hero = el('div', 'attend-hero');
+  /* ⚠️ عمودان: الساعة وسياق اليوم في جهة، والفعل في الجهة الأخرى (طلب
+     المالك). كان الزرّ في بطاقة ثانية أسفل جدولٍ يكرّر ما في التقويم تحته —
+     فيقرأ الموظف حالته ثلاث مرّات قبل أن يصل إلى الزرّ. */
   hero.innerHTML = `
+   <div class="hero__row">
+    <div class="hero__clock">
     <div class="clock-day">${AR_DAYS[dow]}</div>
-    <div class="clock-time num" id="liveClock">--:--:--</div>
+    <div class="clock-time num" id="liveClock">
+      <span class="clock-seg" id="ckH">--</span><span class="clock-sep">:</span
+      ><span class="clock-seg" id="ckM">--</span><span class="clock-sep">:</span
+      ><span class="clock-seg clock-seg--s" id="ckS">--</span>
+    </div>
     <div class="clock-date">${fmtDate(now)}</div>
     <div class="shift-line">${icon('clock')} ورديتك اليوم: ${esc(shiftLabelOf(dow))}</div>
     <div class="hero__geo ${rule.mode === 'remote' ? 'is-anywhere' : ''}" id="heroGeo">${
@@ -59,10 +68,40 @@ export function attendPanel(view) {
         : icon('pin') + ' ' + esc(rule.allowed.length === 1 ? rule.allowed[0].name
             : rule.allowed.length ? `${rule.allowed.length} فروع مسموحة` : 'لا يوجد فرع')
     }</div>
-    <div class="work-timer" id="workTimer"><span class="wt-idle">…</span></div>`;
+    </div>
+    <div class="hero__act">
+      <div class="todaycard" id="heroAct">
+        <div class="todaycard__info">
+          <span class="todaycard__label">اليوم</span>
+          <div class="work-timer" id="workTimer"><span class="wt-idle">…</span></div>
+        </div>
+      </div>
+    </div>
+   </div>`;
   view.appendChild(hero);
 
   const clockEl = hero.querySelector('#liveClock');
+  const segH = hero.querySelector('#ckH'), segM = hero.querySelector('#ckM'), segS = hero.querySelector('#ckS');
+
+  /* ═══ كتابة الساعة بحركة ═══
+     ⚠️ الخانة تُكتب **فقط حين تتغيّر قيمتها**: كتابة الثلاث كل ثانية تُعيد
+     تشغيل حركة الساعات والدقائق ستّين مرة في الدقيقة، فتهتزّ الساعة كلها
+     بلا سبب. المقارنة قبل الكتابة تجعل الحركة تقع عند التغيّر وحده.
+
+     ⚠️ prefers-reduced-motion يُطفئ الحركة في CSS لا هنا — المنطق واحد،
+     والتفضيل شأن العرض. */
+  const bump = (elm, val) => {
+    if (!elm || elm.textContent === val) return;
+    elm.textContent = val;
+    elm.classList.remove('is-tick');
+    void elm.offsetWidth;          /* يُجبر إعادة تشغيل الحركة */
+    elm.classList.add('is-tick');
+  };
+  const writeClock = (t) => {
+    bump(segH, p2(t.getHours()));
+    bump(segM, p2(t.getMinutes()));
+    bump(segS, p2(t.getSeconds()));
+  };
   const timerEl = hero.querySelector('#workTimer');
 
   /* لا فرع ولا وضع «عن بُعد» → ما يقدر يسجّل */
@@ -77,19 +116,26 @@ export function attendPanel(view) {
       }</div>`));
     const tickOnly = () => {
       const t = new Date();
-      clockEl.textContent = `${p2(t.getHours())}:${p2(t.getMinutes())}:${p2(t.getSeconds())}`;
+      writeClock(t);
     };
     tickOnly(); setPageInterval(tickOnly, 1000);
     return;
   }
 
-  const card = el('div', 'card');
-  const statusBox = el('div', '', '<div class="empty"><span class="spinner"></span> جارٍ تحميل حالتك…</div>');
-  card.appendChild(statusBox);
+  /* ⚠️ الجدول التفصيلي حُذف (طلب المالك): «الحالة الآن» و«أول حضور» و«آخر
+     انصراف» كانت تكرّر ما يقوله مؤقّت الدوام فوقها وتقويم الكشف تحتها —
+     ثلاث قراءات لحالة واحدة. المكان وعدد الجلسات في تفاصيل اليوم بالتقويم.
+
+     ⚠️ statusBox بقي متغيّراً فارغاً لا عنصراً في الصفحة: paintStatus ما
+     زالت تُستدعى من paintAll ومن مستمع اللقطات، وحذفُها يحتاج تتبّع خمسة
+     مواضع — فتُترك تكتب في عنصر غير معلَّق، وهو أرخص من كسر المستمع. */
+  const statusBox = el('div', '');
 
   const actBtn = el('button', 'btn btn--xl', '…');
   actBtn.disabled = true;
-  card.appendChild(actBtn);
+  hero.querySelector('#heroAct').appendChild(actBtn);
+
+  const card = el('div', 'card');
 
   const bioNote = el('p', 'help', '');
   card.appendChild(bioNote);
@@ -158,10 +204,12 @@ export function attendPanel(view) {
       gate: (loaded && !loadErr && !isOpen()) ? checkInGate() : null
     });
     actBtn.disabled = st.disabled;
-    actBtn.className = 'btn btn--xl'
-      + (st.kind === 'out' ? ' danger' : '')
-      + (st.late ? ' warn' : '');
-    actBtn.textContent = st.label;
+    /* ⚠️ الصيغة تتبع الفعل لا الحالة: الحضور فعلٌ إيجابي فيمتلئ أخضر،
+       والانصراف فعلٌ يُنهي فيُحدَّد أحمر بلا ملء — كما في مرجع التصميم.
+       والتأخير يصبغه كهرمانياً: الزرّ يعمل لكنه يقول إنك متأخر قبل الضغط. */
+    actBtn.className = 'btn attendbtn attendbtn--'
+      + (st.kind === 'out' ? 'out' : st.late ? 'late' : 'in');
+    actBtn.innerHTML = icon('clock') + esc(st.label);
   }
 
   /* بوّابة تسجيل الحضور — مصدر واحد تستعمله اللوحة والتنفيذ معاً، فلا
@@ -277,7 +325,7 @@ export function attendPanel(view) {
     const t = new Date();
     /* عبور منتصف الليل — أعد بناء اللوحة كاملة على اليوم الجديد */
     if (ymdKsa(t) !== dateStr) { rerender(); return; }
-    clockEl.textContent = `${p2(t.getHours())}:${p2(t.getMinutes())}:${p2(t.getSeconds())}`;
+    writeClock(t);
     paintTimer(); paintBtn();
     /* الفحص كل ثانية رخيص: يخرج فوراً ما لم تكن هناك جلسة مفتوحة، ولا يُطلق
        التنبيه إلا مرة واحدة في اليوم بفضل الحارس في reminders.js. */

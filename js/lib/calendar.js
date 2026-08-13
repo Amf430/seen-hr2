@@ -52,6 +52,61 @@ export function leavesOn(requests, ymd, deptOf) {
     (!deptOf || r.department === deptOf));
 }
 
+/* ═══ صفوف الخطّ الزمني ═══
+   صفّ لكل موظف، وأشرطة تمتدّ على أيام إجازته داخل الشهر.
+
+   الشبكة الشهرية تجيب «من غائب اليوم؟»، وهذه تجيب «متى يغيب كلٌّ منهم؟» —
+   وهو السؤال الذي يقرّر الموافقة على طلب جديد.
+
+   → [{ uid, name, jobTitle, department, bars: [{ start, span, type, status,
+        label, clippedStart, clippedEnd }] }]
+   ‏start يوم يبدأ من ١، و span بالأيام — كلاهما مقصوص على حدود الشهر.
+
+   ⚠️ المرفوض لا يُرسم إطلاقاً: الشريط يقول «هذا الموظف غائب»، والمرفوض
+   حاضر. والمعلّق يُرسم متقطّعاً لأنه احتمال لا التزام.
+
+   ⚠️ القصّ يُعلَّم بـ clippedStart / clippedEnd: إجازة تبدأ الشهر الماضي
+   وتنتهي في هذا تُرسم من اليوم الأول، ولولا العلامة لبدت كأنها بدأت فيه. */
+export function timelineRows(requests, year, month, users = []) {
+  const p2 = (n) => String(n).padStart(2, '0');
+  const first = `${year}-${p2(month + 1)}-01`;
+  const days = new Date(year, month + 1, 0).getDate();
+  const last = `${year}-${p2(month + 1)}-${p2(days)}`;
+  const dayOf = (s) => +String(s).slice(8, 10);
+
+  const byUid = new Map();
+  const meta = new Map((users || []).map((u) => [u.id, u]));
+
+  for (const r of requests || []) {
+    if (!r || r.status === 'rejected' || r.status === 'cancelled') continue;
+    const s = r.type === 'permission' ? r.date : r.startDate;
+    const e = r.type === 'permission' ? r.date : r.endDate;
+    if (!s || !e) continue;
+    if (e < first || s > last) continue;          /* خارج الشهر كلياً */
+
+    const clippedStart = s < first, clippedEnd = e > last;
+    const start = clippedStart ? 1 : dayOf(s);
+    const end   = clippedEnd ? days : dayOf(e);
+    if (!(start >= 1 && end >= start)) continue;
+
+    const uid = r.employeeUid || r.employeeName || '—';
+    if (!byUid.has(uid)) {
+      const u = meta.get(r.employeeUid) || {};
+      byUid.set(uid, { uid, name: r.employeeName || u.name || '—',
+        jobTitle: u.jobTitle || '', department: r.department || u.department || '', bars: [] });
+    }
+    byUid.get(uid).bars.push({
+      start, span: end - start + 1, type: r.type, status: r.status,
+      label: r.categoryLabel || (r.type === 'permission' ? 'استئذان' : 'إجازة'),
+      clippedStart, clippedEnd
+    });
+  }
+
+  const rows = [...byUid.values()];
+  rows.forEach((row) => row.bars.sort((a, b) => a.start - b.start));
+  return rows.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+}
+
 /* ═══ الطبقات فوق يوم واحد ═══
 
    → { ymd, leaves, events, exception, dueTasks, isOff }
