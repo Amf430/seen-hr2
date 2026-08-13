@@ -67,10 +67,71 @@ export const callout = (kind, title, help) =>
   el('div', 'callout callout--' + kind,
     `<b class="callout__title">${esc(title)}</b>${help ? `<div class="help">${esc(help)}</div>` : ''}`);
 
+/* ── وسم أعمدة الجدول للعرض على الجوال ──
+   على الشاشة الضيّقة يصير الصفّ بطاقةً، وكل خلية سطرَ «تسمية · قيمة». التسمية
+   تأتي من ترويسة عمودها.
+
+   ⚠️ لماذا حقن قواعد CSS بدل وسم كل خلية بـ data-label:
+   tableWrap تُستدعى و<tbody> **فارغ** — كل المستدعين (٣١ موضعاً) يبنون الجدول
+   بترويسته أولاً، ثم يُلحقون الصفوف بعد رجوعها. فلا خلايا موجودة لتُوسم وقتها،
+   ووسمها لاحقاً يحتاج مراقب تغييرات لكل جدول.
+   الترويسات موجودة في تلك اللحظة، فتكفي قاعدة nth-child لكل عمود.
+
+   ⚠️ المفتاح مشتقّ من نصوص الترويسات لا من عدّاد: نفس التركيبة = نفس المفتاح =
+   تُحقن مرّة واحدة أبداً، فالورقة لا تتضخّم مع كل إعادة عرض. وهو يحلّ أيضاً
+   اختلاف الأدوار مجاناً — ترويسات الأدمن في employees.js تحوي «الراتب» وترويسات
+   المدير لا، فيولّدان مفتاحين ومجموعتَي قواعد منفصلتين بلا شرط في الكود. */
+let twSheet = null;
+const twSeen = new Set();
+
+function twHash(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
+
+function labelColumns(wrap) {
+  /* آخر صفّ ترويسة: الجداول ذات الترويسة المزدوجة تحمل التسميات في أدناها */
+  const headRow = wrap.querySelector('thead tr:last-of-type');
+  if (!headRow) return;
+  const heads = [...headRow.children].map((th) => th.textContent.trim());
+  if (!heads.length) return;
+
+  const key = twHash(heads.join(''));
+  wrap.dataset.tw = key;
+  if (twSeen.has(key)) return;
+  twSeen.add(key);
+
+  if (!twSheet) {
+    twSheet = document.createElement('style');
+    twSheet.id = 'tw-labels';
+    document.head.appendChild(twSheet);
+  }
+
+  /* ⚠️ الترويسة الفارغة هي عمود الأزرار (١٢ منها في ١٠ صفحات). تخطّيها ضروري:
+     تسمية فارغة تترك سطراً بنقطتين بلا نصّ في كل بطاقة. تُعلَّم بدل ذلك لتُعرض
+     بعرض البطاقة كاملاً في أسفلها. */
+  const rules = heads.map((text, i) => {
+    const sel = `[data-tw="${key}"] tbody td:nth-child(${i + 1})`;
+    /* بلا ::before أصلاً — الخلية بلا تسمية تُحاذى للنهاية كشريط أزرار */
+    if (!text) return `${sel}{justify-content:flex-end}`;
+    /* content يقبل نصاً بين علامتَي اقتباس — تُهرَّب الخلفية والاقتباس وحدهما */
+    const safe = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    return `${sel}::before{content:"${safe}"}`;
+  });
+
+  /* ⚠️ ٨٦٠px لا ٥٦٠: الجدول عرضه الأدنى --table-min = ٧٦٠px، فيبدأ التمرير
+     الأفقي — ومعه القصّ — عند أي عرض أقلّ من ~٨٠٠ لا أقلّ من ٥٦٠. وهي نفسها
+     نقطة تحوّل الشريط الجانبي إلى درج، فتعريف «الجوال» يبقى واحداً في النظام.
+     يجب أن تطابق النقطةَ في css/03-components.css. */
+  twSheet.textContent += `@media (max-width:860px){${rules.join('')}}\n`;
+}
+
 /* حاوية جدول تمرّر أفقياً داخل نفسها — الصفحة نفسها لا تتمرّر أبداً */
 export function tableWrap(html) {
   const w = el('div', 'table-wrap');
   w.innerHTML = html;
+  labelColumns(w);
   return w;
 }
 
