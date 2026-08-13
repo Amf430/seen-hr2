@@ -566,3 +566,70 @@
   .hero__row{grid-template-columns:1fr;gap:var(--sp-4)}
   .hero__act{min-inline-size:0}
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   صفحة المهمة — الدفعة ٢
+
+   ⚠️ عمودان على العريض وعمود على الجوال. كانت ست بطاقات مكدّسة فالمحادثة —
+   حيث يجري العمل فعلاً — تحت الطيّة دائماً.
+
+   ⚠️ الهوية: الأبيض أصل والعنّابي لهجة. البنية يرسمها --border لا الظلّ،
+   والعنّابي على الحالة النشطة وحدها.
+   ══════════════════════════════════════════════════════════════════════════ */
+.taskhead{margin-block-end:var(--sp-4)}
+.taskhead__top{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;
+  justify-content:space-between;margin-block-end:var(--sp-2)}
+.taskhead__pills{display:flex;gap:var(--sp-2);flex-wrap:wrap}
+.taskhead__title{font-size:var(--fs-2xl);line-height:var(--lh-heading);
+  font-weight:var(--fw-bold);color:var(--ink);letter-spacing:var(--ls-flat)}
+
+.taskgrid{display:grid;grid-template-columns:minmax(0,1fr) 320px;
+  gap:var(--sp-4);align-items:start}
+.taskgrid__main,.taskgrid__side{display:flex;flex-direction:column;gap:var(--sp-4);min-inline-size:0}
+/* ⚠️ الجانبي يلتصق أعلى الشاشة: المعلومات والإجراء يجب أن تبقى مرئية بينما
+   يمرّ المستخدم على سجل طويل — وإلا صعد كل مرّة ليضغط زرّاً. */
+@media (min-width:961px){ .taskgrid__side{position:sticky;top:var(--sp-4)} }
+@media (max-width:960px){
+  .taskgrid{grid-template-columns:minmax(0,1fr)}
+  /* الإجراء والمعلومات قبل السجل الطويل على الجوال */
+  .taskgrid__side{order:-1}
+}
+
+.sidebtns{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center}
+
+/* ── التبويبات ── */
+.tabs{display:flex;gap:var(--sp-1);padding:3px;border-radius:var(--r-md);
+  background:var(--surface-3);margin-block:var(--sp-3)}
+.tab{flex:1;padding:6px var(--sp-3);border:0;border-radius:var(--r-sm);
+  background:transparent;color:var(--muted-strong);font:inherit;
+  font-size:var(--fs-sm);cursor:pointer;transition:background var(--dur-1) var(--ease)}
+.tab:hover{background:var(--a-ink-04)}
+.tab.is-on{background:var(--card);color:var(--ink);font-weight:var(--fw-medium);
+  box-shadow:var(--e-1)}
+.tab:focus-visible{outline:var(--focus-w) solid var(--focus);outline-offset:var(--focus-offset)}
+
+/* ── سجل النشاط ──
+   ⚠️ خطّ رأسي واحد يربط الأحداث. الحدث والتعليق في نفس الخيط بشكلين
+   مختلفين: الحدث سطر خفيف، والتعليق فقاعة — فيُقرأ الفرق بلا قراءة النصّ. */
+.timeline{display:flex;flex-direction:column;gap:var(--sp-3);
+  max-block-size:460px;overflow-y:auto;padding-inline-end:var(--sp-2)}
+.tl{display:flex;gap:var(--sp-3);align-items:flex-start;position:relative}
+.tl__ic{flex:none;inline-size:26px;block-size:26px;border-radius:var(--r-pill);
+  display:grid;place-items:center;background:var(--surface-3);
+  color:var(--muted-strong);border:1px solid var(--border-soft)}
+.tl__ic .ic{inline-size:14px;block-size:14px}
+.tl__body{min-inline-size:0;flex:1}
+.tl__head{display:flex;gap:var(--sp-2);align-items:baseline;flex-wrap:wrap}
+.tl__head b{font-size:var(--fs-sm);color:var(--ink-2);font-weight:var(--fw-medium)}
+.tl__text{font-size:var(--fs-sm);color:var(--muted-strong);line-height:var(--lh-snug);
+  word-break:break-word}
+
+/* التعليق فقاعة، والحدث سطر */
+.tl--msg .tl__body{background:var(--surface-3);border:1px solid var(--border-soft);
+  border-radius:var(--r-md);padding:var(--sp-2) var(--sp-3)}
+.tl--msg .tl__text{color:var(--ink)}
+.tl--msg .tl__ic{background:var(--surface-4)}
+/* ⚠️ رسالتي بلمسة عنّابية خفيفة لا بأرضية عنّابية: الأبيض أصل */
+.tl--mine .tl__body{background:var(--maroon-tint);border-color:var(--a-maroon-08)}
+.tl--mine .tl__ic{background:var(--maroon-tint);color:var(--maroon-2);
+  border-color:var(--a-maroon-08)}

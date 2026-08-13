@@ -561,3 +561,112 @@ export function searchArchive(tasks, { text = '', uid = '', minRating = 0, from 
     return true;
   });
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   سجل نشاط المهمة — الدفعة ٢
+
+   ⚠️⚠️ **لماذا مشتقّ لا مخزَّن.** «يُسجَّل تلقائياً» تعني كوداً على الخادم،
+   ولا خادم عندنا. وأي حدث يُكتب من متصفّح الموظف يستطيع الموظف تزويره: يكتب
+   «المدير اعتمد المهمة» وهو لم يعتمد. **سجل نشاط قابل للتزوير أسوأ من
+   غيابه** — لأنه يُقرأ كدليل ويُبنى عليه قرار.
+
+   فالسجل هنا **يُركَّب في الذاكرة** من طوابع لا يكتبها إلا صاحب الصلاحية
+   والقاعدة تحرسها: createdAt · startedAt · doneAt · cancelledAt ·
+   archivedAt · reopenCount · delegatedBy · رسائل المحادثة · مدخلات الوقت.
+
+   النتيجة: **تسعة أحداث بصفر قراءة إضافية وصفر كتابة وصفر إمكانية تزوير.**
+
+   ⚠️ ولا يُخزَّن شيء: كل ما يظهر هنا موجود أصلاً في وثيقة المهمة. تخزين
+   نسخة ثانية منه يعني مصدرين للحقيقة يتباعدان — وهي نفس علّة النسبة
+   المزدوجة التي أُصلحت في الدفعة ١.
+
+   ⚠️ الطوابع تصل نصوص 'YYYY-MM-DD' من normalizeTask، والوقت الدقيق يبقى في
+   الحقل الأصلي. الترتيب بالتاريخ ثم بترتيب ثابت داخل اليوم — حدثان في يوم
+   واحد بلا وقت دقيق يجب ألّا يتبادلا مكانيهما بين إعادتَي رسم.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ترتيب الحدث داخل اليوم الواحد حين تتساوى التواريخ — يتبع منطق دورة الحياة */
+const EVENT_RANK = {
+  created: 0, delegated: 1, started: 2, blocked: 3, unblocked: 4,
+  time: 5, message: 6, review: 7, reopened: 8, cancelled: 9, done: 10, archived: 11
+};
+
+export const EVENT_AR = {
+  created:   'أُنشئت المهمة',
+  started:   'بدأ التنفيذ',
+  blocked:   'أُوقفت مؤقتاً',
+  review:    'أُرسلت للاعتماد',
+  reopened:  'أُعيدت للتحسين',
+  done:      'اعتُمد الإنجاز',
+  cancelled: 'أُلغيت',
+  archived:  'أُرشفت',
+  delegated: 'فُوِّضت',
+  message:   'تعليق',
+  time:      'سجّل وقتاً'
+};
+
+/* ═══ بناء السجل ═══
+   → [{ kind, ymd, actor, text, meta }] الأقدم أولاً
+
+   ⚠️ `messages` اختيارية: صفحة المهمة تشترك عليها لحظياً وتمرّرها، واللوحة
+   لا تقرؤها إطلاقاً — فالسجل يعمل بدونها ناقصاً التعليقات، ولا يفرض قراءة. */
+export function buildTimeline(task, messages = []) {
+  if (!task) return [];
+  const out = [];
+  const add = (kind, ymd, actor, text, meta) => {
+    if (!ymd) return;
+    out.push({ kind, ymd, actor: actor || '', text: text || EVENT_AR[kind] || '', meta: meta || null });
+  };
+
+  add('created', task.createdAtYmd, task.createdByName,
+      task.assigneeName ? `أُنشئت وكُلِّف بها ${task.assigneeName}` : 'أُنشئت بلا مكلَّف');
+
+  if (task.delegatedToUid && task.delegatedAtYmd)
+    add('delegated', task.delegatedAtYmd, task.delegatedByName,
+        `فُوِّضت إلى ${task.delegatedToName || ''}${task.delegatedUntil ? ` حتى ${task.delegatedUntil}` : ''}`);
+
+  add('started', task.startedAtYmd, task.assigneeName);
+
+  /* ⚠️ التوقّف الحالي وحده يظهر: الحقل يُستبدل عند كل توقّف، فتاريخ ما قبله
+     ضاع. وقد كتبتُ الأثر الكامل في أحداث الطبقة ٢ لا هنا — لا أدّعي سجلاً
+     لا أملك بياناته. */
+  if (task.status === 'blocked')
+    add('blocked', task.blockedAtYmd || task.startedAtYmd, task.assigneeName,
+        task.blockReason ? `أُوقفت: ${task.blockReason}` : 'أُوقفت مؤقتاً بلا سبب مكتوب');
+
+  /* ⚠️ لا يُشتقّ «أُرسلت للاعتماد» من وجود doneAt وحده: المهمة مرّت
+     بالاعتماد قطعاً، لكن **متى** غير معروف — والتاريخ المخترَع (البداية)
+     يضع الحدث قبل أسبوع من وقته الحقيقي. حدثٌ غائب أصدق من حدثٍ مؤرَّخ
+     بالتخمين. الوثائق التي كُتبت قبل حقل reviewAt تفقد هذا السطر وحده. */
+  if (task.reviewAtYmd) add('review', task.reviewAtYmd, task.assigneeName,
+    task.employeeFeedback ? `أُرسلت للاعتماد: ${task.employeeFeedback.slice(0, 120)}` : null);
+  else if (task.status === 'review') add('review', task.startedAtYmd, task.assigneeName,
+    task.employeeFeedback ? `أُرسلت للاعتماد: ${task.employeeFeedback.slice(0, 120)}` : null);
+
+  /* ⚠️ العدّاد يقول «كم مرّة» ولا يقول «متى». فيُعرض سطراً واحداً بعدده لا
+     أسطراً بتواريخ مخترَعة. */
+  if (task.reopenCount > 0)
+    add('reopened', task.doneAtYmd || task.startedAtYmd, '',
+        `أُعيدت للتحسين ${task.reopenCount === 1 ? 'مرة' : `${task.reopenCount} مرات`}` +
+        (task.managerNote ? ` — ${task.managerNote.slice(0, 120)}` : ''));
+
+  add('cancelled', task.cancelledAtYmd, '', task.cancelReason ? `أُلغيت: ${task.cancelReason}` : null);
+  add('done', task.doneAtYmd, '', task.managerRating ? `اعتُمد الإنجاز · تقييم ${task.managerRating}/5` : null);
+  add('archived', task.archivedAtYmd, '');
+
+  (messages || []).forEach((m) => {
+    add(m.kind === 'event' ? (m.event || 'message') : 'message',
+        m.ymd || null, m.authorName, m.text, { id: m.id, raw: m });
+  });
+
+  return out.sort((a, b) =>
+    (a.ymd < b.ymd ? -1 : a.ymd > b.ymd ? 1 : 0) ||
+    ((EVENT_RANK[a.kind] ?? 99) - (EVENT_RANK[b.kind] ?? 99)));
+}
+
+/* تصفية السجل — نفس الوثائق، ثلاثة مرشِّحات، صفر قراءة إضافية */
+export function filterTimeline(items, mode) {
+  if (mode === 'chat')   return (items || []).filter((x) => x.kind === 'message');
+  if (mode === 'events') return (items || []).filter((x) => x.kind !== 'message');
+  return items || [];
+}
