@@ -32,6 +32,36 @@
       ]
     },
     {
+      "//": "«كشف حضوري» — الموظف يقرأ سجلّ نفسه ضمن دورة. ⚠️ كان الاستعلام مقيَّداً بالتاريخ وحده فيطلب حضور الشركة كلها، والقاعدة تردّه كاملاً — فيقرأ صفر سجلات ويظهر الموظف الحاضر غائباً كل أيامه. القيد `employeeUid in [...]` (لا ==) لأن استعادة الوصول تُنشئ uid جديداً و isMine() تقبل القديم أيضاً.",
+      "collectionGroup": "attendance",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "employeeUid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "//": "نفس الاستعلام على سجل جهاز البصمة — المصدران يُدمجان بـ mergeEarliestIn، وسقوط أحدهما وحده يحوّل أياماً حاضرة إلى غياب.",
+      "collectionGroup": "zkAttendance",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "employeeUid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
       "//": "المرحلة ٥ — لوحة مدير القسم. مقيّد بالمصفوفة مطابقةً لـ taskDept() في القاعدة، والحالات قائمة صريحة لا != على archived (أرخص ولا يحتاج فهرساً زائداً).",
       "collectionGroup": "tasks",
       "queryScope": "COLLECTION",

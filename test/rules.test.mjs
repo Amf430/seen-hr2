@@ -701,6 +701,32 @@ await check('suspended manager queries own dept',             false,
 await check('admin queries zkAttendance unconstrained',       true,
   () => getDocs(query(collection(admin, 'zkAttendance'), where('date', '>=', '2026-01-01'))));
 
+/* ═══ «كشف حضوري» — الموظف يقرأ سجلّ نفسه ═══
+
+   ⚠️ هذه بعينها كُسرت في الإنتاج: الشاشة استعلمت بالتاريخ وحده فرُدّ
+   الاستعلام كاملاً، وابتلعت الشاشة الرفض بـ`.catch(() => [])` فقرأت صفر
+   سجلات — و buildDailyStatus تقرأ صفر سجلات غياباً. فظهر موظف حاضر كلَّ
+   أيامه غائباً في كلّها. الاختبار هنا يحرس شكل الاستعلام لا القاعدة وحدها. */
+await check('employee queries OWN attendance (uid + date)',   true,
+  () => getDocs(query(collection(emp, 'attendance'),
+    where('employeeUid', 'in', ['empU']), where('date', '>=', '2026-01-01'))));
+await check('employee queries OWN zkAttendance (uid + date)', true,
+  () => getDocs(query(collection(emp, 'zkAttendance'),
+    where('employeeUid', 'in', ['empU']), where('date', '>=', '2026-01-01'))));
+
+/* ⚠️ ومعرّفه القديم معه: استعادة الوصول تُنشئ uid جديداً وسجلاته القديمة
+   مفهرسة بالقديم — isMine() تقبل الاثنين، فلا يتيتّم تاريخه. */
+await check('employee queries own + previous uid',            true,
+  () => getDocs(query(collection(emp, 'zkAttendance'),
+    where('employeeUid', 'in', ['empU', 'oldEmpU']), where('date', '>=', '2026-01-01'))));
+
+/* ⚠️ والحدّ يبقى: معرّف واحد ليس له في القائمة يُسقط الاستعلام كلَّه */
+await check('employee sneaks another uid into the list',      false,
+  () => getDocs(query(collection(emp, 'zkAttendance'),
+    where('employeeUid', 'in', ['empU', 'someoneElse']), where('date', '>=', '2026-01-01'))));
+await check('employee queries attendance by date ONLY',       false,
+  () => getDocs(query(collection(emp, 'attendance'), where('date', '>=', '2026-01-01'))));
+
 /* ═══ 12. المهام (المرحلة ٥) ═══
 
    ⚠️ حقل القسم مصفوفة `departments` من اليوم الأول، فـ sameDept() لا تصلح
