@@ -197,6 +197,82 @@ tbody tr:hover td{background:var(--row-hover)}
 td.num,th.num,.money,td.money{text-align:end;
   font-variant-numeric:tabular-nums lining-nums;letter-spacing:var(--ls-num)}
 .money{font-weight:var(--fw-bold)}
+
+/* ══════════ الجدول بطاقاتٍ على الجوال ══════════
+   ⚠️ سبب وجود هذا القسم ليس تجميلياً. الجدول عرضه الأدنى ٧٦٠px فيتمرّر أفقياً
+   داخل حاويته على شاشة ٣٩٠px، فيبقى **جزء** من العمود الأخير ظاهراً: «000.00»
+   من ‎12,000.00‎ و«‎-27» من ‎2026-09-27‎. الرقم المنقوص يُقرأ رقماً صحيحاً — وهذه
+   معلومة كاذبة لا مجرّد قصّ، ومدير القسم يقرأ رواتب فريقه من جواله.
+
+   التسميات نفسها تُحقن من labelColumns() في js/lib/ui.js لأن CSS لا تقدر أن
+   تقرأ نصّ الترويسة. وكل ما هنا داخل نقطة الجوال وحدها: سطح المكتب لا يتغيّر.
+
+   يُطبَّق على الجداول التي وسمتها labelColumns بـ data-tw وحدها — فجدول بلا
+   ترويسة يبقى جدولاً يتمرّر بدل أن يصير بطاقات بلا تسميات.
+
+   ⚠️ النقطة ٨٦٠px تطابق ما تحقنه labelColumns في js/lib/ui.js — تغييرها في
+   أحدهما وحده يترك التسميات بلا تخطيط أو التخطيط بلا تسميات. */
+@media (max-width:860px){
+  /* لا تمرير أفقي ⇒ لا شيء يُقصّ ⇒ لا رقم ناقص */
+  .table-wrap[data-tw]{overflow-x:visible;border:0;background:none;
+    background-image:none}
+  .table-wrap[data-tw] table{display:block;min-inline-size:0;inline-size:100%}
+  .table-wrap[data-tw] tbody{display:block}
+
+  /* الترويسة تبقى لقارئ الشاشة وتغيب عن العين — التسمية انتقلت داخل كل خلية */
+  .table-wrap[data-tw] thead{position:absolute;inline-size:1px;block-size:1px;
+    overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+
+  .table-wrap[data-tw] tbody tr{display:block;margin-block-end:var(--sp-3);
+    border:1px solid var(--line);border-radius:var(--r-lg);
+    background:var(--card);box-shadow:var(--e-1);overflow:hidden}
+  .table-wrap[data-tw] tbody tr:last-child{margin-block-end:0}
+  /* التخطيط المخطّط والتحويم يفقدان معناهما حين يصير الصفّ بطاقة مستقلّة */
+  .table-wrap[data-tw] tbody tr:nth-child(even) td,
+  .table-wrap[data-tw] tbody tr:hover td{background:var(--card)}
+
+  /* ⚠️ التسمية وحدها تُدفع للبداية بـ margin تلقائي، والمحتوى يتجمّع في
+     النهاية. لو استُعملت justify-content:space-between لتباعدت **عقد الخلية
+     الواحدة** على طرفَي السطر — فخلية الاسم تضع الاسم في جهة ومسمّاه الوظيفي
+     في الجهة الأخرى وكأنهما حقلان. */
+  .table-wrap[data-tw] tbody td{display:flex;flex-wrap:wrap;align-items:center;
+    justify-content:flex-end;gap:var(--sp-1) var(--sp-2);
+    padding:var(--sp-2) var(--sp-4);block-size:auto;
+    border-block-start:1px solid var(--line-2);text-align:end}
+  /* السطر الفرعي (المسمّى الوظيفي، ملاحظة الصف) يأخذ سطراً كاملاً تحت قيمته */
+  .table-wrap[data-tw] tbody td .cell-sub{flex-basis:100%;text-align:end}
+  /* الخلية الأولى ترويسة البطاقة: هي التي تحمل الاسم في كل جداول النظام */
+  .table-wrap[data-tw] tbody tr td:first-child{border-block-start:0;
+    background:var(--maroon-tint);padding-block:var(--sp-3);
+    font-weight:var(--fw-bold)}
+
+  /* ⚠️ التسمية بلا content هنا — تُحقن لكل عمود من ui.js. القاعدة تصف شكلها
+     وحده، فالعمود بترويسة فارغة (عمود الأزرار) لا يُنشئ ::before إطلاقاً. */
+  .table-wrap[data-tw] tbody td::before{flex:none;max-inline-size:45%;
+    margin-inline-end:auto;
+    text-align:start;color:var(--muted-strong);
+    font-size:var(--fs-caption);font-weight:var(--fw-bold);
+    line-height:var(--lh-snug)}
+
+  /* ⚠️ خلية colspan (صفّ «الإجمالي» في المسير، و«لا أرصدة» في سياسة الإجازات)
+     تقع في الترتيب الأول فتلتقط تسمية العمود الأول. تُلغى صراحةً — وزن
+     [colspan] أعلى من وزن :nth-child المحقونة فتغلبها. */
+  .table-wrap[data-tw] tbody td[colspan]::before{content:none}
+  /* ⚠️ ولا الخلايا التي **بعده**: nth-child تعدّ العناصر لا الأعمدة، و
+     colspan="11" يبتلع أحد عشر عموداً — فتلتقط الخلية التالية تسمية العمود
+     الثاني بينما هي العمود الثاني عشر. ظهر فعلاً في صفّ «الإجمالي» بالمسير:
+     المستحق ‎18,829.17‎ كان موسوماً «أيام العمل».
+     الشقيق العام ~ لا :has() — مدعوم في كل المتصفحات، والقاعدة تبقى تعمل حيث
+     لا يعمل :has(). وصفّ المجاميع بلا تسميات أصدق من صفّ بتسميات مغلوطة. */
+  .table-wrap[data-tw] tbody td[colspan] ~ td::before{content:none}
+  .table-wrap[data-tw] tbody td[colspan]{justify-content:center;
+    font-weight:var(--fw-bold);background:var(--paper-2)}
+
+  /* حقول الإدخال داخل الخلايا (الورديات والأقسام) لا تبتلع البطاقة */
+  .table-wrap[data-tw] tbody td .inline-input{inline-size:auto;
+    max-inline-size:58%;min-inline-size:0}
+  .table-wrap[data-tw] tbody td .actions-cell{justify-content:flex-end}
+}
 .money.neg{color:var(--red)}
 .money.net{color:var(--green)}
 .money--muted{color:var(--muted-strong);font-weight:var(--fw-medium)}
