@@ -48,7 +48,10 @@ export function openFixRequest(row, after) {
     return;
   }
 
-  const kind = row.cls === 'absent' ? 'missingIn'
+  /* ⚠️ `missingIn` صارت حالة يوم قائمة بذاتها (قرار ٢٠٢٦-٠٨-١٣) وتُطابق
+     نوع الطلب باسمه. و«غائب» تبقى تحتها أيضاً: من لم يبصم طرفاً واحداً
+     يطلب تصحيح دخوله — وهو ما كان يفعله قبل وجود الحالة الجديدة. */
+  const kind = (row.cls === 'missingIn' || row.cls === 'absent') ? 'missingIn'
              : row.cls === 'missing' ? 'missingOut' : 'wrongTime';
 
   const m = openModal(`
