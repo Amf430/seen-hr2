@@ -11,34 +11,56 @@
 
 const p2 = (n) => String(n).padStart(2, '0');
 
-/* ═══ شبكة الشهر ═══
-   → { year, month, label, lead, cells: [{ date, day, cls, inAt, outAt, isToday }] }
+/* «2026-08-13» → Date محلّي على منتصف الليل.
+   ⚠️ لا `new Date('2026-08-13')` — تلك تُقرأ UTC فتُرجع ١٢ أغسطس ٣:٠٠ ص
+   بتوقيت الرياض، فينزاح اليوم كلّه خانةً في الشبكة. */
+function fromYmd(s) {
+  const [y, m, d] = String(s || '').split('-').map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+}
 
-   ⚠️ lead هو عدد الخانات الفارغة قبل اليوم الأول — الأسبوع يبدأ الأحد في
-   التقويم السعودي (getDay()===0)، فلا إزاحة إضافية.
+/* ═══ شبكة الدورة ═══
+   → { start, end, lead, cells: [{ date, day, month, cls, status, inAt, outAt,
+                                   isToday, isFuture, isOff }] }
 
-   ⚠️ الأيام التي لا صفّ لها (عطلة، أو قبل التحاق الموظف) تُرجع cls:'' لا
-   'absent': الغياب حكمٌ يُخصم عليه، وغيابُ السجل ليس غياباً. */
-export function monthGridOf(rows, year, month, todayYmd = '') {
-  const first = new Date(year, month, 1);
-  const days = new Date(year, month + 1, 0).getDate();
+   ⚠️ الشبكة تُرسم على **مدى الدورة** (٢٦ ← ٢٥) لا على الشهر التقويمي.
+   كانت تُرسم على الشهر بينما العنوان والبطاقات والصفوف كلها على الدورة —
+   فكانت أيام ٢٦←٣١ من الشهر الأول تُحسب في «أيام حضرتها 0/15» ثم تسقط من
+   الشبكة، وتظهر مكانها أيام ٢٦←٣١ من الشهر الثاني وهي ليست من الدورة أصلاً.
+   الرقم كان صحيحاً والشبكة ناقصة، فبدا النظام مناقضاً لنفسه.
+
+   ⚠️ lead هو عدد الخانات الفارغة قبل أول يوم — الأسبوع يبدأ الأحد
+   (getDay()===0) في التقويم السعودي، فلا إزاحة إضافية.
+
+   ⚠️ ثلاث حالات كانت كلها «أبيض» ولا يفرّق بينها شيء:
+     • راحة أو عطلة رسمية — لا يُحاسب عليها
+     • يوم لم يأتِ بعد
+     • يوم لا سجلّ له (قبل تاريخ المباشرة)
+   الغياب حكمٌ يُخصم عليه، وغيابُ الصفّ ليس غياباً — فتُميَّز ولا تُلوَّن
+   بالأحمر. `isOff` تأتي من نفس `resolveShift` التي بنى بها buildDailyStatus
+   الصفوف، فلا حسبة ثانية تتباعد عنها. */
+export function cycleGridOf(rows, startYmd, endYmd, todayYmd = '', isOff = null) {
   const byDate = new Map();
   for (const r of rows || []) if (r?.dateStr) byDate.set(r.dateStr, r);
 
+  const start = fromYmd(startYmd), end = fromYmd(endYmd);
   const cells = [];
-  for (let d = 1; d <= days; d++) {
-    const date = `${year}-${p2(month + 1)}-${p2(d)}`;
+  for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const date = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
     const r = byDate.get(date);
+    const off = !r && typeof isOff === 'function' && !!isOff(date, d.getDay());
     cells.push({
-      date, day: d,
-      cls: r?.cls || '',
-      status: r?.status || '',
+      date, day: d.getDate(), month: d.getMonth(), dow: d.getDay(),
+      cls: r?.cls || (off ? 'off' : ''),
+      status: r?.status || (off ? 'راحة' : ''),
       inAt: r?.firstIn || null,
       outAt: r?.lastOut || null,
-      isToday: date === todayYmd
+      isToday: !!todayYmd && date === todayYmd,
+      isFuture: !!todayYmd && date > todayYmd,
+      isOff: off
     });
   }
-  return { year, month, days, lead: first.getDay(), cells };
+  return { start: startYmd, end: endYmd, lead: start.getDay(), cells };
 }
 
 /* ═══ ملخّص الشهر ═══

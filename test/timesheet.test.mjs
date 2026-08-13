@@ -5,7 +5,7 @@
    التزام محسوبة بمقام خاطئ تتّهمه بما لم يفعل.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { monthGridOf, monthSummary, minToHm, recentActivity } from '../js/lib/timesheet.js';
+import { cycleGridOf, monthSummary, minToHm, recentActivity } from '../js/lib/timesheet.js';
 
 let pass = 0, fail = 0;
 const eq = (name, expected, actual) => {
@@ -25,28 +25,64 @@ const ROWS = [
   { dateStr: '2026-08-05', cls: 'absent',  status: 'غائب' },
   { dateStr: '2026-08-06', cls: 'leave',   status: 'إجازة: سنوية' },
   { dateStr: '2026-08-07', cls: 'missing', status: 'نسيان بصمة الخروج', firstIn: at(8, 10) }
-];
+]
+/* ⚠️ صفّ من الشهر الأول للدورة — كان يسقط من الشبكة كلّه. منفصل عن ROWS
+   حتى لا يزيح أرقام الملخّص التي تُقاس عليها بقيّة الاختبارات. */
+const ROWS_X = ROWS.concat([
+  { dateStr: '2026-07-28', cls: 'present', status: 'حاضر', firstIn: at(8, 2), lastOut: at(16, 0) }
+]);;
 
-group('١. شبكة الشهر');
+group('١. شبكة الدورة');
 
-const g = monthGridOf(ROWS, 2026, 7, '2026-08-04');
-eq('أغسطس ٣١ يوماً', 31, g.cells.length);
-eq('والأول يقع يوم الأحد → بلا إزاحة', new Date(2026, 7, 1).getDay(), g.lead);
-eq('اليوم الثالث حاضر', 'present', g.cells[2].cls);
-eq('والرابع متأخر', 'late', g.cells[3].cls);
-eq('ويُعلَّم أنه اليوم', true, g.cells[3].isToday);
-eq('ووقت دخوله محفوظ', true, g.cells[3].inAt === at(9, 20));
+/* ⚠️ الدورة ٢٦ ← ٢٥ تعبر شهرين. كانت الشبكة تُرسم على الشهر التقويمي بينما
+   العنوان والبطاقات على الدورة — فتسقط أيام ٢٦←٣١ من الشهر الأول من الشبكة
+   وهي محسوبة في «أيام حضرتها»، وتظهر مكانها أيام ليست من الدورة أصلاً. */
+const g = cycleGridOf(ROWS_X, '2026-07-26', '2026-08-25', '2026-08-04');
+eq('⚠️ الشبكة من ٢٦ يوليو إلى ٢٥ أغسطس = ٣١ خانة', 31, g.cells.length);
+eq('⚠️ وأولها ٢٦ يوليو لا ١ أغسطس', '2026-07-26', g.cells[0].date);
+eq('⚠️ وآخرها ٢٥ أغسطس لا ٣١ أغسطس', '2026-08-25', g.cells[30].date);
+eq('والإزاحة يوم بداية الدورة', new Date(2026, 6, 26).getDay(), g.lead);
+eq('اليوم ينتقل من شهر إلى شهر', 6, g.cells[0].month);
+eq('ثم إلى أغسطس', 7, g.cells[6].month);
+
+const byDate = (d) => g.cells.find((c) => c.date === d);
+eq('الثالث من أغسطس حاضر', 'present', byDate('2026-08-03').cls);
+eq('والرابع متأخر', 'late', byDate('2026-08-04').cls);
+eq('ويُعلَّم أنه اليوم', true, byDate('2026-08-04').isToday);
+eq('ووقت دخوله محفوظ', true, byDate('2026-08-04').inAt === at(9, 20));
+/* ⚠️ صفّ داخل الشهر الأول من الدورة — وهو ما كان يسقط كلّه */
+eq('⚠️ صفّ ٢٨ يوليو يصل الشبكة', 'present', byDate('2026-07-28').cls);
 
 /* ⚠️ الغياب حكمٌ يُخصم عليه — وغياب السجل ليس غياباً */
-eq('⚠️ يوم بلا صفّ يبقى بلا حالة لا «غائب»', '', g.cells[9].cls);
-eq('ويحمل تاريخه على أي حال', '2026-08-10', g.cells[9].date);
+eq('⚠️ يوم بلا صفّ يبقى بلا حالة لا «غائب»', '', byDate('2026-08-10').cls);
+eq('ويحمل تاريخه على أي حال', '2026-08-10', byDate('2026-08-10').date);
 
-eq('شهر كبيس ٢٩ يوماً', 29, monthGridOf([], 2024, 1).cells.length);
-eq('صفوف فارغة لا تنهار', 31, monthGridOf([], 2026, 7).cells.length);
-eq('null لا ينهار', 31, monthGridOf(null, 2026, 7).cells.length);
-eq('صفّ بلا تاريخ يُتجاهل', '', monthGridOf([{ cls: 'present' }], 2026, 7).cells[0].cls);
+/* ⚠️ ثلاث حالات كانت كلها بيضاء: راحة · لم يأتِ بعد · بلا سجلّ */
+eq('اليوم بعد اليوم الحالي مستقبل', true, byDate('2026-08-20').isFuture);
+eq('واليوم الحالي ليس مستقبلاً', false, byDate('2026-08-04').isFuture);
+eq('وما مضى ليس مستقبلاً', false, byDate('2026-07-28').isFuture);
+
+const gOff = cycleGridOf(ROWS_X, '2026-07-26', '2026-08-25', '2026-08-04',
+  (d, dow) => dow === 5 || dow === 6);
+const cOff = gOff.cells.find((c) => c.date === '2026-08-01');   /* سبت */
+eq('⚠️ يوم الراحة يُوسم راحةً لا فراغاً', 'off', cOff.cls);
+eq('ونصّه «راحة»', 'راحة', cOff.status);
+eq('و isOff مرفوعة', true, cOff.isOff);
+/* ⚠️ الصفّ يتقدّم على المُحدِّد: من عمل في يوم راحته لا يُمحى عمله */
+eq('⚠️ صفّ موجود يغلب حكم الراحة', 'missing',
+   gOff.cells.find((c) => c.date === '2026-08-07').cls);   /* جمعة وله صفّ */
+eq('بلا مُحدِّد لا راحة إطلاقاً', '', g.cells.find((c) => c.date === '2026-08-01').cls);
+
+eq('دورة فبراير الكبيسة ٣١ خانة', 31,
+   cycleGridOf([], '2024-01-26', '2024-02-25').cells.length);
+eq('صفوف فارغة لا تنهار', 31, cycleGridOf([], '2026-07-26', '2026-08-25').cells.length);
+eq('null لا ينهار', 31, cycleGridOf(null, '2026-07-26', '2026-08-25').cells.length);
+eq('صفّ بلا تاريخ يُتجاهل', '',
+   cycleGridOf([{ cls: 'present' }], '2026-07-26', '2026-08-25').cells[0].cls);
 eq('بلا تاريخ اليوم لا يُعلَّم شيء', 0,
-   monthGridOf(ROWS, 2026, 7).cells.filter((c) => c.isToday).length);
+   cycleGridOf(ROWS_X, '2026-07-26', '2026-08-25').cells.filter((c) => c.isToday).length);
+eq('ولا يُعلَّم مستقبل', 0,
+   cycleGridOf(ROWS_X, '2026-07-26', '2026-08-25').cells.filter((c) => c.isFuture).length);
 
 group('٢. ملخّص الشهر');
 
