@@ -239,8 +239,10 @@ td.num,th.num,.money,td.money{text-align:end;
     justify-content:flex-end;gap:var(--sp-1) var(--sp-2);
     padding:var(--sp-2) var(--sp-4);block-size:auto;
     border-block-start:1px solid var(--line-2);text-align:end}
-  /* السطر الفرعي (المسمّى الوظيفي، ملاحظة الصف) يأخذ سطراً كاملاً تحت قيمته */
-  .table-wrap[data-tw] tbody td .cell-sub{flex-basis:100%;text-align:end}
+  /* ⚠️ السطر الفرعي يأخذ سطراً كاملاً **إن كان معه قيمة أخرى** (الاسم فوق
+     مسمّاه الوظيفي). أما حين يكون هو كلّ محتوى الخلية — عمود «الحضور» قيمته
+     ‏.cell-sub وحدها — فكسرُه يترك التسمية في سطر والقيمة في سطر بلا سبب. */
+  .table-wrap[data-tw] tbody td .cell-sub:not(:only-child){flex-basis:100%;text-align:end}
   /* الخلية الأولى ترويسة البطاقة: هي التي تحمل الاسم في كل جداول النظام */
   .table-wrap[data-tw] tbody tr td:first-child{border-block-start:0;
     background:var(--maroon-tint);padding-block:var(--sp-3);

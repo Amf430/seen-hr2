@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "npm run test:pure && npm run test:rules",
-    "test:pure": "node org.test.mjs && node documents.test.mjs && node nav.test.mjs && node notifications.test.mjs && node biometric.test.mjs && node permission-window.test.mjs && node config.test.mjs && node tasks.test.mjs && node leave-balance.test.mjs && node calendar.test.mjs && node core.test.mjs",
+    "test:pure": "node org.test.mjs && node documents.test.mjs && node nav.test.mjs && node notifications.test.mjs && node biometric.test.mjs && node permission-window.test.mjs && node config.test.mjs && node tasks.test.mjs && node leave-balance.test.mjs && node calendar.test.mjs && node table-labels.test.mjs && node core.test.mjs",
     "test:org": "node org.test.mjs",
     "test:docs": "node documents.test.mjs",
     "test:nav": "node nav.test.mjs",
@@ -17,6 +17,7 @@
     "test:tasks": "node tasks.test.mjs",
     "test:leave": "node leave-balance.test.mjs",
     "test:cal": "node calendar.test.mjs",
+    "test:tlabels": "node table-labels.test.mjs",
     "test:browser": "echo 'افتح test/browser/suite.html من خادم محلي — payroll و attendance تجرّان firebase فلا تعملان في node'"
   },
   "devDependencies": {

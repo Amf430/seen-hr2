@@ -9,6 +9,7 @@
 import { el, esc } from './dom.js';
 import { contractDaysLeft } from './dates.js';
 import { icon } from './icons.js';
+import { labelKey, labelRules } from './table-labels.js';
 
 /* بطاقة رقم */
 export function stat(n, label, cls = '') {
@@ -84,20 +85,14 @@ export const callout = (kind, title, help) =>
 let twSheet = null;
 const twSeen = new Set();
 
-function twHash(s) {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
-  return (h >>> 0).toString(36);
-}
-
 function labelColumns(wrap) {
   /* آخر صفّ ترويسة: الجداول ذات الترويسة المزدوجة تحمل التسميات في أدناها */
   const headRow = wrap.querySelector('thead tr:last-of-type');
   if (!headRow) return;
-  const heads = [...headRow.children].map((th) => th.textContent.trim());
+  const heads = [...headRow.children].map((th) => th.textContent);
   if (!heads.length) return;
 
-  const key = twHash(heads.join(''));
+  const key = labelKey(heads);
   wrap.dataset.tw = key;
   if (twSeen.has(key)) return;
   twSeen.add(key);
@@ -107,24 +102,7 @@ function labelColumns(wrap) {
     twSheet.id = 'tw-labels';
     document.head.appendChild(twSheet);
   }
-
-  /* ⚠️ الترويسة الفارغة هي عمود الأزرار (١٢ منها في ١٠ صفحات). تخطّيها ضروري:
-     تسمية فارغة تترك سطراً بنقطتين بلا نصّ في كل بطاقة. تُعلَّم بدل ذلك لتُعرض
-     بعرض البطاقة كاملاً في أسفلها. */
-  const rules = heads.map((text, i) => {
-    const sel = `[data-tw="${key}"] tbody td:nth-child(${i + 1})`;
-    /* بلا ::before أصلاً — الخلية بلا تسمية تُحاذى للنهاية كشريط أزرار */
-    if (!text) return `${sel}{justify-content:flex-end}`;
-    /* content يقبل نصاً بين علامتَي اقتباس — تُهرَّب الخلفية والاقتباس وحدهما */
-    const safe = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-    return `${sel}::before{content:"${safe}"}`;
-  });
-
-  /* ⚠️ ٨٦٠px لا ٥٦٠: الجدول عرضه الأدنى --table-min = ٧٦٠px، فيبدأ التمرير
-     الأفقي — ومعه القصّ — عند أي عرض أقلّ من ~٨٠٠ لا أقلّ من ٥٦٠. وهي نفسها
-     نقطة تحوّل الشريط الجانبي إلى درج، فتعريف «الجوال» يبقى واحداً في النظام.
-     يجب أن تطابق النقطةَ في css/03-components.css. */
-  twSheet.textContent += `@media (max-width:860px){${rules.join('')}}\n`;
+  twSheet.textContent += labelRules(heads, key) + '\n';
 }
 
 /* حاوية جدول تمرّر أفقياً داخل نفسها — الصفحة نفسها لا تتمرّر أبداً */
