@@ -11,7 +11,7 @@
 
 import { el, esc, openModal, toast } from '../lib/dom.js';
 import { getMe, getSettings } from '../lib/state.js';
-import { card, grid, stat, sectionHead, button, callout } from '../lib/ui.js';
+import { card, sectionHead, button, callout, pageHead, statCard } from '../lib/ui.js';
 import { salaryCertificate, bankLetter, leaveStatement } from '../lib/certificates.js';
 import { icon } from '../lib/icons.js';
 import { go } from '../lib/nav.js';
@@ -35,11 +35,11 @@ export function render(view) {
   const me = getMe();
   const S = getSettings();
 
-  const head = card('');
-  head.appendChild(sectionHead({ text: 'خدماتي الذاتية', icon: 'doc' }));
-  head.appendChild(el('p', 'desc',
-    'تُصدَر فوراً بلا مراجعة أحد، وتُفتح في نافذة جديدة جاهزة للطباعة أو الحفظ كـ PDF.'));
-  view.appendChild(head);
+  /* ⚠️ رأس صفحة لا بطاقة عنوان (الهوية الجديدة) */
+  view.appendChild(pageHead('خدماتي الذاتية',
+    'تُصدَر فوراً بلا مراجعة أحد، وتُفتح في نافذة جديدة جاهزة للطباعة أو الحفظ كـ PDF.',
+    button('تقديم طلب', 'btn sm', () => go('new'), 'plus'),
+    button('ملفي الوظيفي', 'btn sm ghost', () => go('profile-me'), 'people')));
 
   /* ── الخدمات ── */
   const list = el('div', 'svc-grid');
@@ -67,10 +67,14 @@ export function render(view) {
   if (types.length) {
     const bc = card('');
     bc.appendChild(sectionHead({ text: 'رصيدي الحالي', icon: 'calendar' }));
-    const bg = grid(4);
+    /* ⚠️ بطاقة لكل نوع لا رقم عارٍ: الرقم يقول «كم»، والسطر تحته يقول
+       «ماذا يعني» — رصيد صفر ورصيد يومين حالتان مختلفتان تماماً. */
+    const bg = el('div', 'statgrid');
     types.forEach((t) => {
       const bal = (me.balances && me.balances[t.id] != null) ? me.balances[t.id] : t.balance;
-      bg.appendChild(stat(bal, t.label, bal <= 0 ? 'r' : bal <= 3 ? 'a' : ''));
+      bg.appendChild(statCard({ label: t.label, value: bal, ico: 'calendar',
+        tone: bal <= 0 ? 'bad' : bal <= 3 ? 'warn' : 'good',
+        sub: bal <= 0 ? 'لا رصيد متبقٍّ' : bal <= 3 ? 'رصيد منخفض' : 'يوماً متاحاً' }));
     });
     bc.appendChild(bg);
     bc.appendChild(el('p', 'help',
@@ -78,12 +82,6 @@ export function render(view) {
     view.appendChild(bc);
   }
 
-  const nav = el('div', 'btn-bar');
-  nav.append(
-    button('تقديم طلب', 'btn sm', () => go('new'), 'plus'),
-    button('ملفي الوظيفي', 'btn sm ghost', () => go('profile-me'), 'people')
-  );
-  view.appendChild(nav);
 }
 
 /* اسم البنك يُطبع في الخطاب، فيُسأل عنه بدل تركه «إلى من يهمه الأمر» */

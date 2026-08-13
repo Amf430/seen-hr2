@@ -10,7 +10,7 @@ import { describeRule } from '../lib/geo.js';
 import { openEmpForm } from '../components/employee-form.js';
 import { go, isStale, rerender, getPageArg } from '../lib/nav.js';
 import { roleLabel } from '../lib/perms.js';
-import { card, grid, stat, empty, tableWrap, button, bar, sectionHead } from '../lib/ui.js';
+import { card, empty, tableWrap, button, bar, sectionHead , statCard } from '../lib/ui.js';
 import { salaryCertificate, leaveStatement } from '../lib/certificates.js';
 import { directReports, managerOf, managerChain } from '../lib/org.js';
 import { openDocsModal, docsList } from '../components/documents-modal.js';
@@ -71,17 +71,22 @@ export async function render(view, token) {
      مدير القسم، وكانت هذه الصفحة تعرضه له كاملاً مع تفصيل الخصومات —
      تسريب رواتب كل مرؤوسيه بخطوتين. */
   const cd = card(isAdmin ? 'التعاقد والراتب' : 'التعاقد', null, 'money');
-  const cg = grid(isAdmin ? 4 : 2);
+  const cg = el('div', 'statgrid');
   if (isAdmin) {
     cg.append(
-      stat(u.salary ? money(u.salary) : '—', 'الراتب الشهري (ريال)'),
-      stat(u.salary ? money(u.salary / (cfg.daysPerMonth || 30) / (cfg.hoursPerDay || 8)) : '—', 'قيمة الساعة (ريال)')
+      statCard({ label: 'الراتب الشهري', value: u.salary ? money(u.salary) : '—', ico: 'money',
+        sub: u.salary ? 'ريال' : 'غير مُحدَّد — تُصدَر الشهادات فارغة' }),
+      statCard({ label: 'قيمة الساعة', ico: 'clock',
+        value: u.salary ? money(u.salary / (cfg.daysPerMonth || 30) / (cfg.hoursPerDay || 8)) : '—',
+        sub: 'أساس حساب الخصم' })
     );
   }
   cg.append(
-    stat(u.contractEnd || '—', 'انتهاء العقد' + (dl !== null ? ` · ${dl < 0 ? 'منتهٍ' : dl + ' يوم متبقّي'}` : ''),
-      dl !== null && dl < 0 ? 'r' : (dl !== null && dl <= 60 ? 'a' : '')),
-    stat(u.hireDate || '—', 'تاريخ المباشرة')
+    statCard({ label: 'انتهاء العقد', value: u.contractEnd || '—', ico: 'doc',
+      tone: dl !== null && dl < 0 ? 'bad' : (dl !== null && dl <= 60 ? 'warn' : ''),
+      sub: dl === null ? 'غير مسجَّل' : dl < 0 ? `منتهٍ منذ ${Math.abs(dl)} يوم` : `باقي ${dl} يوماً` }),
+    statCard({ label: 'تاريخ المباشرة', value: u.hireDate || '—', ico: 'calendar',
+      sub: u.hireDate ? 'بداية الخدمة' : 'غير مسجَّل' })
   );
   cd.appendChild(cg);
   cd.appendChild(el('p', 'help', 'تسجيل الحضور: ' + describeRule(u)));
@@ -141,30 +146,44 @@ export async function render(view, token) {
     const avgIn = ins.length ? Math.round(ins.reduce((a, b) => a + b, 0) / ins.length) : null;
 
     host.innerHTML = '';
-    const g = grid(4);
+    const g = el('div', 'statgrid');
     g.append(
-      stat(commit + '%', 'نسبة الالتزام (حضور + إجازة)', commit >= 90 ? 'g' : commit >= 75 ? 'a' : 'r'),
-      stat(onTime + '%', 'حضور في الوقت', 'g'),
-      stat(late, 'أيام تأخير', 'a'),
-      stat(abs, 'أيام غياب', 'r')
+      statCard({ label: 'نسبة الالتزام', value: commit + '%', ico: 'chart',
+        tone: commit >= 90 ? 'good' : commit >= 75 ? 'warn' : 'bad',
+        sub: 'حضور + إجازة معتمَدة' }),
+      statCard({ label: 'حضور في الوقت', value: onTime + '%', ico: 'check',
+        tone: onTime >= 90 ? 'good' : onTime >= 75 ? 'warn' : 'bad', sub: 'بلا تأخير يُحتسب' }),
+      statCard({ label: 'أيام تأخير', value: late, ico: 'clock',
+        tone: late ? 'warn' : 'good', sub: late ? 'يُخصم عليها بدقائقها' : 'لا تأخير' }),
+      statCard({ label: 'أيام غياب', value: abs, ico: 'alert',
+        tone: abs ? 'bad' : 'good', sub: abs ? 'بلا إجازة معتمَدة' : 'لا غياب' })
     );
     host.appendChild(g);
 
-    const g2 = grid(4);
+    const g2 = el('div', 'statgrid');
     g2.append(
-      stat(pay ? hhmm(pay.lateMin) : '—', 'إجمالي التأخير', pay ? 'a' : ''),
-      stat(pay ? hhmm(pay.earlyMin) : '—', 'خروج مبكر', pay ? 'a' : ''),
-      stat(miss, 'نسيان بصمة خروج'),
-      stat(avgIn !== null ? `${p2(Math.floor(avgIn / 60))}:${p2(avgIn % 60)}` : '—', 'متوسط وقت الحضور')
+      statCard({ label: 'إجمالي التأخير', value: pay ? hhmm(pay.lateMin) : '—', ico: 'clock',
+        tone: pay && pay.lateMin ? 'warn' : '', sub: 'مجموع دقائق الدورة' }),
+      statCard({ label: 'خروج مبكر', value: pay ? hhmm(pay.earlyMin) : '—', ico: 'login',
+        tone: pay && pay.earlyMin ? 'warn' : '', sub: 'قبل نهاية الوردية' }),
+      statCard({ label: 'نسيان بصمة خروج', value: miss, ico: 'gap',
+        tone: miss ? 'warn' : 'good', sub: miss ? 'تحتاج تصحيحاً' : 'لا نواقص' }),
+      statCard({ label: 'متوسّط وقت الحضور', ico: 'clock',
+        value: avgIn !== null ? `${p2(Math.floor(avgIn / 60))}:${p2(avgIn % 60)}` : '—',
+        sub: 'على أيام حضوره' })
     );
     host.appendChild(g2);
 
-    const g3 = grid(4);
+    const g3 = el('div', 'statgrid');
     g3.append(
-      stat(pay ? pay.workH.toFixed(1) : '—', 'ساعات عمل فعلية'),
-      stat(pay ? pay.reqH.toFixed(1) : '—', 'ساعات مطلوبة'),
-      stat(lv, 'أيام إجازة'),
-      stat(reqs.filter((r) => { const d = reqEventDate(r); return d >= cyc.start && d <= cyc.end; }).length, 'طلبات في الدورة')
+      statCard({ label: 'ساعات عمل فعلية', value: pay ? pay.workH.toFixed(1) : '—', ico: 'clock',
+        sub: 'من بصمات الجهاز' }),
+      statCard({ label: 'ساعات مطلوبة', value: pay ? pay.reqH.toFixed(1) : '—', ico: 'scale',
+        sub: 'حسب وردياته' }),
+      statCard({ label: 'أيام إجازة', value: lv, ico: 'calendar', sub: 'معتمَدة في الدورة' }),
+      statCard({ label: 'طلبات في الدورة', ico: 'inbox',
+        value: reqs.filter((r) => { const d = reqEventDate(r); return d >= cyc.start && d <= cyc.end; }).length,
+        sub: 'استئذان وإجازة' })
     );
     host.appendChild(g3);
 

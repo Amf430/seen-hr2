@@ -17,7 +17,7 @@ import { el, esc, toast, openModal } from '../lib/dom.js';
 import { getMe } from '../lib/state.js';
 import { fmtDate, tsToDate } from '../lib/format.js';
 import { isStale } from '../lib/nav.js';
-import { card, empty, sectionHead, button, callout } from '../lib/ui.js';
+import { card, empty, sectionHead, button, callout , pageHead } from '../lib/ui.js';
 import {
   fetchTickets, fetchMessages, createTicket, replyToTicket, closeTicket,
   ticketCategories, ticketState, TICKET_MAX_SUBJECT, TICKET_MAX_TEXT
@@ -29,14 +29,14 @@ export async function render(view, token) {
   const me = getMe();
   const isHr = me.role === 'admin';
 
-  const head = card('');
-  head.appendChild(sectionHead(
-    { text: isHr ? 'طلبات الموظفين للموارد البشرية' : 'طلباتي للموارد البشرية', icon: 'inbox' },
+  /* ⚠️ رأس صفحة لا بطاقة عنوان (الهوية الجديدة): البطاقة كانت تدفع أول
+     مراسلة تحت الطيّة، والصفحة تُفتح لقراءتها. */
+  view.appendChild(pageHead(
+    isHr ? 'مراسلات الموظفين' : 'الموارد البشرية',
+    isHr
+      ? 'أسئلة الموظفين واستفساراتهم. ما يُكتب هنا لا يراه مدير القسم — القناة بينك وبين الموظف وحده.'
+      : 'اسأل الموارد البشرية عمّا تحتاجه: التأمين الصحي، الراتب، رصيد إجازاتك، مستنداتك. ما تكتبه هنا لا يراه مدير قسمك.',
     isHr ? null : button('طلب جديد', 'btn sm', () => openNew(reload), 'plus')));
-  head.appendChild(el('p', 'desc', isHr
-    ? 'أسئلة الموظفين واستفساراتهم. ما يُكتب هنا لا يراه مدير القسم — القناة بينك وبين الموظف وحده.'
-    : 'اسأل الموارد البشرية عمّا تحتاجه: التأمين الصحي، الراتب، رصيد إجازاتك، مستنداتك. ما تكتبه هنا لا يراه مدير قسمك.'));
-  view.appendChild(head);
 
   const host = el('div', '');
   view.appendChild(host);
