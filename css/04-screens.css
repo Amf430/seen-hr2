@@ -635,39 +635,128 @@
   border-color:var(--a-maroon-08)}
 
 /* ══════════════════════════════════════════════════════════════════════════
-   يومي — القائمة الشخصية (الدفعة ٥)
+   يومي — قائمة لا بطاقات (مرجع المالك: Microsoft To Do)
 
-   ⚠️ الفرق بين القائمتين بصريّ صريح: مهام النظام ببطاقة عادية، والقائمة
-   الشخصية بحدّ متقطّع وأرضية أفتح وأيقونة قفل. الخلط بينهما يُفقد الاثنتين
-   معناهما — من لا يعرف أيّهما يكتب يكتب في الأسلم، فيهجر الشخصية أصلاً.
+   ⚠️ النسخة الأولى كانت أربع بطاقات بإطارات وعناوين، فبند التذكير الواحد
+   يجلس داخل صندوقين. قائمة المهام تُقرأ بالمسح لا بالقراءة، والإطار يكسر
+   المسح: العين تتوقّف عند كل حدّ. الفصل هنا بخيط رفيع بين الصفوف وحده.
+
+   ⚠️ والفرق بين القائمتين يبقى صريحاً: الشخصية بخطّ عنّابي على حافّتها
+   وأيقونة قفل في عنوانها. الخلط بينهما يُفقد الاثنتين معناهما.
    ══════════════════════════════════════════════════════════════════════════ */
-.card.private{border-style:dashed;border-color:var(--border-strong);
-  background:var(--surface-2)}
-.private__note{display:flex;align-items:center;gap:var(--sp-2);
-  color:var(--muted-strong);font-size:var(--fs-caption)}
-.private__note .ic{inline-size:14px;block-size:14px;flex:none;color:var(--muted-strong)}
+.dayhead{display:flex;align-items:flex-start;justify-content:space-between;
+  gap:var(--sp-4);flex-wrap:wrap;margin-block-end:var(--sp-5)}
+.dayhead__title{font-size:var(--fs-2xl);font-weight:var(--fw-bold);color:var(--ink);
+  line-height:var(--lh-heading);letter-spacing:var(--ls-flat)}
+.dayhead__sub{color:var(--muted-strong);font-size:var(--fs-sm);margin-block-start:2px}
+.dayhead__date{color:var(--muted-strong);font-size:var(--fs-sm);
+  padding:var(--sp-1) var(--sp-3);border-radius:var(--r-pill);
+  background:var(--surface-3);white-space:nowrap}
 
-.todo{display:flex;align-items:flex-start;gap:var(--sp-3);
-  padding:var(--sp-3) 0;border-block-start:1px solid var(--border-soft)}
-.todo:first-of-type{border-block-start:0}
-.todo__box{inline-size:18px;block-size:18px;flex:none;margin-block-start:2px;
-  accent-color:var(--maroon-2);cursor:pointer}
-.todo__ic{flex:none;inline-size:22px;block-size:22px;border-radius:var(--r-sm);
-  display:grid;place-items:center;background:var(--surface-3);color:var(--muted-strong)}
-.todo__ic .ic{inline-size:13px;block-size:13px}
-.todo__body{flex:1;min-inline-size:0;display:flex;flex-direction:column;gap:2px}
-.todo__text{font-size:var(--fs-base);color:var(--ink);word-break:break-word;text-align:start}
-.todo__text.as-link{background:none;border:0;padding:0;font:inherit;color:var(--ink);
-  cursor:pointer;text-align:start}
-.todo__text.as-link:hover{color:var(--maroon-2);text-decoration:underline}
-.todo__text.is-gone{color:var(--muted)}
-.todo__meta{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center;
-  font-size:var(--fs-caption)}
-.todo__meta .ic{inline-size:12px;block-size:12px;margin-inline-end:2px}
-/* ⚠️ المنجز يبهت ولا يُشطب وحده: الشطب على العربية يقطع الحروف المتّصلة
-   فيصير النصّ غير مقروء. البهتان يكفي، والمربّع يقول الباقي. */
-.todo.is-done .todo__text{color:var(--muted)}
-.todo.is-done{opacity:.7}
+/* ── الإضافة السريعة ── */
+.quickadd{background:var(--card);border:1px solid var(--border);
+  border-radius:var(--r-md);margin-block-end:var(--sp-5);
+  transition:border-color var(--dur-2) var(--ease)}
+.quickadd:focus-within{border-color:var(--maroon-2);box-shadow:var(--ring)}
+.quickadd__row{display:flex;align-items:center;gap:var(--sp-3);
+  padding:var(--sp-3) var(--sp-4)}
+.quickadd__ic{color:var(--maroon-2);display:grid;place-items:center;flex:none}
+.quickadd__ic .ic{inline-size:18px;block-size:18px}
+.quickadd__input{flex:1;min-inline-size:0;border:0;background:none;
+  font:inherit;font-size:var(--fs-base);color:var(--ink);padding:0}
+.quickadd__input:focus{outline:none}
+/* ⚠️ الخيارات مطويّة حتى التركيز: تُستعمل في بندٍ من كل عشرة، وإظهارها
+   دائماً يجعل «اكتب سطراً» تبدو استمارة. */
+.quickadd__opts{display:none;gap:var(--sp-3);align-items:flex-end;flex-wrap:wrap;
+  padding:0 var(--sp-4) var(--sp-3);border-block-start:1px solid var(--border-soft);
+  padding-block-start:var(--sp-3)}
+.quickadd.is-open .quickadd__opts{display:flex}
+.quickadd__field{display:flex;flex-direction:column;gap:2px}
+.quickadd__field span{font-size:var(--fs-micro);color:var(--muted-strong)}
+.quickadd .err:empty{display:none}
+.quickadd .err{padding:0 var(--sp-4) var(--sp-3);font-size:var(--fs-sm);color:var(--red)}
+
+/* ── عنوان القسم — سطر لا بطاقة ── */
+.daysec{display:flex;align-items:center;justify-content:space-between;
+  gap:var(--sp-3);flex-wrap:wrap;margin-block:var(--sp-5) var(--sp-2)}
+.daysec__box{display:flex;flex-direction:column;gap:2px;min-inline-size:0}
+.daysec__title{display:inline-flex;align-items:center;gap:var(--sp-2);
+  font-size:var(--fs-sm);font-weight:var(--fw-bold);color:var(--ink)}
+.daysec__title .ic{inline-size:14px;block-size:14px;color:var(--muted-strong)}
+.daysec__help{font-size:var(--fs-micro);color:var(--muted-strong)}
+
+/* ── القائمة ── */
+.daylist{background:var(--card);border:1px solid var(--border);
+  border-radius:var(--r-md);overflow:hidden}
+/* ⚠️ الحدّ العنّابي على الحافّة يفرّق الشخصية عن الرسمية بلا إطار ثانٍ */
+.daylist--private{border-inline-start:3px solid var(--maroon-2)}
+.daylist--done{opacity:.75}
+.daylist__empty{color:var(--muted-strong);font-size:var(--fs-sm);
+  padding:var(--sp-3) var(--sp-1)}
+.daylist__foot{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;
+  padding-block-start:var(--sp-3)}
+
+.dayrow{display:flex;align-items:flex-start;gap:var(--sp-3);
+  padding:var(--sp-3) var(--sp-4);
+  border-block-start:1px solid var(--border-soft);
+  transition:background var(--dur-1) var(--ease)}
+.dayrow:first-child{border-block-start:0}
+.dayrow:hover{background:var(--row-hover)}
+
+/* المربّع الدائري — مبنيّ بزرّ لا بـinput، فشكله واحد على كل نظام */
+.dayrow__check{flex:none;inline-size:20px;block-size:20px;margin-block-start:1px;
+  border-radius:50%;border:1.5px solid var(--border-strong);
+  background:var(--card);display:grid;place-items:center;cursor:pointer;
+  color:transparent;transition:all var(--dur-1) var(--ease)}
+.dayrow__check .ic{inline-size:12px;block-size:12px}
+.dayrow__check:hover{border-color:var(--maroon-2);color:var(--border-strong)}
+.dayrow__check.is-on{background:var(--maroon-2);border-color:var(--maroon-2);color:#fff}
+.dayrow__check:focus-visible{outline:var(--focus-w) solid var(--focus);outline-offset:2px}
+
+.dayrow__ic{flex:none;inline-size:20px;block-size:20px;margin-block-start:1px;
+  display:grid;place-items:center;color:var(--muted-strong)}
+.dayrow__ic .ic{inline-size:14px;block-size:14px}
+
+.dayrow__body{flex:1;min-inline-size:0;display:flex;flex-direction:column;gap:2px}
+.dayrow__text{font-size:var(--fs-base);color:var(--ink);word-break:break-word;
+  text-align:start}
+.dayrow__text.as-link{background:none;border:0;padding:0;font:inherit;
+  color:var(--ink);cursor:pointer;text-align:start}
+.dayrow__text.as-link:hover{color:var(--maroon-2);text-decoration:underline}
+.dayrow__text.is-gone{color:var(--muted)}
+.dayrow__meta{display:flex;flex-wrap:wrap;gap:var(--sp-3);align-items:center;
+  font-size:var(--fs-caption);color:var(--muted-strong);line-height:1.5}
+/* ⚠️ كل عنصر بيانات inline-flex بارتفاعه: كان الوارث line-height الجسم
+   (1.75) فيصير السطر ٣٢px لنصّ ١٢px، ويرتفع صفّ التذكير على ضعف جاره. */
+.dayrow__meta>*{display:inline-flex;align-items:center;line-height:1.5}
+.dayrow__meta .ic{inline-size:11px;block-size:11px;margin-inline-end:3px;
+  vertical-align:0}
+/* ⚠️ المنجز يبهت ولا يُشطب: الشطب على العربية يقطع الحروف المتّصلة فيصير
+   النصّ غير مقروء. البهتان يكفي، والمربّع الممتلئ يقول الباقي. */
+.dayrow.is-done .dayrow__text{color:var(--muted)}
+
+/* ⚠️ زرّ الصفّ يبهت لا يختفي: display:none يُخرجه من شجرة الوصول ومن Tab،
+   فلا يصل إليه من يتنقّل بلوحة المفاتيح إطلاقاً. */
+.dayrow__act{flex:none;inline-size:30px;block-size:30px;border-radius:var(--r-sm);
+  display:grid;place-items:center;background:none;border:0;cursor:pointer;
+  color:var(--muted-strong);opacity:0;transition:opacity var(--dur-1) var(--ease)}
+.dayrow__act .ic{inline-size:14px;block-size:14px}
+.dayrow:hover .dayrow__act,.dayrow__act:focus-visible{opacity:1}
+.dayrow__act:hover{background:var(--surface-3);color:var(--red)}
+/* ⚠️ على اللمس لا يوجد تمرير — الزرّ ظاهر دائماً على الجوال */
+@media (hover:none){ .dayrow__act{opacity:.6} }
+
+/* ── المنجز المطويّ ── */
+.donetoggle{display:inline-flex;align-items:center;gap:var(--sp-2);
+  margin-block:var(--sp-5) var(--sp-2);padding:var(--sp-1) var(--sp-2);
+  background:none;border:0;cursor:pointer;font:inherit;
+  font-size:var(--fs-sm);font-weight:var(--fw-medium);color:var(--muted-strong);
+  border-radius:var(--r-sm)}
+.donetoggle:hover{background:var(--surface-3);color:var(--ink)}
+.donetoggle .ic{inline-size:14px;block-size:14px;
+  transition:transform var(--dur-2) var(--ease)}
+/* السهم يدور ليقول مفتوح/مغلق — لا نصّ ثانٍ يشرحه */
+.donetoggle.is-open .ic{transform:rotate(-90deg)}
 
 .picklist{display:flex;flex-direction:column;gap:var(--sp-1);
   max-block-size:320px;overflow-y:auto}

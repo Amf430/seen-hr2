@@ -83,10 +83,10 @@ export async function render(view, token) {
 
     const cnt = (k) => rows.filter((r) => r.cls === k).length;
     const pres = cnt('present'), late = cnt('late'), abs = cnt('absent'),
-          miss = cnt('missing'), lv = cnt('leave');
+          miss = cnt('missing'), missIn = cnt('missingIn'), lv = cnt('leave');
     const total = rows.length;
     /* الإجازة المعتمدة ليست غياباً — تُحسب ضمن الالتزام */
-    const commit = Math.round(((pres + late + lv) / total) * 100);
+    const commit = Math.round(((pres + late + lv + missIn) / total) * 100);
     const lateMin = rows.reduce((a, r) => a + (r.lateMin || 0), 0);
 
     /* ── الأرقام الأربعة بألوانها ──
@@ -114,7 +114,12 @@ export async function render(view, token) {
       statCard({ label: 'إجمالي التأخير', value: lateMin ? hhmm(lateMin) : '—', ico: 'clock',
         tone: lateMin ? 'warn' : 'good', sub: lateMin ? 'مجموع دقائق الدورة' : 'لا تأخير' }),
       statCard({ label: 'نسيان بصمة انصراف', value: miss, ico: 'gap',
-        tone: miss ? 'warn' : 'good', sub: miss ? 'يمكن طلب تصحيحها' : 'لا نواقص' })
+        tone: miss ? 'warn' : 'good', sub: miss ? 'يمكن طلب تصحيحها' : 'لا نواقص' }),
+      /* ⚠️ تُعرض منفصلة لا مدموجة مع أختها: نسيان الدخول ونسيان الخروج
+         خطآن مختلفان في طرفَي اليوم، ودمجهما يخفي أيّهما وقع. */
+      statCard({ label: 'نسيان بصمة حضور', value: missIn, ico: 'gap',
+        tone: missIn ? 'warn' : 'good',
+        sub: missIn ? 'داومت وفاتتك البصمة — صحّحها بطلب' : 'لا نواقص' })
     );
     sc.appendChild(g2);
     host.appendChild(sc);
@@ -143,8 +148,12 @@ export async function render(view, token) {
         `اليوم بلا بصمة انصراف لا تُحتسب ساعاته كاملةً. تقدر تقدّم طلب تصحيح عن الأيام ${FIX_WINDOW_DAYS} الماضية — يعتمده مديرك ثم الموارد البشرية.`));
       /* ⚠️ الأيام داخل النافذة وحدها تُعرض بزرّ: زرٌّ على يوم خارجها يُضغط
          ثم يُرفض، وهو أسوأ من غيابه. */
+      /* ⚠️ `missingIn` أولى الثلاث بالتصحيح لا آخرها: هي الحالة التي
+         أُنشئت لأجل هذا الطلب أصلاً (قرار ٢٠٢٦-٠٨-١٣) — الموظف داوم وفاتته
+         نافذة البصمة، والدليل بصمة خروجه. */
       const fixable = rows.filter((r) =>
-        (r.cls === 'missing' || r.cls === 'absent') && fixWindowOpen(r.dateStr));
+        (r.cls === 'missing' || r.cls === 'missingIn' || r.cls === 'absent')
+        && fixWindowOpen(r.dateStr));
       if (fixable.length) {
         const acts = el('div', 'actions-cell');
         fixable.forEach((r) => acts.appendChild(
