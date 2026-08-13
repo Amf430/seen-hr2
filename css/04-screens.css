@@ -633,3 +633,51 @@
 .tl--mine .tl__body{background:var(--maroon-tint);border-color:var(--a-maroon-08)}
 .tl--mine .tl__ic{background:var(--maroon-tint);color:var(--maroon-2);
   border-color:var(--a-maroon-08)}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   يومي — القائمة الشخصية (الدفعة ٥)
+
+   ⚠️ الفرق بين القائمتين بصريّ صريح: مهام النظام ببطاقة عادية، والقائمة
+   الشخصية بحدّ متقطّع وأرضية أفتح وأيقونة قفل. الخلط بينهما يُفقد الاثنتين
+   معناهما — من لا يعرف أيّهما يكتب يكتب في الأسلم، فيهجر الشخصية أصلاً.
+   ══════════════════════════════════════════════════════════════════════════ */
+.card.private{border-style:dashed;border-color:var(--border-strong);
+  background:var(--surface-2)}
+.private__note{display:flex;align-items:center;gap:var(--sp-2);
+  color:var(--muted-strong);font-size:var(--fs-caption)}
+.private__note .ic{inline-size:14px;block-size:14px;flex:none;color:var(--muted-strong)}
+
+.todo{display:flex;align-items:flex-start;gap:var(--sp-3);
+  padding:var(--sp-3) 0;border-block-start:1px solid var(--border-soft)}
+.todo:first-of-type{border-block-start:0}
+.todo__box{inline-size:18px;block-size:18px;flex:none;margin-block-start:2px;
+  accent-color:var(--maroon-2);cursor:pointer}
+.todo__ic{flex:none;inline-size:22px;block-size:22px;border-radius:var(--r-sm);
+  display:grid;place-items:center;background:var(--surface-3);color:var(--muted-strong)}
+.todo__ic .ic{inline-size:13px;block-size:13px}
+.todo__body{flex:1;min-inline-size:0;display:flex;flex-direction:column;gap:2px}
+.todo__text{font-size:var(--fs-base);color:var(--ink);word-break:break-word;text-align:start}
+.todo__text.as-link{background:none;border:0;padding:0;font:inherit;color:var(--ink);
+  cursor:pointer;text-align:start}
+.todo__text.as-link:hover{color:var(--maroon-2);text-decoration:underline}
+.todo__text.is-gone{color:var(--muted)}
+.todo__meta{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center;
+  font-size:var(--fs-caption)}
+.todo__meta .ic{inline-size:12px;block-size:12px;margin-inline-end:2px}
+/* ⚠️ المنجز يبهت ولا يُشطب وحده: الشطب على العربية يقطع الحروف المتّصلة
+   فيصير النصّ غير مقروء. البهتان يكفي، والمربّع يقول الباقي. */
+.todo.is-done .todo__text{color:var(--muted)}
+.todo.is-done{opacity:.7}
+
+.picklist{display:flex;flex-direction:column;gap:var(--sp-1);
+  max-block-size:320px;overflow-y:auto}
+
+/* شريط التذكيرات في الرئيسية — سطرٌ لكل تذكير، والفائت بنقطة حمراء */
+.todo-strip{display:flex;flex-direction:column}
+.todo-strip__row{display:flex;align-items:center;gap:var(--sp-3);
+  padding:var(--sp-2) 0;border-block-start:1px solid var(--border-soft)}
+.todo-strip__row:first-child{border-block-start:0}
+.todo-strip__dot{inline-size:7px;block-size:7px;border-radius:50%;flex:none;
+  background:var(--muted)}
+.todo-strip__dot.is-late{background:var(--red)}
+.todo-strip__text{flex:1;min-inline-size:0;font-size:var(--fs-sm);color:var(--ink)}
