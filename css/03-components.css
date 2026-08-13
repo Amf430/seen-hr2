@@ -1226,6 +1226,12 @@ label.btn{cursor:pointer}
 .statgrid{display:grid;gap:var(--sp-3);
   grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
 
+/* ⚠️ ستّ بطاقات على شبكة auto-fit تتوزّع خمساً وواحدة يتيمة في سطر تحتها،
+   فتبدو السادسة خطأً لا معلومة. ثلاثٌ في سطرين متوازنان. */
+.statgrid--3{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (max-width:900px){ .statgrid--3{grid-template-columns:repeat(2,minmax(0,1fr))} }
+@media (max-width:520px){ .statgrid--3{grid-template-columns:minmax(0,1fr)} }
+
 .statcard{display:flex;flex-direction:column;gap:var(--sp-4);
   min-block-size:126px;padding:var(--sp-5);
   background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);

@@ -11,9 +11,9 @@
 import { el, esc, toast, openModal } from '../lib/dom.js';
 import { getMe } from '../lib/state.js';
 import { ymdKsa } from '../lib/dates.js';
-import { tasksForAssignee, moveTask } from '../lib/tasks.js';
+import { tasksForAssignee, moveTask, startTimer, stopTimer } from '../lib/tasks.js';
 import { boardColumns, dueStateOf, nextStepFor, progressOf, blockInfo,
-         MAX_BLOCK_REASON, PRIORITY_AR, STATUS_AR } from '../lib/task-flow.js';
+         timeSummary, MAX_BLOCK_REASON, PRIORITY_AR, STATUS_AR } from '../lib/task-flow.js';
 import { isStale, go } from '../lib/nav.js';
 import { card, empty, sectionHead, button, loading, callout } from '../lib/ui.js';
 
@@ -68,6 +68,7 @@ export async function render(view, token) {
        اليدوي. كان الشريط والقائمة الفرعية يظهران رقمين متباعدين لنفس المهمة. */
     const pr = progressOf(t);
     const bi = blockInfo(t, null, todayYmd);
+    const ts = timeSummary(t);
     const box = el('div', 'task-card' + (due.kind === 'overdue' ? ' task-card--overdue' : ''));
     box.innerHTML = `
       <div class="task-card__top">
@@ -81,6 +82,8 @@ export async function render(view, token) {
         ${pr.pct !== null && pr.source === 'checklist'
             ? `<span class="text-muted">${pr.pct}٪ من البنود</span>` : ''}
         ${bi.manual && bi.reason ? `<span class="text-amber">${esc(bi.reason.slice(0, 60))}</span>` : ''}
+        ${ts.hasOpenEntry ? '<span class="text-green">العدّاد يعمل</span>'
+          : ts.actualHours ? `<span class="text-muted">${ts.actualHours} ساعة</span>` : ''}
         ${t.messageCount ? `<span class="text-muted">${t.messageCount} رسالة</span>` : ''}
       </div>`;
 
@@ -97,10 +100,24 @@ export async function render(view, token) {
     }
     /* ⚠️ التوقّف يطلب سبباً الآن: «متوقفة» بلا سبب يراها المدير فيطمئنّ
        ولا يسأل، وهي في الحقيقة منسيّة باسم آخر. */
+    /* ⚠️ العدّاد من البطاقة مباشرةً: «ابدأ» و«استئناف» و«إيقاف مؤقّت» نفس
+       العمليتين على البيانات — فتح مدخلة وإغلاقها — ويختلفن في نيّة المستخدم
+       وحدها. فلا تغيير في البيانات ولا في القاعدة، وزرٌّ بدل رحلة صفحتين. */
     if (t.status === 'in_progress') {
+      if (ts.hasOpenEntry) {
+        acts.appendChild(button('إيقاف العدّاد', 'btn sm ghost', async () => {
+          try { await stopTimer(t); await after(); }
+          catch (e) { console.error(e); toast('تعذّر', 'err'); }
+        }, 'clock'));
+      } else if (!ts.atCap) {
+        acts.appendChild(button(ts.entries ? 'استئناف' : 'ابدأ العدّاد', 'btn sm ghost', async () => {
+          try { await startTimer(t); await after(); }
+          catch (e) { console.error(e); toast(e.message === 'timer-cap' ? 'بلغت حدّ المدخلات' : 'تعذّر', 'err'); }
+        }, 'clock'));
+      }
       acts.appendChild(button('أوقفها مؤقتاً', 'btn sm ghost', () => openBlock(t, after)));
     }
-    acts.appendChild(button('التفاصيل والمحادثة', 'btn sm ghost', () => go('task', t.id)));
+    acts.appendChild(button('التفاصيل', 'btn sm ghost', () => go('task', t.id)));
     box.appendChild(acts);
     return box;
   }
