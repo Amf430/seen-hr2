@@ -774,9 +774,17 @@ service cloud.firestore {
         || (taskDept() && deptUnchanged())
         || (taskAssignee()
             && only(['status','progress','startedAt','employeeFeedback','checklist',
-                     'lastMessageAt','messageCount','timeEntries','actualSecs'])
+                     'lastMessageAt','messageCount','timeEntries','actualSecs',
+                     'blockReason'])
             && d().status in ['in_progress','blocked','review']
-            && !(p().status in ['done','archived'])
+            /* ⚠️ 'cancelled' غائبة عمداً: الإلغاء قرار إداري. لو مُنح
+               للمكلَّف لصار مخرجاً من أي مهمة ثقيلة بضغطة واحدة. */
+            && !(p().status in ['done','cancelled','archived'])
+            /* ⚠️ سبب التوقّف: 'blocked' بلا سبب مكتوب مهمةٌ منسيّة باسم
+               آخر — يراها المدير «متوقفة» فيطمئنّ ولا يسأل. السقف هنا لأن
+               كل حقل يكتبه المستخدم بلا سقف تخزينٌ مجاني على حساب المالك. */
+            && d().get('blockReason','') is string
+            && d().get('blockReason','').size() <= 300
             /* ⚠️ without the three lines below the employee writes
                progress: 900 and every completion chart is meaningless */
             && d().get('progress',0) is int

@@ -15,7 +15,7 @@ import { ymdKsa } from '../lib/dates.js';
 import { fmtDT } from '../lib/format.js';
 import { getTask, watchMessages, postMessage, moveTask, updateTask,
          startTimer, stopTimer } from '../lib/tasks.js';
-import { roleFor, dueStateOf, checklistPct, allowedMoves, timeSummary,
+import { roleFor, dueStateOf, progressOf, allowedMoves, timeSummary,
          blockersOf, delegationActive, STATUS_AR, PRIORITY_AR } from '../lib/task-flow.js';
 import { trackSubscription } from '../lib/lifecycle.js';
 import { isStale, go, getPageArg } from '../lib/nav.js';
@@ -71,7 +71,16 @@ export async function render(view, token) {
     detailLine('أنشأها', t.createdByName || '—')
   ].join('')));
   if (t.description) head.appendChild(el('p', 'desc', esc(t.description)));
-  if (typeof t.progress === 'number') head.appendChild(el('div', '', bar(t.progress)));
+  /* ⚠️ شريط واحد من مصدر واحد. كان يُرسم من `t.progress` اليدوي بينما
+     عنوان القائمة الفرعية تحته يقول رقماً آخر — رقمان لنفس المهمة في نفس
+     الشاشة. progressOf تحسم: البنود متى وُجدت. */
+  const pr = progressOf(t);
+  if (pr.pct !== null) {
+    head.appendChild(el('div', '', bar(pr.pct)));
+    head.appendChild(el('p', 'help', pr.source === 'checklist'
+      ? 'النسبة محسوبة من بنود القائمة الفرعية.'
+      : pr.source === 'status' ? 'المهمة مغلقة.' : 'تقدير يدوي — أضف قائمة فرعية ليُحسب تلقائياً.'));
+  }
   view.appendChild(head);
 
   /* ⚠️ ملاحظة المدير تُعرض بارزة حين تكون «تحتاج تحسين» — الموظف الذي لا
@@ -89,8 +98,8 @@ export async function render(view, token) {
   /* ── القائمة الفرعية ── */
   if ((t.checklist || []).length) {
     const cc = card('');
-    const pctv = checklistPct(t);
-    cc.appendChild(sectionHead({ text: `القائمة الفرعية${pctv !== null ? ` — ${pctv}%` : ''}`, icon: 'check' }));
+    const dn = t.checklist.filter((c) => c.done).length;
+    cc.appendChild(sectionHead({ text: `القائمة الفرعية — ${dn}/${t.checklist.length}`, icon: 'check' }));
     t.checklist.forEach((item, i) => {
       const row = el('label', 'checkbox');
       row.innerHTML = `<input type="checkbox" ${item.done ? 'checked' : ''}

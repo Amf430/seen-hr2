@@ -12,8 +12,8 @@ import { el, esc, toast, openModal } from '../lib/dom.js';
 import { getMe } from '../lib/state.js';
 import { ymdKsa } from '../lib/dates.js';
 import { tasksForAssignee, moveTask } from '../lib/tasks.js';
-import { boardColumns, dueStateOf, nextStepFor, checklistPct,
-         PRIORITY_AR, STATUS_AR } from '../lib/task-flow.js';
+import { boardColumns, dueStateOf, nextStepFor, progressOf, blockInfo,
+         MAX_BLOCK_REASON, PRIORITY_AR, STATUS_AR } from '../lib/task-flow.js';
 import { isStale, go } from '../lib/nav.js';
 import { card, empty, sectionHead, button, loading, callout } from '../lib/ui.js';
 
@@ -64,7 +64,10 @@ export async function render(view, token) {
 
   function taskCard(t, after, todayYmd) {
     const due = dueStateOf(t, todayYmd);
-    const chk = checklistPct(t);
+    /* ⚠️ رقم واحد لا رقمان: progressOf تختار البنود متى وُجدت وإلا التقدير
+       اليدوي. كان الشريط والقائمة الفرعية يظهران رقمين متباعدين لنفس المهمة. */
+    const pr = progressOf(t);
+    const bi = blockInfo(t, null, todayYmd);
     const box = el('div', 'task-card' + (due.kind === 'overdue' ? ' task-card--overdue' : ''));
     box.innerHTML = `
       <div class="task-card__top">
@@ -75,7 +78,9 @@ export async function render(view, token) {
       ${t.description ? `<div class="cell-sub">${esc(t.description.slice(0, 140))}</div>` : ''}
       <div class="task-card__meta">
         ${due.text ? `<span class="${due.kind === 'overdue' ? 'text-red' : due.kind === 'today' ? 'text-amber' : 'text-muted'}">${esc(due.text)}</span>` : ''}
-        ${chk !== null ? `<span class="text-muted">القائمة الفرعية ${chk}%</span>` : ''}
+        ${pr.pct !== null && pr.source === 'checklist'
+            ? `<span class="text-muted">${pr.pct}٪ من البنود</span>` : ''}
+        ${bi.manual && bi.reason ? `<span class="text-amber">${esc(bi.reason.slice(0, 60))}</span>` : ''}
         ${t.messageCount ? `<span class="text-muted">${t.messageCount} رسالة</span>` : ''}
       </div>`;
 
@@ -90,15 +95,40 @@ export async function render(view, token) {
         catch (e) { console.error(e); toast('تعذّر تحديث الحالة', 'err'); }
       }));
     }
+    /* ⚠️ التوقّف يطلب سبباً الآن: «متوقفة» بلا سبب يراها المدير فيطمئنّ
+       ولا يسأل، وهي في الحقيقة منسيّة باسم آخر. */
     if (t.status === 'in_progress') {
-      acts.appendChild(button('أوقفها مؤقتاً', 'btn sm ghost', async () => {
-        try { await moveTask(t, 'blocked'); await after(); }
-        catch (e) { console.error(e); toast('تعذّر', 'err'); }
-      }));
+      acts.appendChild(button('أوقفها مؤقتاً', 'btn sm ghost', () => openBlock(t, after)));
     }
     acts.appendChild(button('التفاصيل والمحادثة', 'btn sm ghost', () => go('task', t.id)));
     box.appendChild(acts);
     return box;
+  }
+
+  function openBlock(t, after) {
+    const m = openModal(`
+      <h3>إيقاف مؤقّت — ${esc(t.title)}</h3>
+      <div class="field">
+        <label for="bkWhy">ما الذي يمنع التقدّم؟ *</label>
+        <textarea id="bkWhy" rows="3" maxlength="${MAX_BLOCK_REASON}"
+          placeholder="أنتظر ردّ العميل · ينقصني ملف من المحاسبة · الجهاز معطّل"></textarea>
+        <div class="help">يظهر لمديرك بجانب المهمة، فيعرف ما يفكّها بدل أن يسأل.</div>
+      </div>
+      <div class="err" id="bkErr"></div>
+      <div class="row">
+        <button class="btn ghost" id="bkCancel">إلغاء</button>
+        <button class="btn" id="bkOk">أوقفها</button>
+      </div>`);
+    m.$('#bkCancel').onclick = m.close;
+    m.$('#bkOk').onclick = async () => {
+      const why = m.$('#bkWhy').value.trim();
+      if (why.length < 3) { m.$('#bkErr').textContent = 'اكتب السبب — كلمتان تكفيان'; return; }
+      const b = m.$('#bkOk'); b.disabled = true;
+      try {
+        await moveTask(t, 'blocked', { blockReason: why.slice(0, MAX_BLOCK_REASON) });
+        m.close(); toast('أُوقفت مؤقتاً', 'ok'); await after();
+      } catch (e) { console.error(e); m.$('#bkErr').textContent = 'تعذّر الحفظ'; b.disabled = false; }
+    };
   }
 
   function openFeedback(t, after) {
@@ -120,7 +150,9 @@ export async function render(view, token) {
       if (txt.length < 5) { m.$('#fbErr').textContent = 'اكتب ما أُنجز — سطر واحد يكفي'; return; }
       const b = m.$('#fbOk'); b.disabled = true; b.textContent = 'جارٍ الإرسال…';
       try {
-        await moveTask(t, 'review', { employeeFeedback: txt.slice(0, 4000), progress: 100 });
+        /* ⚠️ لا `progress: 100` بعد اليوم: progressOf تشتقّ النسبة من الحالة
+           والبنود. كتابتها هنا كانت تجعل الشريط ١٠٠٪ بينما البنود ٦٠٪. */
+        await moveTask(t, 'review', { employeeFeedback: txt.slice(0, 4000) });
         m.close(); toast('أُرسلت للاعتماد', 'ok'); await after();
       } catch (e) {
         console.error(e);

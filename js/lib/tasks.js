@@ -111,12 +111,18 @@ export async function moveTask(task, to, extra = {}) {
   const patch = { status: to, ...extra };
   if (to === 'in_progress' && !task.startedAt) patch.startedAt = serverTimestamp();
   if (to === 'done') patch.doneAt = serverTimestamp();
+  /* ⚠️ طابع الإلغاء وسببه: «ملغاة» بلا سبب ولا تاريخ تُقرأ بعد شهرين ولا
+     أحد يذكر لماذا — وهي المهام التي يُعاد فتح الجدل حولها. */
+  if (to === 'cancelled') patch.cancelledAt = serverTimestamp();
   /* إعادة من review إلى in_progress = «يحتاج تحسين» — عدّادها مؤشر جودة */
   if (to === 'in_progress' && task.status === 'review') {
     patch.reopenCount = (task.reopenCount || 0) + 1;
     patch.needsImprovement = true;
   }
   if (to === 'done') patch.needsImprovement = false;
+  /* ⚠️ الخروج من التوقّف يمسح سببه: سببٌ باقٍ على مهمة تعمل يظهر في
+     الـTimeline لاحقاً كأنها ما زالت متوقّفة. */
+  if (task.status === 'blocked' && to !== 'blocked') patch.blockReason = '';
   await updateDoc(ref(task.id), patch);
 }
 
