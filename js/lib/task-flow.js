@@ -251,9 +251,17 @@ export function taskAnalytics(tasks, todayYmd) {
   const all = tasks || [];
   /* ⚠️ الملغاة خارج البسط والمقام معاً: ليست إنجازاً فلا تُحسب منجزةً،
      وليست تقصيراً فلا تُحسب في مقام «الإنجاز في الوقت». إدخالها في المقام
-     يعاقب موظفاً أُلغيت مهمته بقرار مديره. */
-  const done = all.filter((t) => t.status === 'done' || t.status === 'archived');
-  const cancelled = all.filter((t) => t.status === 'cancelled').length;
+     يعاقب موظفاً أُلغيت مهمته بقرار مديره.
+
+     ⚠️ و`cancelledAt` لا `status` وحدها: الملغاة تُؤرشَف بعد حين
+     (cancelled → archived انتقالٌ مسموح)، فتفقد كلمة «ملغاة» من حالتها
+     وتدخل «المنجزة» صامتةً. ظهر هذا على المحاكي: مهمتان مؤرشفتان إحداهما
+     ملغاة، والشاشة تقول «أُنجزت في وقتها ١٠٠٪». الطابع يبقى بعد الأرشفة
+     فهو المرجع. */
+  const wasCancelled = (t) => t.status === 'cancelled' || !!t.cancelledAt;
+  const done = all.filter((t) => (t.status === 'done' || t.status === 'archived')
+                              && !wasCancelled(t));
+  const cancelled = all.filter(wasCancelled).length;
   const onTime = done.filter((t) => !t.dueDate || !t.doneAtYmd
                                  || daysBetweenYmd(t.doneAtYmd, t.dueDate) >= 0);
   const rated = done.filter((t) => typeof t.managerRating === 'number' && t.managerRating > 0);
