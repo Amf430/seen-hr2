@@ -162,6 +162,47 @@ export const SETTINGS_PAGES = [
 /* الصفحة الافتراضية لكل دور */
 export const HOME_FOR = { admin: 'home', manager: 'home', employee: 'home' };
 
+/* ── شريط الوجهات السفلي على الجوال ──
+   أربع وجهات لكل دور، وخامسها زرّ «المزيد» يفتح الدرج بالقائمة كاملة.
+
+   ⚠️ التسمية هنا **قصيرة** لا تسمية القائمة: «بانتظار موافقتك» لا تسع خُمس
+   شاشة عرضها ٣٩٠px فتُقصّ. أما الأيقونة فتُشتقّ من NAV_GROUPS ولا تُكتب هنا،
+   حتى لا تتباعد أيقونتان لصفحة واحدة.
+
+   ⚠️ كل معرّف هنا يجب أن يمرّ canOpen() لدوره، وإلا وجهةٌ تُعيد المستخدم
+   للرئيسية بمجرّد لمسها. يحرسه اختبار في test/nav-groups.test.mjs. */
+export const DOCK_FOR = {
+  admin: [
+    { id: 'home',       short: 'اللوحة' },
+    { id: 'inbox',      short: 'الطلبات' },
+    { id: 'attendance', short: 'الحضور' },
+    { id: 'payroll',    short: 'الرواتب' }
+  ],
+  manager: [
+    { id: 'home',     short: 'الرئيسية' },
+    { id: 'attend',   short: 'حضوري' },
+    { id: 'inbox',    short: 'الطلبات' },
+    { id: 'my-tasks', short: 'مهامي' }
+  ],
+  employee: [
+    { id: 'home',     short: 'الرئيسية' },
+    { id: 'attend',   short: 'حضوري' },
+    { id: 'my-tasks', short: 'مهامي' },
+    { id: 'mine',     short: 'طلباتي' }
+  ]
+};
+
+/* يركّب وجهات الدوك: التسمية القصيرة من DOCK_FOR، والأيقونة والشارة من
+   NAV_GROUPS — مصدر واحد لكل معلومة. */
+export function dockFor(role) {
+  const items = DOCK_FOR[role] || [];
+  return items.map((d) => {
+    const nav = NAV_GROUPS.flatMap((g) => g.items)
+      .find((i) => i.id === d.id && i.roles.includes(role));
+    return { id: d.id, short: d.short, icon: nav?.icon || 'dot', badge: !!nav?.badge };
+  });
+}
+
 /* هل يملك هذا الدور حق فتح هذه الصفحة؟
    للواجهة فقط — الجدار الحقيقي هو firestore.rules. */
 /* ⚠️ الصفحات التفصيلية لا تظهر في القائمة الجانبية — تُفتح من صفّ في جدول

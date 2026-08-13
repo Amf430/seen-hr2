@@ -190,6 +190,12 @@ if (window.top !== window.self) {
       </button>
     </header>
     <main class="content" id="view" tabindex="-1"></main>
+
+    <!-- شريط الوجهات السفلي — يظهر على الجوال وحده (≤860px).
+         يُملأ من buildDock() في js/app/shell.js حسب دور المستخدم.
+         السبب: الوصول الوحيد قبله كان درجاً فيه ١٨ رابطاً خلف زرّ همبرغر،
+         والنظام يُستعمل من الجوال أكثر من سطح المكتب. -->
+    <nav class="dock" id="dock" aria-label="الوجهات السريعة" hidden></nav>
   </div>
 </div>
 
