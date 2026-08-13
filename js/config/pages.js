@@ -20,6 +20,16 @@ export const PAGES = {
   inbox:         { title: 'بانتظار موافقتك',       hint: 'راجع الطلبات ووافق أو ارفض' },
   employees:     { title: 'ملفات الموظفين',        hint: 'البيانات والعقود والرواتب والصلاحيات' },
   profile:       { title: 'بروفايل الموظف',        hint: 'الراتب والعقد وتحليلات الالتزام' },
+  'team-perf':   { title: 'أداء القسم',             hint: 'نسب الانضباط والتأخير والغياب لموظفي قسمك' },
+  'my-tasks':    { title: 'مهامي',                  hint: 'المهام المكلَّف بها — ابدأها وأرسلها للاعتماد' },
+  'team-tasks':  { title: 'مهام القسم',             hint: 'تكليف ومتابعة واعتماد مهام موظفي قسمك' },
+  task:          { title: 'تفاصيل المهمة',          hint: 'الحالة والقائمة الفرعية والمحادثة' },
+  'tasks-analytics': { title: 'تحليلات المهام',     hint: 'أرقام المهام لكل قسم وموظف بجانب أرقام الحضور' },
+  'tasks-archive': { title: 'أرشيف المهام',       hint: 'المنجزة منذ ٣٠ يوماً — بحث بالعنوان والموظف والتقييم' },
+  'team-calendar': { title: 'تقويم الفريق',       hint: 'الإجازات والشفتات والعطل في شاشة واحدة' },
+  announcements: { title: 'الإعلانات',             hint: 'رسائل الموارد البشرية للموظفين' },
+  'set-leave-policy': { title: 'سياسة الإجازات',   hint: 'المستحقّ السنوي والاستحقاق التدريجي والترحيل' },
+  'set-task-templates': { title: 'قوالب المهام',  hint: 'قوالب جاهزة ومهام متكرّرة تُولَّد تلقائياً' },
   org:           { title: 'الهيكل التنظيمي',        hint: 'من يتبع من — الشجرة الإدارية كاملة' },
   attendance:    { title: 'الحضور من الجوال',      hint: 'تسجيل ذاتي بالموقع الجغرافي — فرز باليوم أو بالموظف' },
   zklog:         { title: 'سجل جهاز البصمة',       hint: 'سجل مستقل قادم من جهاز ZKTeco — لا يعدّله أحد' },
@@ -45,6 +55,12 @@ export const HR_DESK_ADMIN = { title: 'طلبات الموظفين',
 /* نفس صفحة الهيكل، لكن المدير يرى فرعه منها لا الشجرة كاملة */
 export const ORG_MANAGER = { title: 'فريقي', hint: 'من يتبعك مباشرةً ومن تحتهم' };
 
+/* نفس الصفحة، لكن المدير لا يرى منها إلا قسمه — تحرسه sameDept() على السيرفر
+   لا هذا العنوان. العنوان يمنع سوء الفهم فقط: «ملفات الموظفين» توحي بأنه
+   يرى الشركة كلها ثم يجد قائمة قصيرة، فيظنّ الشاشة معطوبة. */
+export const EMPLOYEES_MANAGER = { title: 'موظفو قسمي',
+  hint: 'بيانات موظفي قسمك — تقدر تضيف موظفاً جديداً لقسمك' };
+
 /* ── التنقّل المُجمّع ──
    المجموعة بلا عنوان (group:'') تظهر في الأعلى بلا ترويسة.
 
@@ -61,7 +77,10 @@ export const ORG_MANAGER = { title: 'فريقي', hint: 'من يتبعك مبا�
 export const NAV_GROUPS = [
   { group: '', items: [
     { id: 'home', icon: 'dashboard', label: 'لوحة القيادة', roles: ['admin'] },
-    { id: 'home', icon: 'home', label: 'الرئيسية',     roles: ['employee', 'manager'] }
+    { id: 'home', icon: 'home', label: 'الرئيسية',     roles: ['employee', 'manager'] },
+    { id: 'my-tasks', icon: 'check', label: 'مهامي', roles: ['employee', 'manager'] },
+    { id: 'team-calendar', icon: 'calendar', label: 'تقويم الفريق', roles: ['employee', 'manager', 'admin'] },
+    { id: 'announcements', icon: 'megaphone', label: 'الإعلانات', roles: ['employee', 'manager'] }
   ]},
 
   { group: 'الحضور والدوام', items: [
@@ -87,6 +106,14 @@ export const NAV_GROUPS = [
 
   { group: 'شؤون الموظفين', items: [
     { id: 'employees', icon: 'people', label: 'ملفات الموظفين',  roles: ['admin', 'manager'] },
+    /* ⚠️ تُفتح للمدير لأن استعلامها مقيَّد بـ where('department','==',…) ويقابله
+       فهرس (department, date) في firestore.indexes.json. لا تنسخ هذا السطر لصفحة
+       أخرى قبل أن تقيّد استعلامها وتنشر فهرسها — وإلا شاشة فارغة بخطأ صلاحيات. */
+    { id: 'team-perf', icon: 'chart', label: 'أداء القسم',      roles: ['admin', 'manager'] },
+    { id: 'team-tasks', icon: 'check', label: 'مهام القسم',    roles: ['admin', 'manager'] },
+    { id: 'tasks-archive', icon: 'archive', label: 'أرشيف المهام', roles: ['admin', 'manager'] },
+    { id: 'tasks-analytics', icon: 'chart', label: 'تحليلات المهام', roles: ['admin'] },
+    { id: 'announcements', icon: 'megaphone', label: 'الإعلانات', roles: ['admin'] },
     { id: 'org',       icon: 'network', label: 'الهيكل التنظيمي', roles: ['admin'] },
     { id: 'org',       icon: 'network', label: 'فريقي',           roles: ['manager'] },
     { id: 'set-org',   icon: 'building', label: 'الأقسام والهيكل', roles: ['admin'] }
@@ -105,7 +132,9 @@ export const NAV_GROUPS = [
   { group: 'الإعدادات', items: [
     { id: 'set-branches', icon: 'pin', label: 'الفروع ونطاق الحضور',        roles: ['admin'] },
     { id: 'set-shifts',   icon: 'clock', label: 'الورديات والعطل',            roles: ['admin'] },
-    { id: 'set-requests', icon: 'tag', label: 'أنواع الطلبات والاعتمادات',  roles: ['admin'] }
+    { id: 'set-requests', icon: 'tag', label: 'أنواع الطلبات والاعتمادات',  roles: ['admin'] },
+    { id: 'set-leave-policy', icon: 'calendar', label: 'سياسة الإجازات', roles: ['admin'] },
+    { id: 'set-task-templates', icon: 'check', label: 'قوالب المهام', roles: ['admin'] }
   ]}
 ];
 
@@ -114,8 +143,26 @@ export const HOME_FOR = { admin: 'home', manager: 'home', employee: 'home' };
 
 /* هل يملك هذا الدور حق فتح هذه الصفحة؟
    للواجهة فقط — الجدار الحقيقي هو firestore.rules. */
+/* ⚠️ الصفحات التفصيلية لا تظهر في القائمة الجانبية — تُفتح من صفّ في جدول
+   أو بطاقة في لوحة. وcanOpen تقرأ NAV_GROUPS وحدها، فالصفحة الغائبة عنها
+   تُرفض ويُعاد المستخدم للرئيسية بلا رسالة.
+
+   ⚠️ هذا ما حصل فعلاً مع صفحة المهمة: كانت مُسجَّلة في PAGES وفي الراوتر
+   ومربوطة بزرّ «التفاصيل والمحادثة» — والزرّ يُعيدك للرئيسية. لم يكشفه أي
+   اختبار لأن الاختبارات لا تضغط أزراراً؛ كشفه الضغط عليه في المتصفح.
+
+   فكل صفحة تفصيلية جديدة تُضاف هنا، وإلا صارت غير قابلة للفتح. */
+const DETAIL_PAGES = {
+  /* بروفايل الموظف: يفتحه الأدمن ومدير القسم من جدول الموظفين */
+  profile: ['admin', 'manager'],
+  /* صفحة المهمة: يفتحها المكلَّف من «مهامي»، والمدير من «مهام القسم».
+     الصلاحية الحقيقية داخل الصفحة نفسها عبر roleFor()، وقاعدة
+     match /tasks تحرس القراءة على السيرفر. */
+  task: ['admin', 'manager', 'employee']
+};
+
 export function canOpen(pageId, role) {
-  if (pageId === 'profile') return role === 'admin' || role === 'manager';
+  if (DETAIL_PAGES[pageId]) return DETAIL_PAGES[pageId].includes(role);
   for (const g of NAV_GROUPS) {
     for (const it of g.items) {
       if (it.id === pageId && it.roles.includes(role)) return true;

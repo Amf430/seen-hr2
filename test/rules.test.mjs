@@ -1,6 +1,6 @@
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, addDoc, getDocs,
-         query, where, serverTimestamp, Timestamp } from 'firebase/firestore';
+         query, where, orderBy, limit, serverTimestamp, Timestamp } from 'firebase/firestore';
 import fs from 'fs';
 
 const PROJECT = 'seen-hr2-test';
@@ -144,6 +144,29 @@ await check('emergencyPhone beyond 20 chars',         false, () => selfContact({
 await check('emergencyName beyond 80 chars',          false, () => selfContact({ emergencyName: 'ن'.repeat(81) }));
 await check('address sent as a non-string',           false, () => selfContact({ address: { a: 1 } }));
 
+/* ═══ خطط الشفتات (المرحلة ٢) ═══
+   ⚠️ shiftPlanId يحدّد وقت بداية دوام الموظف، وعليه يُحسب تأخيره ويُخصم
+   راتبه. موظف يقدر يكتبه على نفسه يمنح نفسه شفتاً مسائياً صباحَ كل يوم
+   يتأخر فيه، فيمحو التأخير قبل أن يراه أحد. الحارس الحقيقي هو أن الحقل
+   خارج قائمة only([...]) في match /users — وهذه الاختبارات تحرس القائمة
+   من أن يوسّعها أحد لاحقاً بلا انتباه. */
+await check('employee grants self a shift plan',      false, () => selfContact({ shiftPlanId: 'plan_pm' }));
+await check('employee smuggles shiftPlanId w/ address', false, () => selfContact({ address: 'x', shiftPlanId: 'plan_pm' }));
+await check('employee clears own shiftPlanId',        false, () => selfContact({ shiftPlanId: '' }));
+await check('manager sets a plan on own dept member', false, () => updateDoc(doc(mgr, 'users/empU'), { shiftPlanId: 'plan_pm' }));
+await check('admin assigns a shift plan',             true,  () => updateDoc(doc(admin, 'users/empU'), { shiftPlanId: 'plan_pm' }));
+await check('admin clears a shift plan',              true,  () => updateDoc(doc(admin, 'users/empU'), { shiftPlanId: '' }));
+
+/* الخطط نفسها تعيش في settings/config — أدمن فقط، والقاعدة قائمة */
+await check('employee writes shiftPlans in settings', false,
+  () => updateDoc(doc(emp, 'settings/config'), { shiftPlans: [{ id: 'x', name: 'y' }] }));
+await check('manager writes shiftPlans in settings',  false,
+  () => updateDoc(doc(mgr, 'settings/config'), { shiftPlans: [{ id: 'x', name: 'y' }] }));
+await check('admin writes shiftPlans in settings',    true,
+  () => updateDoc(doc(admin, 'settings/config'), {
+    shiftPlans: [{ id: 'plan_pm', name: 'المسائي', days: {}, active: true }],
+    defaultShiftPlanId: 'plan_pm' }));
+
 /* ═══ سجل المستندات ═══
    الخطر المحدّد: موظف يخفي انتهاء إقامته. الغرامة على الشركة لا عليه،
    فالحقل بيد الأدمن وحده مهما بدا أنه «بيانات الموظف نفسه». */
@@ -244,6 +267,9 @@ await check('backdated check-in timestamp',           false, () => setDoc(doc(em
 await check('attendance under another uid',           false, () => setDoc(doc(emp, 'attendance/emp2U_' + ymdKsa()), { ...attDoc(), employeeUid: 'emp2U' }));
 await check('doc id not matching the date field',     false, () => setDoc(doc(emp, 'attendance/empU_2026-08-09'), { ...attDoc() }));
 await check('opening 2 sessions at once',             false, () => setDoc(doc(emp, 'attendance/empU_' + ymdKsa()), { ...attDoc(), sessions: [session(), session()] }));
+
+/* وسوم المرحلة ١ تُختبر في آخر الملف — إنشاؤها للوثيقة هنا كان يُفسد
+   اختبار «employee CHECK-IN» أدناه الذي يتوقّع الوثيقة غير موجودة. */
 /* ═══ تاريخ تحت معرّف سابق — بعد استعادة الوصول ═══
    استعادة الوصول تُنشئ حساباً بمعرّف جديد، وسجلات الحضور مفهرسة بالمعرّف.
    فبلا هذه القراءة يفقد الموظف تاريخه، ويعتبره المسير غياباً ويخصم عليه.
@@ -533,6 +559,666 @@ await check('exceeds 12 sessions in a day', false, async () => {
   const pre = await readSessions();
   return setDoc(attRef(), { sessions: pre.concat(Array.from({ length: 12 }, () => session())) }, { merge: true });
 });
+
+/* ═══ 9. وسوم الحضور المتأخر ودوام يوم الراحة (المرحلة ١) ═══
+
+   ⚠️ القفل حسب نافذة الوردية يعيش في الواجهة وحدها. القاعدة لا تقدر تتحقق
+   منه بتكلفة معقولة: كل تحقق يحتاج get() على settings و users في كل كتابة
+   حضور، وهي قراءة مفوترة على حساب المالك في كل بصمة لكل موظف كل يوم.
+
+   فما تحرسه القاعدة هو السقف المطلق الرخيص (اليوم أو أمس + fresh)، والقفل
+   الدقيق تعويضه **رصدٌ لا منع**: السجل خارج النافذة يحمل lateCheckIn ويظهر
+   مُعلَّماً لمديره. هذه الاختبارات تُثبت أمرين: أن القاعدة تقبل الوسم، وأن
+   الوسم **ليس تصريح مرور** يفتح ما كان مقفلاً.
+
+   ⚠️ في آخر الملف عمداً: هذه الاختبارات تكتب على attendance/empU_اليوم،
+   وإنشاؤها مبكراً كان يُفسد اختبار «employee CHECK-IN» الذي يتوقّع الوثيقة
+   غير موجودة. الحالة المشتركة بين الاختبارات تُدار بالترتيب هنا لا بالحظ. */
+console.log('\n\x1b[1m═══ 9. LATE CHECK-IN TAGS ═══\x1b[0m');
+
+/* نبدأ من صفحة نظيفة حتى لا نرث جلسات القسم الثامن */
+await env.withSecurityRulesDisabled(async (c) =>
+  deleteDoc(doc(c.firestore(), 'attendance/empU_' + ymdKsa())));
+
+await check('late check-in tag accepted',              true,
+  () => setDoc(doc(emp, 'attendance/empU_' + ymdKsa()), { ...attDoc(), lateCheckIn: true }));
+await check('off-day work tag on the session',         true, async () => {
+  await env.withSecurityRulesDisabled(async (c) =>
+    deleteDoc(doc(c.firestore(), 'attendance/empU_' + ymdKsa())));
+  return setDoc(doc(emp, 'attendance/empU_' + ymdKsa()),
+    { ...attDoc(), sessions: [session({ offDayWork: true })] });
+});
+
+/* الوسم لا يفتح ما أقفلته القاعدة */
+await check('late tag does NOT unlock a past date',    false,
+  () => setDoc(doc(emp, 'attendance/empU_2026-01-10'), { ...attDoc(), date: '2026-01-10', lateCheckIn: true }));
+await check('late tag does NOT unlock a backdated in', false, async () => {
+  await env.withSecurityRulesDisabled(async (c) =>
+    deleteDoc(doc(c.firestore(), 'attendance/empU_' + ymdKsa())));
+  return setDoc(doc(emp, 'attendance/empU_' + ymdKsa()),
+    { ...attDoc(), lateCheckIn: true, sessions: [session({ in: Timestamp.fromMillis(Date.now() - 6 * 3600 * 1000) })] });
+});
+await check('late tag does NOT unlock another uid',    false,
+  () => setDoc(doc(emp, 'attendance/emp2U_' + ymdKsa()), { ...attDoc(), employeeUid: 'emp2U', lateCheckIn: true }));
+
+/* ═══ 10. مدير القسم ينشئ موظفاً في قسمه (المرحلة ٣) ═══
+
+   الطلب: «مدير القسم يقدر يشوف الموظفين ويضيف موظفين تابعين لقسمه فقط، ما
+   يقدر يشوف بيانات باقي الموظفين ولا أي حد برا قسمه».
+
+   ⚠️ القراءة خارج القسم كانت محروسة أصلاً بـ sameDept()، والجديد هنا هو
+   الإنشاء. وكل اختبار أدناه يقابل تصعيداً محدّداً لا افتراضاً:
+     • قسم آخر     → يكسب قراءة على موظف لم يُعطَ له
+     • دور manager → يصنع مديراً ثانياً فينتهي فحص الأدوار
+     • salary      → القراءة مسموحة بقرار المالك، أما الكتابة فهي المسير
+     • createdBy   → حساب بلا كاتب معروف لا يمكن التحقيق فيه لاحقاً
+
+   ⚠️ ولاحظ: قراءة الراتب **مسموحة** لمدير القسم بقرار المالك (٢٠٢٦-٠٨-١٢)،
+   وهناك اختبار صريح أدناه يُثبتها حتى لا يظنّ أحد لاحقاً أنها ثغرة فيسدّها
+   ويكسر سلوكاً مقصوداً. */
+console.log('\n\x1b[1m═══ 10. MANAGER CREATES AN EMPLOYEE ═══\x1b[0m');
+
+const newEmp = (over = {}) => ({
+  name: 'موظف جديد', department: 'المبيعات', role: 'employee',
+  status: 'active', createdBy: 'mgrU', phone: '0501112233', ...over
+});
+
+await check('manager creates in OWN dept',            true,
+  () => setDoc(doc(mgr, 'users/newHire1'), newEmp()));
+await check('manager creates in ANOTHER dept',        false,
+  () => setDoc(doc(mgr, 'users/newHire2'), newEmp({ department: 'المالية' })));
+await check('manager creates with NO department',     false,
+  () => setDoc(doc(mgr, 'users/newHire3'), newEmp({ department: '' })));
+await check('manager mints a second manager',         false,
+  () => setDoc(doc(mgr, 'users/newHire4'), newEmp({ role: 'manager' })));
+await check('manager mints an admin',                 false,
+  () => setDoc(doc(mgr, 'users/newHire5'), newEmp({ role: 'admin' })));
+await check('manager sets a salary on creation',      false,
+  () => setDoc(doc(mgr, 'users/newHire6'), newEmp({ salary: 9000 })));
+/* ⚠️ صفر ليس «بلا راتب» — الحقل موجود، والقاعدة تشترط غيابه */
+await check('manager sends salary: 0',                false,
+  () => setDoc(doc(mgr, 'users/newHire7'), newEmp({ salary: 0 })));
+await check('manager creates a pre-suspended acct',   false,
+  () => setDoc(doc(mgr, 'users/newHire8'), newEmp({ status: 'suspended' })));
+await check('manager forges createdBy',               false,
+  () => setDoc(doc(mgr, 'users/newHire9'), newEmp({ createdBy: 'adminU' })));
+await check('manager omits createdBy',                false,
+  () => setDoc(doc(mgr, 'users/newHire10'), (() => { const o = newEmp(); delete o.createdBy; return o; })()));
+await check('plain employee creates an employee',     false,
+  () => setDoc(doc(emp, 'users/newHire11'), newEmp({ createdBy: 'empU' })));
+await check('suspended manager creates',              false,
+  () => setDoc(doc(susp, 'users/newHire12'), newEmp({ createdBy: 'suspU' })));
+
+/* الكتابة على موظف قائم تبقى ممنوعة على المدير — الإنشاء وحده فُتح */
+await check('manager edits a salary in own dept',     false,
+  () => updateDoc(doc(mgr, 'users/empU'), { salary: 1 }));
+await check('manager promotes own dept member',       false,
+  () => updateDoc(doc(mgr, 'users/empU'), { role: 'manager' }));
+await check('manager suspends own dept member',       false,
+  () => updateDoc(doc(mgr, 'users/empU'), { status: 'suspended' }));
+
+/* القراءة: داخل القسم مسموحة بكاملها، وخارجه ممنوعة */
+await check('manager reads own dept member (salary included — owner decision)', true,
+  () => getDoc(doc(mgr, 'users/empU')));
+await check('manager reads someone OUTSIDE own dept', false,
+  () => getDoc(doc(mgr, 'users/adminU')));
+
+/* ═══ 11. استعلام أداء القسم (المرحلة ٤) ═══
+
+   ⚠️ هذه أهم اختبارات المرحلة، وهي تختبر شيئاً لا يُرى في الواجهة إطلاقاً:
+   Firestore يرفض الاستعلام **كاملاً** ما لم يكن مقيَّداً بحيث تُحقّق كل نتيجة
+   محتملة شرط القاعدة. فاستعلام المدير بالتاريخ وحده لا يُرجع نتيجة منقوصة —
+   يُرجع خطأ صلاحيات وشاشة فارغة.
+
+   والفرق بين السطرين الأولين أدناه هو المرحلة ٤ كلها: نفس المدير، ونفس
+   البيانات، ونفس القاعدة — والفارق `where('department','==',…)` وحده. */
+console.log('\n\x1b[1m═══ 11. TEAM PERFORMANCE QUERY ═══\x1b[0m');
+
+await check('manager queries attendance by date ONLY',        false,
+  () => getDocs(query(collection(mgr, 'attendance'), where('date', '>=', '2026-01-01'))));
+await check('manager queries attendance WITH department',     true,
+  () => getDocs(query(collection(mgr, 'attendance'),
+    where('department', '==', 'المبيعات'), where('date', '>=', '2026-01-01'))));
+
+await check('manager queries zkAttendance by date ONLY',      false,
+  () => getDocs(query(collection(mgr, 'zkAttendance'), where('date', '>=', '2026-01-01'))));
+await check('manager queries zkAttendance WITH department',   true,
+  () => getDocs(query(collection(mgr, 'zkAttendance'),
+    where('department', '==', 'المبيعات'), where('date', '>=', '2026-01-01'))));
+
+/* ⚠️ التقييد بقسم غيره لا يُنجّيه — sameDept() تقارن بقسمه هو لا بما كتبه */
+await check('manager queries ANOTHER department',             false,
+  () => getDocs(query(collection(mgr, 'zkAttendance'),
+    where('department', '==', 'المالية'), where('date', '>=', '2026-01-01'))));
+
+/* الموظف العادي لا يُفتح له هذا الطريق مهما قيّد */
+await check('employee queries dept attendance',               false,
+  () => getDocs(query(collection(emp, 'zkAttendance'), where('department', '==', 'المبيعات'))));
+await check('suspended manager queries own dept',             false,
+  () => getDocs(query(collection(susp, 'zkAttendance'), where('department', '==', 'المبيعات'))));
+
+/* الأدمن يقرأ بلا تقييد — وهو ما يجعل حساب التغطية ممكناً أصلاً */
+await check('admin queries zkAttendance unconstrained',       true,
+  () => getDocs(query(collection(admin, 'zkAttendance'), where('date', '>=', '2026-01-01'))));
+
+/* ═══ 12. المهام (المرحلة ٥) ═══
+
+   ⚠️ حقل القسم مصفوفة `departments` من اليوم الأول، فـ sameDept() لا تصلح
+   هنا — تقارن حقلاً مفرداً. الحارس دالتان جديدتان: taskDept()/taskDeptNew().
+
+   ⚠️ وأخطر تصعيد في هذه المجموعة ليس القراءة بل **تغيير departments**: مدير
+   ينقل مهمة إلى قسم آخر يسحب معه صلاحية قراءتها. لذلك deptUnchanged() مفروضة
+   على فرع المدير وفرع الأدمن معاً، لا مكتوبة في تعليق. */
+console.log('\n\x1b[1m═══ 12. TASKS ═══\x1b[0m');
+
+const task = (over = {}) => ({
+  title: 'تجهيز التقرير', description: '',
+  departments: ['المبيعات'], department: 'المبيعات',
+  assigneeUid: 'empU', assigneeName: 'سالم',
+  createdBy: 'mgrU', createdByName: 'فهد',
+  createdAt: serverTimestamp(),
+  status: 'new', progress: 0, priority: 'normal',
+  startDate: '', dueDate: '', tags: [], checklist: [], ...over
+});
+
+/* ── الإنشاء ── */
+await check('manager creates a task in own dept',      true,
+  () => setDoc(doc(mgr, 'tasks/tk1'), task()));
+await check('manager creates in ANOTHER dept',         false,
+  () => setDoc(doc(mgr, 'tasks/tk2'), task({ departments: ['المالية'], department: 'المالية' })));
+await check('employee creates a task',                 false,
+  () => setDoc(doc(emp, 'tasks/tk3'), task({ createdBy: 'empU', createdByName: 'سالم' })));
+await check('task created already in_progress',        false,
+  () => setDoc(doc(mgr, 'tasks/tk4'), task({ status: 'in_progress' })));
+await check('createdBy forged',                        false,
+  () => setDoc(doc(mgr, 'tasks/tk5'), task({ createdBy: 'adminU' })));
+/* ⚠️ department المفردة لازم تطابق departments[0] وإلا تباعد الفهرس عن القاعدة */
+await check('singular department disagrees with array', false,
+  () => setDoc(doc(mgr, 'tasks/tk6'), task({ departments: ['المبيعات'], department: 'المالية' })));
+await check('empty departments array',                 false,
+  () => setDoc(doc(mgr, 'tasks/tk7'), task({ departments: [], department: '' })));
+await check('title beyond 120 chars',                  false,
+  () => setDoc(doc(mgr, 'tasks/tk8'), task({ title: 'ط'.repeat(121) })));
+await check('empty title',                             false,
+  () => setDoc(doc(mgr, 'tasks/tk9'), task({ title: '' })));
+await check('description beyond 4000',                 false,
+  () => setDoc(doc(mgr, 'tasks/tk10'), task({ description: 'د'.repeat(4001) })));
+await check('checklist beyond 20 items',               false,
+  () => setDoc(doc(mgr, 'tasks/tk11'), task({ checklist: Array.from({ length: 21 }, () => ({ text: 'x' })) })));
+await check('unknown priority',                        false,
+  () => setDoc(doc(mgr, 'tasks/tk12'), task({ priority: 'critical' })));
+await check('admin creates in any dept',               true,
+  () => setDoc(doc(admin, 'tasks/tk13'),
+    task({ departments: ['المالية'], department: 'المالية', createdBy: 'adminU', createdByName: 'المدير' })));
+
+/* ── القراءة ── */
+await check('assignee reads own task',                 true,  () => getDoc(doc(emp, 'tasks/tk1')));
+await check('manager reads task in own dept',          true,  () => getDoc(doc(mgr, 'tasks/tk1')));
+await check('manager reads task in ANOTHER dept',      false, () => getDoc(doc(mgr, 'tasks/tk13')));
+await check('unrelated employee reads a task',         false, () => getDoc(doc(emp2, 'tasks/tk13')));
+await check('admin reads any task',                    true,  () => getDoc(doc(admin, 'tasks/tk13')));
+await check('manager queries own dept tasks',          true,
+  () => getDocs(query(collection(mgr, 'tasks'), where('departments', 'array-contains', 'المبيعات'))));
+await check('manager queries tasks unconstrained',     false,
+  () => getDocs(query(collection(mgr, 'tasks'))));
+await check('employee queries own assigned tasks',     true,
+  () => getDocs(query(collection(emp, 'tasks'), where('assigneeUid', '==', 'empU'))));
+await check('employee queries someone else assigned',  false,
+  () => getDocs(query(collection(emp, 'tasks'), where('assigneeUid', '==', 'emp2U'))));
+
+/* ── تحديث الموظف المكلَّف ── */
+await check('assignee starts the task',                true,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { status: 'in_progress', progress: 10 }));
+await check('assignee sends it for review',            true,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { status: 'review', employeeFeedback: 'تم' }));
+/* ⚠️ جوهر القرار التصميمي: الموظف لا يعتمد مهمته بنفسه */
+await check('⚠️ assignee marks it DONE',                false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { status: 'done' }));
+await check('assignee changes the title',              false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { title: 'عنوان آخر' }));
+await check('assignee changes the due date',           false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { dueDate: '2027-01-01' }));
+await check('assignee reassigns to someone else',      false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { assigneeUid: 'emp2U' }));
+await check('assignee rates their own work',           false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { managerRating: 5 }));
+/* ⚠️ بلا حدّ المدى يكتب الموظف 900 فتفقد كل نسب الإنجاز معناها */
+await check('⚠️ assignee writes progress: 900',         false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { progress: 900 }));
+await check('assignee writes negative progress',       false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { progress: -5 }));
+await check('assignee writes progress as a string',    false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { progress: '50' }));
+await check('assignee feedback beyond 4000',           false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { employeeFeedback: 'ف'.repeat(4001) }));
+await check('assignee timeEntries beyond 50',          false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { timeEntries: Array.from({ length: 51 }, () => ({ secs: 1 })) }));
+await check('unrelated employee updates a task',       false,
+  () => updateDoc(doc(emp2, 'tasks/tk1'), { status: 'in_progress' }));
+
+/* ── المدير والأدمن ── */
+await check('manager approves the task',               true,
+  () => updateDoc(doc(mgr, 'tasks/tk1'), { status: 'done', managerRating: 4, managerNote: 'ممتاز' }));
+/* ⚠️ التصعيد الأخطر: نقل المهمة لقسم آخر يسحب معه صلاحية القراءة */
+await check('⚠️ manager moves task to ANOTHER dept',    false,
+  () => updateDoc(doc(mgr, 'tasks/tk1'), { departments: ['المالية'], department: 'المالية' }));
+await check('⚠️ admin moves task to another dept',      false,
+  () => updateDoc(doc(admin, 'tasks/tk1'), { departments: ['المالية'], department: 'المالية' }));
+await check('manager of another dept updates it',      false,
+  () => updateDoc(doc(mgr, 'tasks/tk13'), { status: 'done' }));
+await check('assignee deletes the task',               false, () => deleteDoc(doc(emp, 'tasks/tk1')));
+await check('manager deletes the task',                false, () => deleteDoc(doc(mgr, 'tasks/tk1')));
+await check('admin deletes the task',                  true,  () => deleteDoc(doc(admin, 'tasks/tk13')));
+
+/* ── المحادثة: إنشاء فقط، كما في hrTickets ── */
+const msg = (over = {}) => ({
+  authorUid: 'empU', authorName: 'سالم', authorRole: 'employee',
+  text: 'بدأت فيها', kind: 'msg', createdAt: serverTimestamp(), ...over
+});
+await check('assignee posts a message',                true,
+  () => setDoc(doc(emp, 'tasks/tk1/messages/m1'), msg()));
+await check('manager posts a message',                 true,
+  () => setDoc(doc(mgr, 'tasks/tk1/messages/m2'), msg({ authorUid: 'mgrU', authorName: 'فهد', authorRole: 'manager' })));
+await check('unrelated employee posts',                false,
+  () => setDoc(doc(emp2, 'tasks/tk1/messages/m3'), msg({ authorUid: 'emp2U', authorName: 'ليلى' })));
+await check('message under a forged name',             false,
+  () => setDoc(doc(emp, 'tasks/tk1/messages/m4'), msg({ authorName: 'فهد' })));
+await check('message beyond 2000 chars',               false,
+  () => setDoc(doc(emp, 'tasks/tk1/messages/m5'), msg({ text: 'ر'.repeat(2001) })));
+await check('empty message',                           false,
+  () => setDoc(doc(emp, 'tasks/tk1/messages/m6'), msg({ text: '' })));
+/* ⚠️ 'system' من الواجهة وحدها عبر تحديث المهمة — لا يكتبه مستخدم */
+await check("message with kind 'system'",              false,
+  () => setDoc(doc(emp, 'tasks/tk1/messages/m7'), msg({ kind: 'system' })));
+await check('assignee reads the thread',               true,
+  () => getDocs(collection(emp, 'tasks/tk1/messages')));
+await check('unrelated employee reads the thread',     false,
+  () => getDocs(collection(emp2, 'tasks/tk1/messages')));
+/* ⚠️ خيط يُعدَّل بعد الفعل ليس سجلاً لشيء */
+await check('⚠️ editing a sent message',                false,
+  () => updateDoc(doc(emp, 'tasks/tk1/messages/m1'), { text: 'غيّرت رأيي' }));
+await check('⚠️ deleting a sent message (even admin)',  false,
+  () => deleteDoc(doc(admin, 'tasks/tk1/messages/m1')));
+
+/* ═══ 13. الإعلانات (المرحلة ١١) ═══
+
+   ⚠️ لماذا هذه المجموعة مقبولة وقد رُفضت `notifications`: هناك الموظف يكتب
+   وثيقة موجّهة لغيره — أي أنه يقدر يُغرق أي مستخدم بآلاف الوثائق. هنا الأدمن
+   وحده يكتب، والموظف يقرأ فقط، فلا ثغرة إغراق أصلاً. الاختبارات أدناه تُثبت
+   الشقّين: أن الموظف لا يكتب، وأنه لا يقرأ ما ليس موجّهاً له. */
+console.log('\n\x1b[1m═══ 13. ANNOUNCEMENTS ═══\x1b[0m');
+
+const ann = (over = {}) => ({
+  title: 'اجتماع الأحد', body: 'الاجتماع الساعة ١٠',
+  audienceAll: true, audienceDepts: [], audienceUids: [],
+  priority: 'normal', pinned: false, publishAt: '2026-08-01', expiresAt: '',
+  requireAck: false, createdBy: 'adminU', createdByName: 'المدير',
+  createdAt: serverTimestamp(), ackCount: 0, ...over
+});
+
+await check('admin publishes to everyone',            true,
+  () => setDoc(doc(admin, 'announcements/an1'), ann()));
+await check('admin publishes to a department',        true,
+  () => setDoc(doc(admin, 'announcements/an2'),
+    ann({ audienceAll: false, audienceDepts: ['المالية'] })));
+await check('admin publishes to named people',        true,
+  () => setDoc(doc(admin, 'announcements/an3'),
+    ann({ audienceAll: false, audienceUids: ['emp2U'] })));
+
+/* ⚠️ الشقّ الأول: لا كتابة من غير الأدمن — وهنا يموت خطر الإغراق */
+await check('⚠️ employee publishes an announcement',   false,
+  () => setDoc(doc(emp, 'announcements/an4'), ann({ createdBy: 'empU', createdByName: 'سالم' })));
+await check('⚠️ manager publishes an announcement',    false,
+  () => setDoc(doc(mgr, 'announcements/an5'), ann({ createdBy: 'mgrU', createdByName: 'فهد' })));
+await check('admin forges createdBy',                 false,
+  () => setDoc(doc(admin, 'announcements/an6'), ann({ createdBy: 'mgrU' })));
+await check('title beyond 120 chars',                 false,
+  () => setDoc(doc(admin, 'announcements/an7'), ann({ title: 'ع'.repeat(121) })));
+await check('body beyond 5000 chars',                 false,
+  () => setDoc(doc(admin, 'announcements/an8'), ann({ body: 'ن'.repeat(5001) })));
+await check('audienceUids beyond 50',                 false,
+  () => setDoc(doc(admin, 'announcements/an9'),
+    ann({ audienceAll: false, audienceUids: Array.from({ length: 51 }, (_, i) => 'u' + i) })));
+await check('unknown priority',                       false,
+  () => setDoc(doc(admin, 'announcements/an10'), ann({ priority: 'حرج' })));
+
+/* ⚠️ الشقّ الثاني: القراءة محصورة بمن وُجّه إليه */
+/* إعلان موجَّه لـ empU بالاسم — للتحقق من الفرع الثالث في قاعدة القراءة */
+await check('admin publishes to empU by name',        true,
+  () => setDoc(doc(admin, 'announcements/an11'),
+    ann({ audienceAll: false, audienceUids: ['empU'] })));
+
+await check('employee reads an all-hands notice',     true,  () => getDoc(doc(emp, 'announcements/an1')));
+await check('employee reads a notice aimed at them',  true,  () => getDoc(doc(emp, 'announcements/an11')));
+await check('employee reads notice for OWN dept',     false, () => getDoc(doc(emp, 'announcements/an2')));
+await check('employee reads notice aimed at another', false, () => getDoc(doc(emp, 'announcements/an3')));
+await check('suspended reads an all-hands notice',    false, () => getDoc(doc(susp, 'announcements/an1')));
+/* ⚠️ emp2U عُلّق في القسم ٦ أعلاه (`admin suspends an employee`)، فقراءته
+   مرفوضة بـ isActive() ولو كان الإعلان موجّهاً له بالاسم. هذا سلوك مقصود
+   يُختبر هنا صراحةً: التعليق يقطع كل شيء، لا الكتابة وحدها. */
+await check('⚠️ suspended reads a notice aimed at THEM', false,
+  () => getDoc(doc(emp2, 'announcements/an3')));
+
+/* الاستعلامات — ثلاثة مستمعين منفصلين لأن OR واحد يُرفض */
+await check('employee queries audienceAll',           true,
+  () => getDocs(query(collection(emp, 'announcements'), where('audienceAll', '==', true))));
+await check('employee queries own dept notices',      true,
+  () => getDocs(query(collection(emp, 'announcements'), where('audienceDepts', 'array-contains', 'المبيعات'))));
+await check('employee queries announcements openly',  false,
+  () => getDocs(query(collection(emp, 'announcements'))));
+
+/* الإقرار بالاطّلاع */
+await check('employee acknowledges as themselves',    true,
+  () => setDoc(doc(emp, 'announcements/an1/acks/empU'),
+    { uid: 'empU', name: 'سالم', department: 'المبيعات', at: serverTimestamp() }));
+await check('⚠️ employee acknowledges FOR someone else', false,
+  () => setDoc(doc(emp, 'announcements/an1/acks/emp2U'),
+    { uid: 'emp2U', name: 'خالد', at: serverTimestamp() }));
+await check('acknowledgement under a forged name',    false,
+  () => setDoc(doc(emp2, 'announcements/an1/acks/emp2U'),
+    { uid: 'emp2U', name: 'سالم', at: serverTimestamp() }));
+/* ⚠️ الإقرار لا يُسحب — وهذا كل معناه */
+await check('⚠️ withdrawing an acknowledgement',       false,
+  () => deleteDoc(doc(emp, 'announcements/an1/acks/empU')));
+await check('⚠️ editing an acknowledgement',           false,
+  () => updateDoc(doc(emp, 'announcements/an1/acks/empU'), { at: serverTimestamp() }));
+await check('employee reads own acknowledgement',     true,
+  () => getDoc(doc(emp, 'announcements/an1/acks/empU')));
+await check('employee reads ANOTHER acknowledgement', false,
+  () => getDoc(doc(emp2, 'announcements/an1/acks/empU')));
+await check('admin reads every acknowledgement',      true,
+  () => getDocs(collection(admin, 'announcements/an1/acks')));
+
+/* ⚠️ get() و list() سؤالان مختلفان — ونجاح الأول لا يقول شيئاً عن الثاني.
+   كانت هذه المجموعة تفحص قراءة الأدمن لوثيقة **بمعرّفها** فتمرّ عبر شروط
+   الجمهور، بينما شاشة الأدمن تحتاج **سرد** المجموعة كلها لإدارتها —
+   وFirestore يرفض السرد ما لم يثبت أن كل نتيجة محتملة تحقّق القاعدة.
+   فكانت الشاشة تعرض «تعذّر التحميل»، والإعلان الذي أرسله الأدمن للتوّ
+   لا يراه هو نفسه. كُشف بالإرسال في المتصفح لا بهذه الاختبارات. */
+await check('⚠️ admin LISTS all announcements',        true,
+  () => getDocs(collection(admin, 'announcements')));
+await check('⚠️ admin lists ordered by publishAt',     true,
+  () => getDocs(query(collection(admin, 'announcements'), orderBy('publishAt', 'desc'), limit(50))));
+await check('manager still cannot list them all',     false,
+  () => getDocs(collection(mgr, 'announcements')));
+await check('employee still cannot list them all',    false,
+  () => getDocs(collection(emp, 'announcements')));
+
+/* ═══ 14. رصيد الإجازات (المرحلة ٨) ═══
+
+   ⚠️⚠️ أخطر حقول في النظام. `leavePolicy` تحدّد كم يستحقّ الموظف،
+   و`leaveUsed` كم استهلك، و`balances` العدّاد القديم. موظف يكتب أياً منها
+   على نفسه يمنح نفسه إجازةً لا يستحقّها — والاكتشاف يأتي بعد أن يكون أخذها.
+
+   الحارس هو قائمة only([...]) المغلقة في match /users. هذه الاختبارات تحرس
+   القائمة من أن يوسّعها أحد لاحقاً بلا انتباه. */
+console.log('\n\x1b[1m═══ 14. LEAVE BALANCE FIELDS ═══\x1b[0m');
+
+await check('⚠️ employee sets own leavePolicy',        false,
+  () => selfContact({ leavePolicy: { annual: { annualDays: 99 } } }));
+await check('⚠️ employee lowers own leaveUsed',        false,
+  () => selfContact({ leaveUsed: { annual: 0 } }));
+await check('⚠️ employee raises own balances',         false,
+  () => selfContact({ balances: { annual: 99 } }));
+await check('employee smuggles leaveUsed w/ address',  false,
+  () => selfContact({ address: 'x', leaveUsed: { annual: 0 } }));
+await check('manager edits leavePolicy of own dept',   false,
+  () => updateDoc(doc(mgr, 'users/empU'), { leavePolicy: { annual: { annualDays: 30 } } }));
+await check('manager lowers leaveUsed of own dept',    false,
+  () => updateDoc(doc(mgr, 'users/empU'), { leaveUsed: { annual: 0 } }));
+
+await check('admin sets a leave policy',               true,
+  () => updateDoc(doc(admin, 'users/empU'),
+    { leavePolicy: { annual: { annualDays: 21, openingBalance: 5, accrualMode: 'monthly' } } }));
+await check('admin writes leaveUsed',                  true,
+  () => updateDoc(doc(admin, 'users/empU'), { leaveUsed: { annual: 3 } }));
+
+/* السياسة الافتراضية تعيش في settings — أدمن فقط، والقاعدة قائمة */
+await check('employee writes leavePolicyDefaults',     false,
+  () => updateDoc(doc(emp, 'settings/config'), { leavePolicyDefaults: { annual: { annualDays: 99 } } }));
+await check('admin writes leavePolicyDefaults',        true,
+  () => updateDoc(doc(admin, 'settings/config'), { leavePolicyDefaults: { annual: { annualDays: 21 } } }));
+
+/* ═══ 15. طلب تصحيح بصمة (المرحلة ١٠) ═══
+
+   ⚠️ الطلب **يطلب فقط**. التصحيح نفسه يبقى في attendanceAdjustments التي
+   تسمح بالإنشاء للأدمن وحده وتمنع التحديث والحذف نهائياً. لا شيء هنا يعطي
+   الموظف كتابةً في سجل حضوره.
+
+   ⚠️ والسقف الشهري (٣ في الدورة) **ليس هنا** ولا يمكن أن يكون: عدّ طلبات
+   الموظف الأخرى يحتاج استعلاماً داخل القاعدة وFirestore لا يقدر عليه. هو
+   في الواجهة وحدها ومكتوب هناك أنه ليس ضماناً من السيرفر. */
+console.log('\n\x1b[1m═══ 15. ATTENDANCE FIX REQUESTS ═══\x1b[0m');
+
+const fixReq = (over = {}) => ({
+  type: 'attendanceFix', employeeUid: 'empU', employeeName: 'سالم',
+  employeeEmpId: '101', department: 'المبيعات',
+  date: ymdKsa(), sessionIdx: 0, fixKind: 'missingOut', field: 'out',
+  claimedTime: '17:30',
+  reason: 'خرجت لموعد طبي ونسيت البصمة عند الباب',
+  status: 'pending', reviewedBy: '', reviewedAt: null, rejectReason: '',
+  chain: ['manager', 'admin'], step: 0, approvals: [],
+  createdAt: serverTimestamp(), ...over
+});
+
+await check('employee files a fix for themselves',    true,
+  () => addDoc(collection(emp, 'requests'), fixReq()));
+await check('⚠️ employee files a fix for SOMEONE ELSE', false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ employeeUid: 'emp2U', employeeName: 'خالد' })));
+
+/* النافذة سبعة أيام — تصحيح شهر مضى يعني إعادة حساب مسير صُرِف */
+await check('fix dated 30 days ago',                  false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ date: dRel(-30) })));
+await check('fix dated 8 days ago',                   false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ date: dRel(-8) })));
+await check('fix dated 6 days ago',                   true,
+  () => addDoc(collection(emp, 'requests'), fixReq({ date: dRel(-6) })));
+await check('⚠️ fix dated in the FUTURE',              false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ date: dRel(3) })));
+
+/* السبب — «نسيت» لا تشرح شيئاً لمن سيعتمد */
+await check('reason under 10 chars',                  false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ reason: 'نسيت' })));
+await check('reason beyond 300 chars',                false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ reason: 'س'.repeat(301) })));
+
+/* الوقت لازم يكون قابلاً للتحويل لطابع زمني في خطوة الأدمن */
+await check('claimedTime as free text',               false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ claimedTime: 'بعد العصر' })));
+await check('claimedTime as 25:00',                   false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ claimedTime: '25:00' })));
+await check('unknown fixKind',                        false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ fixKind: 'مزاجي' })));
+await check('unknown field',                          false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ field: 'salary' })));
+await check('sessionIdx of 99',                       false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ sessionIdx: 99 })));
+
+/* السلسلة تبدأ من الصفر — لا طلب «مرّ على مديره» أصلاً */
+await check('fix pre-approved at step 1',             false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ step: 1 })));
+await check('fix created already approved',           false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ status: 'approved' })));
+
+/* ⚠️ الحدّ الأهم: الطلب لا يفتح الكتابة في سجل الحضور */
+await check('⚠️ employee writes attendanceAdjustments directly', false,
+  () => setDoc(doc(emp, 'attendanceAdjustments/hack1'), {
+    employeeUid: 'empU', employeeName: 'سالم', date: ymdKsa(), coll: 'zkAttendance',
+    sessionIdx: 0, field: 'out', value: Timestamp.now(), reason: 'طلبي معتمد',
+    byUid: 'empU', byName: 'سالم', at: serverTimestamp() }));
+await check('⚠️ manager writes attendanceAdjustments',  false,
+  () => setDoc(doc(mgr, 'attendanceAdjustments/hack2'), {
+    employeeUid: 'empU', employeeName: 'سالم', date: ymdKsa(), coll: 'zkAttendance',
+    sessionIdx: 0, field: 'out', value: Timestamp.now(), reason: 'اعتمدت الطلب',
+    byUid: 'mgrU', byName: 'فهد', at: serverTimestamp() }));
+await check('admin writes the adjustment',            true,
+  () => setDoc(doc(admin, 'attendanceAdjustments/fix1'), {
+    employeeUid: 'empU', employeeName: 'سالم', date: ymdKsa(), coll: 'zkAttendance',
+    sessionIdx: 0, field: 'out', value: Timestamp.now(),
+    reason: 'طلب تصحيح معتمَد — خرجت لموعد طبي', byUid: 'adminU', byName: 'المدير',
+    at: serverTimestamp() }));
+/* ⚠️ ولا يُتراجع عنه — الخطأ يُصحَّح بقيد مضادّ لا بمحو الأصل */
+await check('⚠️ admin edits a written adjustment',      false,
+  () => updateDoc(doc(admin, 'attendanceAdjustments/fix1'), { reason: 'غيّرت رأيي' }));
+await check('⚠️ admin deletes a written adjustment',    false,
+  () => deleteDoc(doc(admin, 'attendanceAdjustments/fix1')));
+
+/* ═══ 16. تفويض المهام (المرحلة ٧-و) ═══
+
+   ⚠️ التفويض **إضافة لا استبدال**: المندوب يقرأ ويحدّث، والمكلَّف الأصلي
+   يبقى على المهمة ويظل يقرؤها — وسجل «من نفّذ فعلاً» يبقى صحيحاً.
+
+   ⚠️ و`delegatedUntil` **لا تُفرض من القاعدة**: لا مؤقّت على السيرفر ولا
+   ساعة في القواعد غير request.time. الواجهة تتجاهل المنتهي، والمدير يلغيه.
+   الحارس الحقيقي أن المدير وحده يقدر يضبط الحقل أصلاً. */
+console.log('\n\x1b[1m═══ 16. TASK DELEGATION ═══\x1b[0m');
+
+/* ⚠️ emp2U عُلّق في القسم ٦ (`admin suspends an employee`)، و isActive()
+   تقطع كل شيء على المعلَّق — فلا يقرأ مهمة فُوِّضت له ولو بالاسم. نُعيد
+   تفعيله هنا لأن هذا القسم يختبر التفويض لا التعليق.
+
+   ⚠️ والحالة المشتركة بين أقسام هذا الملف تُدار بالترتيب صراحةً لا بالحظ:
+   قسمٌ يعتمد على حالة أرساها قسم قبله يسقط بلا أن يكون في الكود عيب. */
+await env.withSecurityRulesDisabled(async (c) =>
+  updateDoc(doc(c.firestore(), 'users/emp2U'), { status: 'active' }));
+
+await check('manager creates a task to delegate',     true,
+  () => setDoc(doc(mgr, 'tasks/dg1'), task()));
+await check('manager delegates to another member',    true,
+  () => updateDoc(doc(mgr, 'tasks/dg1'),
+    { delegatedToUid: 'emp2U', delegatedToName: 'خالد', delegatedByUid: 'mgrU', delegatedUntil: '2026-12-31' }));
+
+/* المندوب يقرأ ويحدّث */
+await check('delegate reads the task',                true,  () => getDoc(doc(emp2, 'tasks/dg1')));
+await check('delegate moves it forward',              true,
+  () => updateDoc(doc(emp2, 'tasks/dg1'), { status: 'in_progress', progress: 20 }));
+await check('delegate posts in the thread',           true,
+  () => setDoc(doc(emp2, 'tasks/dg1/messages/dm1'), msg({ authorUid: 'emp2U', authorName: 'خالد' })));
+
+/* ⚠️ والمكلَّف الأصلي لم يفقد شيئاً */
+await check('⚠️ original assignee still reads it',     true,  () => getDoc(doc(emp, 'tasks/dg1')));
+await check('⚠️ original assignee still updates it',   true,
+  () => updateDoc(doc(emp, 'tasks/dg1'), { progress: 30 }));
+
+/* والمندوب لا يرث صلاحيات المدير */
+await check('delegate cannot approve it',             false,
+  () => updateDoc(doc(emp2, 'tasks/dg1'), { status: 'done' }));
+await check('delegate cannot rewrite the title',      false,
+  () => updateDoc(doc(emp2, 'tasks/dg1'), { title: 'عنوان آخر' }));
+/* ⚠️ ولا يفوّض المهمة لنفسه ولا لغيره — الحقل بيد المدير وحده */
+await check('⚠️ delegate re-delegates the task',       false,
+  () => updateDoc(doc(emp2, 'tasks/dg1'), { delegatedToUid: 'empU' }));
+/* ⚠️ القيمة لازم تختلف عن الحالية وإلا كان التغيير صفراً و only() تمرّ على
+   مجموعة مفاتيح فارغة — فيبدو الاختبار ناجحاً وهو لم يختبر شيئاً. كُشف
+   حين مرّ هذا السطر وهو يكتب نفس القيمة المضبوطة قبله بسطرين. */
+await check('⚠️ assignee re-points the delegation',    false,
+  () => updateDoc(doc(emp, 'tasks/dg1'), { delegatedToUid: 'mgrU' }));
+await check('⚠️ assignee clears the delegation',       false,
+  () => updateDoc(doc(emp, 'tasks/dg1'), { delegatedToUid: '' }));
+await check('⚠️ assignee extends delegatedUntil',      false,
+  () => updateDoc(doc(emp, 'tasks/dg1'), { delegatedUntil: '2099-01-01' }));
+
+/* بعد إلغاء التفويض يعود المندوب غريباً */
+await check('manager clears the delegation',          true,
+  () => updateDoc(doc(mgr, 'tasks/dg1'), { delegatedToUid: '', delegatedToName: '', delegatedUntil: '' }));
+await check('former delegate can no longer update',   false,
+  () => updateDoc(doc(emp2, 'tasks/dg1'), { progress: 90 }));
+
+/* ═══ الحقول الجديدة في المرحلة ٧ ═══ */
+await check('assignee logs time entries',             true,
+  () => updateDoc(doc(emp, 'tasks/dg1'), { timeEntries: [{ start: 1, end: 2, secs: 60 }], actualSecs: 60 }));
+await check('assignee sets blockedByTaskIds',         false,
+  () => updateDoc(doc(emp, 'tasks/dg1'), { blockedByTaskIds: ['tk1'] }));
+await check('manager sets blockedByTaskIds',          true,
+  () => updateDoc(doc(mgr, 'tasks/dg1'), { blockedByTaskIds: ['tk1'] }));
+await check('task created with 6 blockers',           false,
+  () => setDoc(doc(mgr, 'tasks/dg2'),
+    task({ blockedByTaskIds: ['a', 'b', 'c', 'd', 'e', 'f'] })));
+await check('manager archives a task',                true,
+  () => updateDoc(doc(mgr, 'tasks/dg1'), { status: 'archived', archivedAt: serverTimestamp() }));
+
+/* ⚠️ والقالب يعيش في settings — أدمن فقط */
+await check('manager writes taskTemplates',           false,
+  () => updateDoc(doc(mgr, 'settings/config'), { taskTemplates: [{ id: 'x', title: 'y' }] }));
+await check('admin writes taskTemplates',             true,
+  () => updateDoc(doc(admin, 'settings/config'), { taskTemplates: [{ id: 'x', title: 'y', active: true }] }));
+
+/* ═══ 17. أحداث التقويم (المرحلة ٩) ═══
+
+   ⚠️ قرار المالك (٢٠٢٦-٠٨-١٢): الموظف لا يرى إجازات زملائه إطلاقاً. فما
+   يراه في التقويم هو **الأحداث** — اجتماع يضيفه مدير قسمه، أو حدث للشركة
+   يضيفه الأدمن. وهذا ألغى الحاجة لأي وثيقة مُشتقّة تُنشر.
+
+   ⚠️ ونطاق الحدث حقلٌ واحد: `department` فارغة = الشركة كلها. حقلان
+   (forAll و department) يسمحان بحالة متناقضة — «للشركة ولقسم المبيعات» —
+   والقاعدة تصير أطول لتمنعها. */
+console.log('\n\x1b[1m═══ 17. CALENDAR EVENTS ═══\x1b[0m');
+
+const ev = (over = {}) => ({
+  title: 'اجتماع القسم الأسبوعي', note: '', date: '2026-09-20',
+  department: 'المبيعات', createdBy: 'mgrU', createdByName: 'فهد',
+  createdAt: serverTimestamp(), ...over
+});
+
+/* المدير: قسمه وحده */
+await check('manager adds an event for own dept',     true,
+  () => setDoc(doc(mgr, 'calendarEvents/ev1'), ev()));
+await check('⚠️ manager adds one for ANOTHER dept',    false,
+  () => setDoc(doc(mgr, 'calendarEvents/ev2'), ev({ department: 'المالية' })));
+/* ⚠️ حدث الشركة قرار الأدمن — والمدير يصله بترك القسم فارغاً */
+await check('⚠️ manager adds a COMPANY-WIDE event',    false,
+  () => setDoc(doc(mgr, 'calendarEvents/ev3'), ev({ department: '' })));
+await check('manager forges createdBy',               false,
+  () => setDoc(doc(mgr, 'calendarEvents/ev4'), ev({ createdBy: 'adminU' })));
+await check('manager forges createdByName',           false,
+  () => setDoc(doc(mgr, 'calendarEvents/ev5'), ev({ createdByName: 'المدير' })));
+
+/* الأدمن: أي نطاق */
+await check('admin adds a company-wide event',        true,
+  () => setDoc(doc(admin, 'calendarEvents/ev6'),
+    ev({ department: '', createdBy: 'adminU', createdByName: 'المدير' })));
+await check('admin adds one for any dept',            true,
+  () => setDoc(doc(admin, 'calendarEvents/ev7'),
+    ev({ department: 'المالية', createdBy: 'adminU', createdByName: 'المدير' })));
+
+/* الموظف لا يكتب شيئاً */
+await check('⚠️ employee adds an event',               false,
+  () => setDoc(doc(emp, 'calendarEvents/ev8'), ev({ createdBy: 'empU', createdByName: 'سالم' })));
+
+/* الحدود على الشكل */
+await check('title beyond 120 chars',                 false,
+  () => setDoc(doc(mgr, 'calendarEvents/ev9'), ev({ title: 'ع'.repeat(121) })));
+await check('empty title',                            false,
+  () => setDoc(doc(mgr, 'calendarEvents/ev10'), ev({ title: '' })));
+await check('note beyond 500 chars',                  false,
+  () => setDoc(doc(mgr, 'calendarEvents/ev11'), ev({ note: 'ن'.repeat(501) })));
+await check('a malformed date',                       false,
+  () => setDoc(doc(mgr, 'calendarEvents/ev12'), ev({ date: 'الأحد القادم' })));
+/* ⚠️ قائمة مفاتيح مغلقة — حقل جديد لا يتسلّل */
+await check('⚠️ an extra field smuggled in',           false,
+  () => setDoc(doc(mgr, 'calendarEvents/ev13'), { ...ev(), employeeUid: 'empU' }));
+
+/* القراءة: الشركة أو قسم القارئ */
+await check('employee reads own dept event',          true,  () => getDoc(doc(emp, 'calendarEvents/ev1')));
+await check('employee reads a company-wide event',    true,  () => getDoc(doc(emp, 'calendarEvents/ev6')));
+await check('⚠️ employee reads ANOTHER dept event',    false, () => getDoc(doc(emp, 'calendarEvents/ev7')));
+await check('employee queries own dept events',       true,
+  () => getDocs(query(collection(emp, 'calendarEvents'), where('department', '==', 'المبيعات'))));
+await check('employee queries company-wide events',   true,
+  () => getDocs(query(collection(emp, 'calendarEvents'), where('department', '==', ''))));
+await check('⚠️ employee queries events unconstrained', false,
+  () => getDocs(collection(emp, 'calendarEvents')));
+
+/* الحذف بنفس حدّ الكتابة */
+await check('manager deletes own dept event',         true,  () => deleteDoc(doc(mgr, 'calendarEvents/ev1')));
+await check('⚠️ manager deletes a company event',      false, () => deleteDoc(doc(mgr, 'calendarEvents/ev6')));
+await check('⚠️ manager deletes another dept event',   false, () => deleteDoc(doc(mgr, 'calendarEvents/ev7')));
+await check('employee deletes an event',              false, () => deleteDoc(doc(emp, 'calendarEvents/ev6')));
+await check('admin deletes any event',                true,  () => deleteDoc(doc(admin, 'calendarEvents/ev7')));
+
+/* ⚠️ والأصل يبقى مقفلاً: التقويم لم يفتح إجازات الزملاء للموظف */
+await check('⚠️ employee still cannot read peer leave requests', false,
+  () => getDocs(query(collection(emp, 'requests'), where('department', '==', 'المبيعات'))));
 
 console.log(`\n\x1b[1m═══ RESULT: ${pass} passed, ${fail} failed ═══\x1b[0m`);
 if (failures.length) { console.log('\nFAILURES:'); failures.forEach((f) => console.log('  • ' + f)); }

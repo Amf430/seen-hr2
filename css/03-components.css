@@ -1036,3 +1036,91 @@ label.btn{cursor:pointer}
   .lt-row__acts{inline-size:100%}
   .lt-row__acts .btn{flex:1}
 }
+
+/* ═══ مُنتقي الموقع على الخريطة (js/components/map-picker.js) ═══
+   ⚠️ الارتفاع صريح ولا يعتمد على المحتوى: Leaflet يقيس الحاوية عند البناء،
+   وحاوية بلا ارتفاع تعطي خريطة رمادية فارغة بلا أي رسالة خطأ. */
+.map-picker__canvas{
+  block-size:min(55vh,420px);min-block-size:240px;
+  inline-size:100%;margin-block:var(--sp-3);
+  border:1px solid var(--line-strong);border-radius:var(--r-md);
+  background:var(--paper-2);overflow:hidden;
+}
+.map-picker__canvas--failed{
+  display:flex;align-items:center;justify-content:center;text-align:center;
+  padding:var(--sp-4);color:var(--muted-strong);font-size:var(--fs-caption);
+}
+/* ⚠️ أدوات Leaflet (التكبير، الإسناد) مبنية على تخطيط LTR. تركها ترث RTL
+   يقلب مواضعها ويكسر أسهم التكبير. الخريطة نفسها لا اتجاه لها، فالحصر آمن. */
+.map-picker__canvas .leaflet-container{direction:ltr;font-family:var(--font)}
+
+.map-picker__results{
+  display:flex;flex-direction:column;gap:1px;margin-block-start:var(--sp-2);
+  border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;
+  background:var(--line);max-block-size:200px;overflow-y:auto;
+}
+.map-picker__hit{
+  display:block;inline-size:100%;text-align:start;border:0;cursor:pointer;
+  padding:var(--sp-3) var(--sp-4);background:var(--card);color:var(--ink-2);
+  font:inherit;font-size:var(--fs-caption);line-height:1.5;
+}
+.map-picker__hit:hover,.map-picker__hit:focus-visible{background:var(--row-hover);color:var(--ink)}
+.map-picker__none{
+  padding:var(--sp-3) var(--sp-4);background:var(--card);
+  color:var(--muted-strong);font-size:var(--fs-caption);
+}
+
+/* ═══ المهام (المرحلة ٥) ═══ */
+.task-card{border:1px solid var(--line);border-radius:var(--r-md);background:var(--card);
+  padding:var(--sp-3) var(--sp-4);margin-block-end:var(--sp-3);
+  display:flex;flex-direction:column;gap:var(--sp-2)}
+/* ⚠️ الحدّ الأحمر على المتأخرة لا لونُ خلفية: الخلفية الملوّنة على الجوال
+   تبتلع النص، والحدّ يُقرأ في الوضعين. */
+.task-card--overdue{border-inline-start:3px solid var(--red)}
+.task-card__top{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-3)}
+.task-card__meta{display:flex;flex-wrap:wrap;gap:var(--sp-3);font-size:var(--fs-micro)}
+
+/* خيط المحادثة — نفس شكل خيط hrTickets */
+.thread{display:flex;flex-direction:column;gap:var(--sp-3);
+  max-block-size:420px;overflow-y:auto;overscroll-behavior:contain;
+  padding:var(--sp-3);background:var(--paper);border-radius:var(--r-md);
+  margin-block-end:var(--sp-3)}
+.msg{background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);
+  padding:var(--sp-2) var(--sp-3);max-inline-size:85%;align-self:flex-start}
+.msg--mine{align-self:flex-end;background:var(--maroon-tint);border-color:var(--a-maroon-16)}
+.msg__head{display:flex;gap:var(--sp-2);align-items:baseline;
+  font-size:var(--fs-micro);margin-block-end:var(--sp-2)}
+.msg__body{white-space:pre-wrap;word-break:break-word;font-size:var(--fs-caption);line-height:1.6}
+
+/* ═══ تقويم الفريق (المرحلة ٩) ═══ */
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;
+  background:var(--line);border:1px solid var(--line);border-radius:var(--r-md);
+  overflow:hidden;margin-block:var(--sp-3)}
+.cal-head{background:var(--paper-2);padding:var(--sp-2);text-align:center;
+  font-size:var(--fs-micro);font-weight:var(--fw-bold);color:var(--muted-strong)}
+.cal-pad{background:var(--paper)}
+.cal-day{background:var(--card);min-block-size:92px;padding:var(--sp-2);
+  display:flex;flex-direction:column;gap:2px}
+.cal-day--off{background:var(--paper)}
+.cal-day--today{outline:2px solid var(--maroon-2);outline-offset:-2px}
+.cal-num{font-size:var(--fs-micro);color:var(--muted-strong)}
+.cal-tag{font-size:var(--fs-micro);border-radius:var(--r-sm);padding:1px var(--sp-2);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cal-tag--leave{background:var(--info-bg);color:var(--info)}
+.cal-tag--holiday{background:var(--teal-bg);color:var(--teal)}
+.cal-tag--evening{background:var(--violet-bg);color:var(--violet)}
+.cal-tag--task{background:var(--amber-bg);color:var(--amber)}
+
+/* ⚠️ الشبكة الشهرية لا تُقرأ على شاشة صغيرة — سبع خانات في ٣٦٠px تعني
+   خانة ٥٠px لا يظهر فيها اسم. تنقلب قائمة رأسية، وأيام الراحة الفارغة
+   تُخفى فلا تملأ القائمة بلا معلومة. */
+@media (max-width:640px){
+  .cal-grid{grid-template-columns:1fr;gap:1px}
+  .cal-head,.cal-pad{display:none}
+  .cal-day{min-block-size:0;flex-direction:row;flex-wrap:wrap;align-items:center;
+    gap:var(--sp-2);padding:var(--sp-2) var(--sp-3)}
+  .cal-day--off:not(:has(.cal-tag)){display:none}
+  .cal-num{min-inline-size:2ch;font-weight:var(--fw-bold);color:var(--ink)}
+}
+/* حدث التقويم — يضيفه الأدمن للشركة أو مدير القسم لقسمه */
+.cal-tag--event{background:var(--maroon-tint);color:var(--maroon-2);font-weight:var(--fw-medium)}

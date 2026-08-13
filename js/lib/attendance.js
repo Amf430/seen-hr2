@@ -152,10 +152,25 @@ export async function fetchMyAttendance(cycle, uid, coll = 'attendance') {
 
 /* جلب سجلات الحضور ضمن دورة — من أي مجموعة (الموقع أو الجهاز).
    للأدمن فقط: القاعدة تسمح له بقراءة الكل، فالاستعلام بالتاريخ يمرّ. */
-export async function fetchAttendance(cycle, coll = 'attendance') {
+/* ⚠️ `dept` ليس تحسيناً للأداء — بدونه لا تعمل الشاشة لمدير القسم إطلاقاً.
+   قاعدة القراءة تمنحه الوصول عبر sameDept()، وFirestore يرفض الاستعلام
+   **كاملاً** ما لم يكن مقيَّداً بحيث تُحقّق كل نتيجة محتملة شرط القاعدة.
+   فاستعلام بالتاريخ وحده من حساب مدير = خطأ صلاحيات وشاشة فارغة، لا نتيجة
+   منقوصة.
+
+   ⚠️ ويحتاج فهرساً مركّباً `(department, date)` على المجموعتين — منشوراً
+   قبل فتح الشاشة. انظر firestore.indexes.json.
+
+   ⚠️⚠️ والتقييد بالقسم يتخطّى بصمت أي وثيقة بلا حقل `department` (السجلات
+   التي كتبها الجسر قبل تحديثه). لا خطأ ولا رفض — أيام ناقصة في شاشة تبدو
+   سليمة. لذلك تُمرَّر النتيجة على deptCoverageOf() في js/lib/zk-coverage.js
+   وتُعلن الشاشة تغطيتها بنفسها. */
+export async function fetchAttendance(cycle, coll = 'attendance', dept = '') {
   const s1 = ymd(cycle.start), s2 = ymd(cycle.end);
-  const q1 = query(collection(db, coll), where('date', '>=', s1), where('date', '<=', s2));
-  const snap = await getDocs(q1);
+  const parts = [collection(db, coll)];
+  if (dept) parts.push(where('department', '==', dept));
+  parts.push(where('date', '>=', s1), where('date', '<=', s2));
+  const snap = await getDocs(query(...parts));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
@@ -191,7 +206,10 @@ export function buildDailyStatus(cyc, users, requests, recs, opts = {}) {
     const startsAt = (hire && !isNaN(hire) && hire > cyc.start) ? hire : cyc.start;
     for (let d = new Date(startsAt); d <= end; d.setDate(d.getDate() + 1)) {
       const dateStr = ymd(d), dow = d.getDay();
-      const shift = resolveShift(dateStr, dow, u.department);
+      /* ⚠️ خطة شفت الموظف تتقدّم على قسمه — انظر resolveShift في shifts.js.
+         بلا تمرير `u` هنا يُحسب «متأخر» على وردية قسمه لا على ورديته، فمن
+         دوامه ٣ العصر يظهر متأخراً سبع ساعات كل يوم. */
+      const shift = resolveShift(dateStr, dow, u.department, u);
       if (!shift || shift.type === 'off') continue;   /* راحة أو عطلة رسمية → لا يُحاسب عليها */
       const leave = requests.find((r) => r.type === 'leave' && r.status === 'approved' &&
         r.employeeUid === u.id && r.startDate <= dateStr && r.endDate >= dateStr);

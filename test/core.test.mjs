@@ -16,7 +16,8 @@
 
 import { setSettings, setMe } from '../js/lib/state.js';
 import { resolveShift, shiftHours, shiftWindowFor, shiftText,
-         workingDaysBetween, compensableMin,
+         workingDaysBetween, compensableMin, shiftPlansOf, planById, planUsage,
+         DEFAULT_PLAN_ID, checkInWindow, checkInAllowed, attendButtonState,
          LATE_GRACE_MIN, LATE_COMP_MAX_MIN } from '../js/lib/shifts.js';
 import { haversine, nearestBranch, geoRuleFor, branchesOf, activeBranches,
          REMOTE_BRANCH_ID } from '../js/lib/geo.js';
@@ -25,6 +26,8 @@ import { canApprove, canApproveType, hasChain, chainStep, isLastStep,
 /* ⚠️ ymd() لا toISOString(): الدورة تُبنى على منتصف ليل محلّي، و toISOString
    تحوّله UTC — ففي UTC+3 يقرأ ٢٦ أغسطس على أنه ٢٥. */
 import { cycleOf, ymd } from '../js/lib/dates.js';
+import { deptCoverageOf, coverageNote, rangeCovered } from '../js/lib/zk-coverage.js';
+import { teamSummaryOf, trendOf, teamExportRows } from '../js/lib/team-stats.js';
 
 let pass = 0, fail = 0;
 const eq = (name, expected, actual) => {
@@ -302,6 +305,397 @@ eq('بلا بصمة انصراف → لا تعويض',       0, compensableMin(6
 eq('بلا وردية محدّدة → لا تعويض',      0, compensableMin(60, outAt('19:00'), null));
 eq('تأخير سالب (خطأ حساب) → صفر لا سالب', 0, compensableMin(-30, outAt('19:00'), cWin));
 eq('السقف المعلن ساعة واحدة', 60, LATE_COMP_MAX_MIN);
+
+/* ═════════════════ ١٠. خطط الشفتات المتعدّدة (المرحلة ٢) ═════════════════
+
+   الطلب: «بعض الأحيان عندي موظفين يبدأ دوامهم ٢ أو ٣ العصر غير الباقي».
+   الخطر: هذه الطبقة تدخل بين الموظف وحساب تأخيره — أي خطأ فيها يخصم من
+   راتب إنسان. فالاختبار الأهم هنا ليس أن الجديد يعمل، بل أن **القديم لم
+   يتحرّك بالحرف** لمن لا خطة له. */
+group('١٠. خطط الشفتات — التوافق الخلفي أولاً');
+
+const EVENING = {
+  0: { type: 'evening', start: '15:00', end: '23:00' },
+  1: { type: 'evening', start: '15:00', end: '23:00' },
+  2: { type: 'evening', start: '15:00', end: '23:00' },
+  3: { type: 'evening', start: '15:00', end: '23:00' },
+  4: { type: 'evening', start: '15:00', end: '23:00' },
+  5: { type: 'off', start: '', end: '' },
+  6: { type: 'off', start: '', end: '' }
+};
+const planEvening = { id: 'plan_pm', name: 'الشفت المسائي', days: EVENING, active: true };
+
+/* ── بلا أي خطة: كل شيء كما كان ── */
+setSettings(baseSettings());
+eq('بلا shiftPlans تُركَّب خطة واحدة في الذاكرة', 1, shiftPlansOf().length);
+eq('وهي مُعلَّمة أنها مُركَّبة لا محفوظة', true, shiftPlansOf()[0].synthetic);
+eq('ومعرّفها هو الافتراضي المعلن', DEFAULT_PLAN_ID, shiftPlansOf()[0].id);
+eq('وأيامها هي ورديات الشركة نفسها', WEEK[0], shiftPlansOf()[0].days[0]);
+
+eq('موظف بلا خطة ولا قسم → سلوك اليوم بالحرف',
+   { type: 'morning', src: 'company' },
+   (() => { const s = resolveShift('2026-08-02', 0, '', { id: 'u1' }); return { type: s.type, src: s.src }; })());
+eq('ونداء بلا المعامل الرابع إطلاقاً يعطي نفس النتيجة',
+   { type: 'morning', src: 'company' },
+   (() => { const s = resolveShift('2026-08-02', 0); return { type: s.type, src: s.src }; })());
+
+/* ── خطة الموظف تتقدّم على قسمه وعلى الشركة ── */
+setSettings(baseSettings({
+  shiftPlans: [planEvening],
+  departments: [{ name: 'المبيعات', shifts: { 0: { type: 'morning', start: '09:00', end: '17:00' } } }]
+}));
+eq('موظف بخطة مسائية → خطته تفوز على وردية قسمه',
+   { type: 'evening', start: '15:00', src: 'empPlan' },
+   (() => { const s = resolveShift('2026-08-02', 0, 'المبيعات', { shiftPlanId: 'plan_pm' });
+            return { type: s.type, start: s.start, src: s.src }; })());
+eq('وزميله بلا خطة يبقى على وردية القسم',
+   { type: 'morning', start: '09:00', src: 'dept' },
+   (() => { const s = resolveShift('2026-08-02', 0, 'المبيعات', { id: 'u2' });
+            return { type: s.type, start: s.start, src: s.src }; })());
+
+/* ── خطة القسم بين خطة الموظف والورديات القديمة ── */
+setSettings(baseSettings({
+  shiftPlans: [planEvening],
+  departments: [{ name: 'الأمن', shiftPlanId: 'plan_pm',
+                  shifts: { 0: { type: 'morning', start: '09:00', end: '17:00' } } }]
+}));
+eq('خطة القسم تتقدّم على ورديات القسم القديمة',
+   { type: 'evening', src: 'deptPlan' },
+   (() => { const s = resolveShift('2026-08-02', 0, 'الأمن'); return { type: s.type, src: s.src }; })());
+
+/* ── الطبقات الخمس مرتّبة: استثناء التاريخ يعلو الجميع ── */
+setSettings(baseSettings({
+  shiftPlans: [planEvening],
+  departments: [{ name: 'الأمن', shiftPlanId: 'plan_pm' }],
+  dateExceptions: [{ date: '2026-08-02', type: 'off', label: 'اليوم الوطني' }]
+}));
+eq('عطلة رسمية تتقدّم حتى على خطة الموظف', 'off',
+   resolveShift('2026-08-02', 0, 'الأمن', { shiftPlanId: 'plan_pm' }).type);
+eq('واسمها هو الظاهر لا اسم الخطة', 'اليوم الوطني',
+   resolveShift('2026-08-02', 0, 'الأمن', { shiftPlanId: 'plan_pm' }).exLabel);
+
+/* ── ⚠️ خطة معطَّلة لا تعني «راحة» ──
+   لو أعادت off لصار قسم كامل غائباً في المسير بضغطة تعطيل واحدة. */
+setSettings(baseSettings({
+  shiftPlans: [{ ...planEvening, active: false }],
+  departments: [{ name: 'الأمن', shiftPlanId: 'plan_pm' }]
+}));
+eq('خطة معطَّلة تسقط للطبقة التالية ولا تُغيّب أحداً',
+   { type: 'morning', src: 'company' },
+   (() => { const s = resolveShift('2026-08-02', 0, 'الأمن', { shiftPlanId: 'plan_pm' });
+            return { type: s.type, src: s.src }; })());
+
+/* ── ⚠️ خطة ناقصة اليوم تسقط ولا تُحسب راحة ── */
+setSettings(baseSettings({
+  shiftPlans: [{ id: 'plan_half', name: 'ناقصة', days: { 1: EVENING[1] }, active: true }]
+}));
+eq('خطة بلا تعريف لليوم المطلوب تسقط للشركة',
+   'company', resolveShift('2026-08-02', 0, '', { shiftPlanId: 'plan_half' }).src);
+eq('واليوم المعرَّف فيها يعمل', 'empPlan',
+   resolveShift('2026-08-03', 1, '', { shiftPlanId: 'plan_half' }).src);
+
+/* ── معرّف خطة لا وجود له لا يكسر شيئاً ── */
+setSettings(baseSettings({ shiftPlans: [planEvening] }));
+eq('shiftPlanId يشير لخطة محذوفة → يسقط للشركة بلا خطأ',
+   'company', resolveShift('2026-08-02', 0, '', { shiftPlanId: 'plan_ghost' }).src);
+eq('planById لمعرّف غير موجود → null', null, planById('plan_ghost'));
+
+/* ── الخطة الافتراضية على مستوى الشركة ── */
+setSettings(baseSettings({ shiftPlans: [planEvening], defaultShiftPlanId: 'plan_pm' }));
+eq('الخطة الافتراضية تحلّ محلّ settings.shifts للجميع',
+   { type: 'evening', src: 'plan' },
+   (() => { const s = resolveShift('2026-08-02', 0); return { type: s.type, src: s.src }; })());
+
+/* ── ⚠️ الوصلة إلى المرحلة ١: checkInCutoff لازم يركب الوردية ── */
+group('١٠-ب. checkInCutoff يصل من الخطة إلى الوردية');
+setSettings(baseSettings({
+  shiftPlans: [{ ...planEvening, checkInCutoff: '18:30' }]
+}));
+eq('قفل الحضور المُعرَّف في الخطة يظهر على الوردية المُرجَعة', '18:30',
+   resolveShift('2026-08-02', 0, '', { shiftPlanId: 'plan_pm' }).checkInCutoff);
+setSettings(baseSettings({ shiftPlans: [planEvening] }));
+eq('وخطة بلا قفل صريح لا تخترع واحداً', undefined,
+   resolveShift('2026-08-02', 0, '', { shiftPlanId: 'plan_pm' }).checkInCutoff);
+eq('والمسار القديم بلا خطط لا قفل فيه إطلاقاً', undefined,
+   resolveShift('2026-08-02', 0).checkInCutoff);
+
+/* ── أيام الإجازة تُحسب على خطة الموظف ── */
+group('١٠-ج. الإجازة تحترم خطة شفت الموظف');
+setSettings(baseSettings({
+  shiftPlans: [{ id: 'plan_tue', name: 'راحته الثلاثاء',
+                 days: { ...WEEK, 2: { type: 'off', start: '', end: '' },
+                         5: { type: 'morning', start: '08:00', end: '16:00' } },
+                 active: true }]
+}));
+eq('موظف راحته الثلاثاء لا يُخصم منه الثلاثاء',
+   { days: 4, off: 1 },
+   workingDaysBetween('2026-08-02', '2026-08-06', '', { shiftPlanId: 'plan_tue' }));
+eq('وزميله على دوام الشركة يُخصم منه الأيام الخمسة',
+   { days: 5, off: 0 },
+   workingDaysBetween('2026-08-02', '2026-08-06', ''));
+
+/* ── حراسة الحذف ── */
+group('١٠-د. مَن يتبع الخطة');
+setSettings(baseSettings({
+  shiftPlans: [planEvening],
+  departments: [{ name: 'الأمن', shiftPlanId: 'plan_pm' }, { name: 'المالية' }]
+}));
+eq('تُحصى الأقسام والموظفون التابعون للخطة',
+   { depts: 1, employees: 2, deptNames: ['الأمن'] },
+   planUsage('plan_pm', [{ shiftPlanId: 'plan_pm' }, { shiftPlanId: 'plan_pm' }, { shiftPlanId: 'x' }]));
+eq('وخطة لا يتبعها أحد تُحصى صفراً',
+   { depts: 0, employees: 0, deptNames: [] }, planUsage('plan_none', []));
+
+/* ═════════════ ١١. نافذة تسجيل الحضور وقفلها (المرحلة ١) ═════════════
+
+   الخلل الأصلي: زرّ اللوحة كان يُعطَّل **كله** بعد نهاية الوردية بساعتين،
+   فمن نسي الانصراف لا يقدر يخرج. القراران منفصلان الآن:
+     • الانصراف لا يُقفل أبداً — تحرسه اللوحة لا هذه الدالة
+     • الحضور محكوم بالنافذة، ومن لم يسجّل اليوم إطلاقاً يُسمح له متأخراً
+
+   القرار المعتمَد من المالك (٢٠٢٦-٠٨-١٢): «ما سجّل حضور ولا مرة → يبان له
+   تسجيل حضور. فيه تسجيل حضور قديم → خلاص.» */
+group('١١. نافذة تسجيل الحضور');
+
+const MORNING = { type: 'morning', start: '08:00', end: '16:00' };
+const at = (hhmm, day = '2026-08-02') => new Date(`${day}T${hhmm}:00`);
+
+const w1 = checkInWindow(at('12:00'), MORNING);
+eq('النافذة تفتح قبل الوردية بساعتين', 6, w1.opensAt.getHours());
+eq('وتُقفل عند نهاية الوردية',        16, w1.closesAt.getHours());
+eq('يوم الراحة بلا نافذة إطلاقاً', null, checkInWindow(at('12:00'), { type: 'off' }));
+
+/* قفل صريح من الخطة يتقدّم على نهاية الوردية */
+eq('checkInCutoff الصريح يُقصّر النافذة', 10,
+   checkInWindow(at('12:00'), { ...MORNING, checkInCutoff: '10:00' }).closesAt.getHours());
+
+/* ⚠️ وردية عابرة لمنتصف الليل: القفل ٠٢:٠٠ يعني فجر الغد لا فجر اليوم */
+const nightPlan = { type: 'evening', start: '22:00', end: '06:00', checkInCutoff: '02:00' };
+const wn = checkInWindow(at('23:00'), nightPlan);
+eq('قفل ٠٢:٠٠ على وردية ليلية يقع في اليوم التالي', 3, wn.closesAt.getDate());
+eq('ونافذتها تفتح ٢٠:٠٠ من نفس اليوم', 20, wn.opensAt.getHours());
+
+/* ── القرار: قبل النافذة · داخلها · بعدها ── */
+const gate = (hhmm, over = {}) =>
+  checkInAllowed(at(hhmm), MORNING, { hasSessionToday: false, allowLate: true, ...over });
+
+eq('الخامسة صباحاً — قبل فتح النافذة',
+   { ok: false, reason: 'early' },
+   (() => { const g = gate('05:00'); return { ok: g.ok, reason: g.reason }; })());
+eq('السابعة — داخل النافذة المبكرة',
+   { ok: true, reason: 'open' },
+   (() => { const g = gate('07:00'); return { ok: g.ok, reason: g.reason }; })());
+eq('العاشرة — داخل الدوام',
+   { ok: true, reason: 'open' },
+   (() => { const g = gate('10:00'); return { ok: g.ok, reason: g.reason }; })());
+
+/* ⚠️ جوهر طلب المالك — الحالتان المتقابلتان بعد القفل */
+eq('السادسة مساءً ولم يسجّل اليوم إطلاقاً → مسموح وموسوم',
+   { ok: true, reason: 'late', late: true },
+   (() => { const g = gate('18:00'); return { ok: g.ok, reason: g.reason, late: g.late }; })());
+eq('السادسة مساءً وعنده جلسة اليوم → انتهى يومه',
+   { ok: false, reason: 'done' },
+   (() => { const g = gate('18:00', { hasSessionToday: true }); return { ok: g.ok, reason: g.reason }; })());
+
+/* الإعداد يقفل المتأخر لمن أراد ذلك لاحقاً */
+eq('allowLateCheckIn=false يمنع المتأخر حتى لمن لم يسجّل',
+   { ok: false, reason: 'closed' },
+   (() => { const g = gate('18:00', { allowLate: false }); return { ok: g.ok, reason: g.reason }; })());
+
+/* ── يوم الراحة يبقى مفتوحاً ── */
+eq('يوم الراحة: التسجيل متاح ويُوسم offDayWork',
+   { ok: true, reason: 'offDay' },
+   (() => { const g = checkInAllowed(at('10:00'), { type: 'off' }, { hasSessionToday: false });
+            return { ok: g.ok, reason: g.reason }; })());
+eq('وحتى بعد منتصف النهار في يوم الراحة', true,
+   checkInAllowed(at('23:00'), { type: 'off' }, {}).ok);
+
+/* ── الوردية المسائية: القفل يتبعها هي لا الساعة ٤ ──
+   هذا هو سبب ربط القفل بالوردية أصلاً — موظف يبدأ ٣ العصر. */
+const PM = { type: 'evening', start: '15:00', end: '23:00' };
+eq('من يبدأ ٣ العصر يقدر يسجّل الساعة ٤ عصراً',
+   true, checkInAllowed(at('16:00'), PM, {}).ok);
+eq('وقفل ثابت على ٤:٠٠ كان سيمنعه — النافذة تتبع ورديته',
+   true, checkInAllowed(at('22:00'), PM, {}).ok);
+eq('وبعد نهاية ورديته وعنده جلسة → انتهى',
+   false, checkInAllowed(at('23:30'), PM, { hasSessionToday: true }).ok);
+
+/* ═════════ ١٢. زرّ اللوحة — الانصراف لا يُقفل أبداً (المرحلة ١) ═════════
+
+   ⚠️ هذه المجموعة تحرس الخلل الأصلي بعينه: سطر واحد كان يعطّل الزر كله بعد
+   نهاية الوردية بساعتين، فمن دخل ونسي الانصراف يجد الزر مقفلاً ولا يقدر
+   يخرج — فتبقى جلسته مفتوحة وتُقرأ عليه هو «نسيان بصمة خروج».
+
+   القاعدة التي لا تُكسر: hasOpenSession=true ⇒ زرّ انصراف مُفعَّل، **مهما
+   كانت البوّابة**. لو سقط أي اختبار هنا فقد عاد الخلل. */
+group('١٢. زرّ اللوحة — الانصراف مفتوح دائماً');
+
+const btn = (over = {}) => attendButtonState({
+  loaded: true, loadErr: false, hasOpenSession: false, gate: { ok: true }, ...over });
+
+eq('جلسة مفتوحة → انصراف مُفعَّل',
+   { kind: 'out', disabled: false },
+   (() => { const s = btn({ hasOpenSession: true }); return { kind: s.kind, disabled: s.disabled }; })());
+
+/* الحالات الأربع التي كانت تقفل الزر — كلها لازم تبقى مفتوحة للانصراف */
+[['بوّابة مقفلة', { ok: false, reason: 'closed' }],
+ ['انتهى يومه',   { ok: false, reason: 'done'   }],
+ ['قبل النافذة',  { ok: false, reason: 'early'  }],
+ ['بلا بوّابة',    null]
+].forEach(([label, g]) => {
+  const s = btn({ hasOpenSession: true, gate: g });
+  eq(`${label} + جلسة مفتوحة → الانصراف يبقى مُفعَّلاً`,
+     { kind: 'out', disabled: false }, { kind: s.kind, disabled: s.disabled });
+});
+
+/* بلا جلسة مفتوحة: البوّابة هي الحاكمة */
+eq('بلا جلسة + بوّابة مفتوحة → زرّ حضور',
+   { kind: 'in', disabled: false, late: false },
+   (() => { const s = btn(); return { kind: s.kind, disabled: s.disabled, late: s.late }; })());
+eq('بلا جلسة + بوّابة متأخرة → حضور متأخر',
+   { kind: 'in', disabled: false, late: true, label: 'تسجيل حضور متأخر' },
+   (() => { const s = btn({ gate: { ok: true, late: true } });
+            return { kind: s.kind, disabled: s.disabled, late: s.late, label: s.label }; })());
+eq('بلا جلسة + انتهى يومه → مقفل برسالته',
+   { disabled: true, label: 'أنهيت دوامك اليوم' },
+   (() => { const s = btn({ gate: { ok: false, reason: 'done' } });
+            return { disabled: s.disabled, label: s.label }; })());
+eq('بلا جلسة + قبل النافذة → مقفل برسالته',
+   { disabled: true, label: 'لم يبدأ وقت التسجيل بعد' },
+   (() => { const s = btn({ gate: { ok: false, reason: 'early' } });
+            return { disabled: s.disabled, label: s.label }; })());
+
+/* التحميل والخطأ يسبقان كل شيء */
+eq('قبل التحميل → مقفل',   true, btn({ loaded: false }).disabled);
+eq('خطأ قراءة → مقفل',     true, btn({ loadErr: true }).disabled);
+eq('⚠️ لكن خطأ القراءة مع جلسة مفتوحة لا يحبس الموظف… يبقى مقفلاً عمداً',
+   'err', btn({ loadErr: true, hasOpenSession: true }).kind);
+
+/* ═══════ ١٣. تغطية `department` في سجل جهاز البصمة (المرحلة ٤) ═══════
+
+   شاشة المدير تفلتر بـ where('department','==',…) وإلا رُفض الاستعلام كاملاً.
+   والوثائق القديمة بلا الحقل **تُتخطّى بصمت** — لا خطأ ولا رفض. فالشاشة
+   تعمل وتبدو سليمة وأيام منها ناقصة. هذه المجموعة تحرس اكتشاف ذلك النقص. */
+group('١٣. تغطية القسم في سجل الجهاز');
+
+const rec = (date, dept) => (dept === undefined ? { date } : { date, department: dept });
+
+eq('لا سجلات → لا ادّعاء بشيء',
+   { total: 0, complete: false, safeFrom: null },
+   (() => { const c = deptCoverageOf([]); return { total: c.total, complete: c.complete, safeFrom: c.safeFrom }; })());
+
+eq('كل السجلات تحمل القسم → تغطية كاملة',
+   { withoutDept: 0, complete: true, safeFrom: '2026-08-01' },
+   (() => { const c = deptCoverageOf([rec('2026-08-01','المبيعات'), rec('2026-08-02','المبيعات')]);
+            return { withoutDept: c.withoutDept, complete: c.complete, safeFrom: c.safeFrom }; })());
+
+eq('قديمة بلا قسم ثم جديدة به → التغطية تبدأ بعد آخر ناقص',
+   { withDept: 2, withoutDept: 2, lastMissingDate: '2026-07-15', safeFrom: '2026-07-16' },
+   (() => { const c = deptCoverageOf([
+              rec('2026-07-14'), rec('2026-07-15'),
+              rec('2026-07-16','المبيعات'), rec('2026-08-01','المالية')]);
+            return { withDept: c.withDept, withoutDept: c.withoutDept,
+                     lastMissingDate: c.lastMissingDate, safeFrom: c.safeFrom }; })());
+
+/* ⚠️ جوهر الدالة: انقطاع الجسر بعد أن بدأ يكتب القسم.
+   الأخذ بأقدم ظهور للحقل يعطي ٢٠٢٦-٠٧-٠١ ويدّعي تغطية أسبوعٍ لا نملكه. */
+eq('انقطاع في المنتصف → العبرة بآخر ناقص لا بأول ظهور',
+   { firstDeptDate: '2026-07-01', lastMissingDate: '2026-07-20', safeFrom: '2026-07-21' },
+   (() => { const c = deptCoverageOf([
+              rec('2026-07-01','المبيعات'), rec('2026-07-19'), rec('2026-07-20'),
+              rec('2026-07-21','المبيعات')]);
+            return { firstDeptDate: c.firstDeptDate, lastMissingDate: c.lastMissingDate,
+                     safeFrom: c.safeFrom }; })());
+
+eq('قسم فارغ يُعامَل كغائب لا كموجود',
+   1, deptCoverageOf([rec('2026-08-01', '')]).withoutDept);
+eq('سجل بلا تاريخ يُستبعَد من الحساب',
+   1, deptCoverageOf([rec('2026-08-01','المبيعات'), { department: 'المالية' }]).total);
+eq('نهاية الشهر تُحسب صحيحة عند الانتقال ليوم تالٍ',
+   '2026-08-01', deptCoverageOf([rec('2026-07-31')]).safeFrom);
+
+/* الجملة المعروضة للمدير */
+eq('تغطية كاملة → لا تحذير يُعرض', null,
+   coverageNote(deptCoverageOf([rec('2026-08-01','المبيعات')])));
+eq('تغطية ناقصة → تحذير يذكر التاريخ الآمن', true,
+   (coverageNote(deptCoverageOf([rec('2026-07-15'), rec('2026-07-16','المبيعات')])) || '')
+     .includes('2026-07-16'));
+
+/* حراسة النطاق قبل الرسم */
+const covPartial = deptCoverageOf([rec('2026-07-15'), rec('2026-07-16','المبيعات')]);
+eq('نطاق كله قبل التغطية → مرفوض',       false, rangeCovered(covPartial, '2026-07-01', '2026-07-10'));
+eq('نطاق يبدأ داخل التغطية → مقبول',      true,  rangeCovered(covPartial, '2026-07-16', '2026-08-01'));
+eq('نطاق يعبر حدّ التغطية → مرفوض',       false, rangeCovered(covPartial, '2026-07-10', '2026-08-01'));
+eq('تغطية كاملة → كل نطاق مقبول',        true,
+   rangeCovered(deptCoverageOf([rec('2026-08-01','المبيعات')]), '2020-01-01', '2030-01-01'));
+eq('لا بيانات → لا ندّعي نقصاً',          true,  rangeCovered(deptCoverageOf([]), '2026-01-01', '2026-12-31'));
+
+/* ══════════ ١٤. تجميع أداء الفريق (المرحلة ٤) ══════════
+
+   ⚠️ teamSummaryOf لا تحسب حالة يوم واحد — تستقبل صفوف buildDailyStatus
+   وتجمعها. الاختبار هنا على التجميع لا على تصنيف الأيام، وهذا مقصود: حساب
+   «متأخر» له مكان واحد، ولو حُسب هنا ثانيةً لتباعد الرقمان. */
+group('١٤. تجميع أداء الفريق');
+
+const U = (id, name, dept = 'المبيعات') => ({ id, name, department: dept, jobTitle: '' });
+const day = (u, cls, lateMin = 0, secs = 28800) => ({ u, cls, lateMin, secs });
+
+const sami = U('u1', 'سامي'), noura = U('u2', 'نورة');
+const teamRows = [
+  day(sami, 'present'), day(sami, 'present'), day(sami, 'late', 20), day(sami, 'absent', 0, 0),
+  day(noura, 'present'), day(noura, 'present'), day(noura, 'present'), day(noura, 'leave', 0, 0)
+];
+const S = teamSummaryOf(teamRows);
+
+eq('موظفان في التجميع', 2, S.employees.length);
+eq('نورة أعلى التزاماً فتتصدّر', 'نورة', S.employees[0].name);
+eq('أيام سامي الأربعة محسوبة', 4, S.employees.find((e) => e.uid === 'u1').days);
+eq('التزام سامي = (٢ حاضر + ١ متأخر) ÷ ٤', 75, S.employees.find((e) => e.uid === 'u1').overall);
+eq('وفي الوقت له = ٢ ÷ ٤',                  50, S.employees.find((e) => e.uid === 'u1').onTime);
+eq('⚠️ الإجازة تُحسب التزاماً لا تقصيراً',   100, S.employees.find((e) => e.uid === 'u2').overall);
+eq('⚠️ لكنها لا تُحسب حضوراً في الوقت',       75, S.employees.find((e) => e.uid === 'u2').onTime);
+eq('مجموع دقائق تأخير سامي', 20, S.employees.find((e) => e.uid === 'u1').lateMin);
+
+eq('إجماليات القسم',
+   { days: 8, present: 5, late: 1, absent: 1, leave: 1, employeeCount: 2 },
+   (() => { const t = S.totals; return { days: t.days, present: t.present, late: t.late,
+            absent: t.absent, leave: t.leave, employeeCount: t.employeeCount }; })());
+eq('التزام القسم = (٥+١+١) ÷ ٨', 88, S.totals.overall);
+
+/* ⚠️ المتوسط على الأيام المتأخرة وحدها. لو قُسم على كل الأيام لصار ٢٫٥ د
+   فلا يلفت أحداً، والمشكلة عند شخص واحد تأخّر ٢٠ دقيقة. */
+eq('متوسط التأخير يُحسب على الأيام المتأخرة وحدها', 20, S.totals.avgLateMinPerLateDay);
+eq('قسم بلا تأخير → صفر لا قسمة على صفر',
+   0, teamSummaryOf([day(sami, 'present')]).totals.avgLateMinPerLateDay);
+
+eq('لا صفوف → إجماليات صفرية بلا استثناء',
+   { days: 0, overall: 0, employeeCount: 0 },
+   (() => { const t = teamSummaryOf([]).totals; return { days: t.days, overall: t.overall, employeeCount: t.employeeCount }; })());
+
+/* ⚠️ صنف غير معروف يبقى في المقام — نسبة على مقام ناقص أخطر من صنف غير معدود */
+eq('صنف غير متوقّع يُعدّ في الأيام ولا يُسقط الصف',
+   { days: 2, overall: 50 },
+   (() => { const t = teamSummaryOf([day(sami, 'present'), day(sami, 'وضع_جديد')]).totals;
+            return { days: t.days, overall: t.overall }; })());
+
+/* ── اتجاه المقارنة ── */
+group('١٤-ب. المقارنة بالدورة السابقة');
+eq('تحسّن',  { delta: 10, dir: 'up' },   trendOf({ days: 8, overall: 90 }, { days: 8, overall: 80 }));
+eq('تراجع',  { delta: -5, dir: 'down' }, trendOf({ days: 8, overall: 75 }, { days: 8, overall: 80 }));
+eq('ثبات',   { delta: 0,  dir: 'flat' }, trendOf({ days: 8, overall: 80 }, { days: 8, overall: 80 }));
+/* ⚠️ سهم أخضر مبنيّ على «صفر سابقاً» يقرأه المدير تحسّناً وهو لا شيء */
+eq('لا دورة سابقة → لا سهم', null, trendOf({ days: 8, overall: 90 }, { days: 0, overall: 0 }));
+eq('لا دورة حالية → لا سهم', null, trendOf({ days: 0, overall: 0 }, { days: 8, overall: 80 }));
+eq('previous مفقودة → لا سهم', null, trendOf({ days: 8, overall: 90 }, null));
+
+/* ── صفوف التصدير = أرقام الشاشة نفسها ── */
+const xrows = teamExportRows(S);
+eq('صف تصدير لكل موظف', 2, xrows.length);
+eq('⚠️ التصدير يحمل رقم الشاشة نفسه لا حساباً ثانياً',
+   S.employees[0].overall, xrows[0]['الالتزام %']);
+eq('والساعات مشتقّة من ثوانيها لا محسوبة من جديد',
+   Math.round((S.employees[0].secs / 3600) * 10) / 10, xrows[0]['ساعات العمل']);
+eq('نورة: ٣ أيام حضور × ٨ ساعات = ٢٤', 24, xrows[0]['ساعات العمل']);
 
 console.log(`\n\x1b[1m═══ النتيجة: ${pass} ناجح، ${fail} فاشل ═══\x1b[0m`);
 process.exit(fail ? 1 : 0);

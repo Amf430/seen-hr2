@@ -57,7 +57,9 @@ export function todayAttendance(users, todayRecs, requests) {
       r.employeeUid === u.id && r.startDate <= dateStr && r.endDate >= dateStr);
     if (leave) { onLeave++; continue; }
 
-    const sh = resolveShift(dateStr, dow, u.department);
+    /* ⚠️ نفس المعامل الرابع المستعمل في attendance.js و payroll.js —
+       حسبة واحدة في مكان واحد، وإلا تباعدت أرقام التقرير عن أرقام المسير. */
+    const sh = resolveShift(dateStr, dow, u.department, u);
     if (!sh || sh.type === 'off') continue;   /* راحة أو عطلة → خارج الحساب */
     expected++;
 

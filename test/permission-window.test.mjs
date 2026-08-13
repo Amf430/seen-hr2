@@ -1,27 +1,22 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   نافذة الاستئذان — ثلاثة أيام ثم تُغلق.
+   النوافذ الزمنية للطلبات — الاستئذان (٣ أيام) وتصحيح البصمة (٧ أيام).
 
    القاعدة تُنفَّذ في ثلاثة مواضع: النموذج (min على حقل التاريخ)، و
-   submitRequest، و firestore.rules. هذا الملف يختبر المنطق المشترك الذي
-   يقف خلف الأول والثاني، والحدّ نفسه مُختبَر على القاعدة في rules.test.mjs.
+   submitRequest، و firestore.rules. هذا الملف يختبر المنطق المشترك خلف
+   الأول والثاني، والحدّ نفسه مُختبَر على القاعدة في rules.test.mjs.
 
-   ⚠️ لا نستورد requests.js نفسه: هو يستورد firebase.js التي تجلب SDK من
-   gstatic وتُنشئ تطبيقاً حقيقياً وقت الاستيراد. الدالتان صافيتان بلا حالة،
-   فنُعيدهما هنا حرفياً — ولو تغيّرت هناك سقط الاختبار على الحدّ.
+   ⚠️ كانت الدوال **مُعاد كتابتها هنا** لأن requests.js يستورد firebase.js
+   التي تجلب SDK من gstatic وقت الاستيراد. وكان تعليق هذا الملف يدّعي أن
+   تغييرها في المصدر يُسقط الاختبار — وهذا لم يكن صحيحاً: النسختان
+   مستقلّتان، فتغيير الحدّ في المصدر يمرّ بينما يحرس الاختبار رقماً مهجوراً.
+
+   الآن الدوال في js/lib/request-windows.js النقيّة، ويستوردها هذا الملف
+   و requests.js معاً — فالحدّ واحد فعلاً لا اثنان متشابهان.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const PERM_BACKDATE_DAYS = 3;
-
-const ymd = (d) => d.getFullYear() + '-' +
-  String(d.getMonth() + 1).padStart(2, '0') + '-' +
-  String(d.getDate()).padStart(2, '0');
-
-function permOldestDate(today) {
-  const d = new Date(today + 'T00:00:00');
-  d.setDate(d.getDate() - PERM_BACKDATE_DAYS);
-  return ymd(d);
-}
-const permWindowOpen = (dateStr, today) => !!dateStr && dateStr >= permOldestDate(today);
+import { PERM_BACKDATE_DAYS, permOldestDate, permWindowOpen,
+         FIX_WINDOW_DAYS, FIX_MAX_PER_CYCLE, fixOldestDate, fixWindowOpen,
+         fixCountInCycle } from '../js/lib/request-windows.js';
 
 let pass = 0, fail = 0;
 const check = (name, expected, actual) => {
@@ -57,6 +52,65 @@ console.log('\n\x1b[1m═══ مدخلات فارغة ═══\x1b[0m');
 check('تاريخ فارغ مرفوض',              false, permWindowOpen('', T));
 check('undefined مرفوض',               false, permWindowOpen(undefined, T));
 check('null مرفوض',                    false, permWindowOpen(null, T));
+
+
+/* ═══════════ نافذة تصحيح البصمة (المرحلة ١٠) ═══════════
+
+   ⚠️ نفس منطق نافذة الاستئذان لكن بسبعة أيام لا ثلاثة، والفرق مقصود:
+   الاستئذان يمحو تأخيراً، والتصحيح يضيف بصمة ناقصة — والثاني يُكتشف متأخراً
+   عادةً (الموظف لا يعرف أنه نسي حتى يرى «نسيان بصمة» في أدائه).
+
+   ⚠️ والعدد مكرَّر في firestore.rules (fixOk). الجدار هناك، وهذا يعطي
+   الرسالة المفهومة قبل الاصطدام به. */
+console.log('\n\x1b[1m═══ نافذة تصحيح البصمة ═══\x1b[0m');
+
+check('الحدّ المعلن سبعة أيام', 7, FIX_WINDOW_DAYS);
+check('والسقف الشهري ثلاثة',    3, FIX_MAX_PER_CYCLE);
+check('أقدم تاريخ مقبول', '2026-08-05', fixOldestDate('2026-08-12'));
+
+check('اليوم مقبول',              true,  fixWindowOpen('2026-08-12', '2026-08-12'));
+check('قبل ستة أيام مقبول',        true,  fixWindowOpen('2026-08-06', '2026-08-12'));
+check('حدّ النافذة بالضبط مقبول',  true,  fixWindowOpen('2026-08-05', '2026-08-12'));
+check('قبله بيوم مرفوض',          false, fixWindowOpen('2026-08-04', '2026-08-12'));
+/* ⚠️ المستقبل مرفوض: تصحيح ليوم لم يأتِ بعد ليس تصحيحاً */
+check('⚠️ تاريخ في المستقبل مرفوض', false, fixWindowOpen('2026-08-13', '2026-08-12'));
+check('تاريخ فارغ مرفوض',          false, fixWindowOpen('', '2026-08-12'));
+
+/* ═══ عدّاد الدورة ═══
+   ⚠️ المرفوض لا يُحسب: طلب رُفض لم يستهلك شيئاً، وحسابه يعاقب الموظف مرتين. */
+console.log('\n\x1b[1m═══ عدّاد طلبات التصحيح في الدورة ═══\x1b[0m');
+
+const cyc = { start: new Date('2026-07-26T00:00:00'), end: new Date('2026-08-25T23:59:59') };
+const reqs = [
+  { type: 'attendanceFix', employeeUid: 'u1', status: 'pending',  date: '2026-08-01' },
+  { type: 'attendanceFix', employeeUid: 'u1', status: 'approved', date: '2026-08-05' },
+  { type: 'attendanceFix', employeeUid: 'u1', status: 'rejected', date: '2026-08-07' },
+  { type: 'attendanceFix', employeeUid: 'u2', status: 'approved', date: '2026-08-03' },
+  { type: 'leave',         employeeUid: 'u1', status: 'approved', date: '2026-08-02' },
+  { type: 'attendanceFix', employeeUid: 'u1', status: 'approved', date: '2026-07-01' }
+];
+check('المعلّق والمعتمَد يُحسبان', 2, fixCountInCycle(reqs, 'u1', cyc));
+check('⚠️ والمرفوض لا يُحسب — لم يستهلك شيئاً',
+   2, fixCountInCycle(reqs.filter((r) => r.status !== 'rejected'), 'u1', cyc));
+check('وطلبات موظف آخر لا تُحسب عليه', 1, fixCountInCycle(reqs, 'u2', cyc));
+check('وخارج الدورة لا يُحسب',         2, fixCountInCycle(reqs, 'u1', cyc));
+check('موظف بلا طلبات → صفر',          0, fixCountInCycle(reqs, 'u9', cyc));
+
+
+/* ═══ النداء بوسيط واحد — الانحدار الذي كشفته اختبارات المتصفح ═══
+
+   ⚠️ ثلاثة مواضع تنادي هذه الدوال بوسيط واحد وتعتمد على المعامل الافتراضي
+   `today = ymdKsa()`. إسقاطه مرةً جعل المقارنة `dateStr >= undefined` ترجع
+   false دائماً — فرُفض **كل** طلب استئذان، ووُسم كل يوم تأخير «بدون عذر».
+   ولم يلتقطه eslint ولا اختبارات node لأنها كانت تمرّر الوسيطين دائماً. */
+console.log('\n\x1b[1m═══ النداء بوسيط واحد ═══\x1b[0m');
+
+const todayKsa = new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 10);
+check('⚠️ اليوم مقبول بلا تمرير today',        true,  permWindowOpen(todayKsa));
+check('⚠️ وتاريخ قديم مرفوض بلا تمرير today',  false, permWindowOpen('2020-01-01'));
+check('permOldestDate بلا وسيط تُرجع تاريخاً', true,  /^\d{4}-\d{2}-\d{2}$/.test(permOldestDate()));
+check('⚠️ fixWindowOpen اليوم مقبول بلا وسيط',  true,  fixWindowOpen(todayKsa));
+check('fixOldestDate بلا وسيط تُرجع تاريخاً',   true,  /^\d{4}-\d{2}-\d{2}$/.test(fixOldestDate()));
 
 console.log(`\n\x1b[1m═══ النتيجة: ${pass} ناجح، ${fail} فاشل ═══\x1b[0m`);
 process.exit(fail ? 1 : 0);

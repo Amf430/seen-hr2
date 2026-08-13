@@ -1,1 +1,4 @@
 .DS_Store
+.firebase/
+# سجل تشخيص محلي من firebase deploy — يتولّد عند كل نشر ولا يخصّ المستودع
+firebase-debug.log

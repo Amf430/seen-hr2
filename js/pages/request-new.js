@@ -141,6 +141,7 @@ function leaveForm() {
     const w = workingDaysBetween(s, e, myDept());
     f.querySelector('#lfDays').textContent =
       `المدة: ${w.days} يوم عمل` + (w.off ? ` (تم استثناء ${w.off} يوم راحة وعطلة رسمية)` : '');
+
   };
   f.querySelector('#lfStart').onchange = upd;
   f.querySelector('#lfEnd').onchange = upd;

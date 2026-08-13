@@ -26,8 +26,10 @@ import { hhmm, hm, fmtDur, p2 } from '../lib/format.js';
 import { fetchMyAttendance, buildDailyStatus, uidsOf,
          sessionsOf, lastOutOf } from '../lib/attendance.js';
 import { tsToDate } from '../lib/format.js';
-import { isStale, go } from '../lib/nav.js';
-import { PERM_BACKDATE_DAYS } from '../lib/requests.js';
+import { isStale, go, rerender } from '../lib/nav.js';
+import { PERM_BACKDATE_DAYS, fixWindowOpen, fixCountInCycle,
+         FIX_WINDOW_DAYS, FIX_MAX_PER_CYCLE } from '../lib/requests.js';
+import { openFixRequest } from '../components/fix-request-modal.js';
 import { card, grid, stat, empty, tableWrap, bar, sectionHead, callout, button } from '../lib/ui.js';
 
 export async function render(view, token) {
@@ -127,8 +129,26 @@ export async function render(view, token) {
        أن يعرف أنه ليس تفصيلاً شكلياً. */
     if (miss) {
       const c = card('');
+      /* ⚠️ الرسالة القديمة كانت «راجع الموارد البشرية» — أي أن الحل الوحيد
+         تعديل إداري يدوي. صار للموظف طريق يقدّمه بنفسه من هنا. */
       c.appendChild(callout('warn', `${miss} يوم بلا بصمة انصراف`,
-        'اليوم بلا بصمة انصراف لا تُحتسب ساعاته كاملةً. راجع الموارد البشرية لتصحيحه.'));
+        `اليوم بلا بصمة انصراف لا تُحتسب ساعاته كاملةً. تقدر تقدّم طلب تصحيح عن الأيام ${FIX_WINDOW_DAYS} الماضية — يعتمده مديرك ثم الموارد البشرية.`));
+      /* ⚠️ الأيام داخل النافذة وحدها تُعرض بزرّ: زرٌّ على يوم خارجها يُضغط
+         ثم يُرفض، وهو أسوأ من غيابه. */
+      const fixable = rows.filter((r) =>
+        (r.cls === 'missing' || r.cls === 'absent') && fixWindowOpen(r.dateStr));
+      if (fixable.length) {
+        const acts = el('div', 'actions-cell');
+        fixable.forEach((r) => acts.appendChild(
+          button(`تصحيح ${r.dateStr}`, 'btn sm ghost', () => openFixRequest(r, () => rerender()))));
+        c.appendChild(acts);
+        const usedFix = fixCountInCycle(getRequests(), me.id, cycles[Number(dd.value) || 0]);
+        c.appendChild(el('p', 'help',
+          `قدّمت ${usedFix} من ${FIX_MAX_PER_CYCLE} طلبات تصحيح في هذه الدورة.`));
+      } else {
+        c.appendChild(el('p', 'help',
+          `مضى أكثر من ${FIX_WINDOW_DAYS} أيام على هذه الأيام — التصحيح لم يعد ممكناً، راجع الموارد البشرية.`));
+      }
       host.appendChild(c);
     }
 
