@@ -21,13 +21,13 @@ import { ownRequests } from './requests-mine.js';
 import { go, isStale } from '../lib/nav.js';
 import { docsOf, docStatus } from '../lib/documents.js';
 import { contractDaysLeft, ymdKsa, cycleOf, ymd, AR_DAYS, AR_MONTHS } from '../lib/dates.js';
-import { fetchAttendance, buildDailyStatus } from '../lib/attendance.js';
+import { fetchMyAttendance, uidsOf, buildDailyStatus } from '../lib/attendance.js';
 import { mergeEarliestIn } from '../lib/hr-stats.js';
 import { cycleGridOf, monthSummary, minToHm } from '../lib/timesheet.js';
 import { resolveShift } from '../lib/shifts.js';
 import { hm } from '../lib/format.js';
 import { announcementsFor, isLive, myAck, acknowledge, PRIORITY_AR } from '../lib/announcements.js';
-import { card, grid, stat, empty, sectionHead, button, statCard, loading } from '../lib/ui.js';
+import { card, grid, stat, empty, sectionHead, button, statCard, loading, callout } from '../lib/ui.js';
 import { readLeaderboard } from '../lib/leaderboard.js';
 import { topPunctualCard } from '../components/top-punctual.js';
 import { icon } from '../lib/icons.js';
@@ -239,14 +239,27 @@ async function paintTimesheet(host, me, token) {
   const cyc = cycleOf(new Date());
   host.appendChild(loading('جارٍ قراءة كشف حضورك…'));
 
+  /* ⚠️ بلا `.catch(() => [])` — ولا على مصدرٍ واحد. المصدران يُدمجان، فسقوط
+     أحدهما وحده يكفي لتحويل أيام حاضرة إلى غياب. القراءة إمّا تنجح كاملةً
+     أو تُقال للموظف صراحةً: «تعذّرت» لا «غائب». */
   let recs = [];
   try {
     const [zk, web] = await Promise.all([
-      fetchAttendance(cyc, 'zkAttendance').catch(() => []),
-      fetchAttendance(cyc, 'attendance').catch(() => [])
+      fetchMyAttendance(cyc, uidsOf(me), 'zkAttendance'),
+      fetchMyAttendance(cyc, uidsOf(me), 'attendance')
     ]);
     recs = mergeEarliestIn(zk, web);
-  } catch (e) { console.error('timesheet', e); }
+  } catch (e) {
+    console.error('timesheet', e);
+    if (isStale(token)) return;
+    host.innerHTML = '';
+    const c = card('');
+    c.appendChild(sectionHead({ text: 'كشف حضوري', icon: 'calendar' }));
+    c.appendChild(callout('warn', 'تعذّرت قراءة سجلّ حضورك',
+      'لم نصل إلى السجلات — وهذا ليس غياباً. أعد تحميل الصفحة، وإن تكرّر فأبلغ الموارد البشرية.'));
+    host.appendChild(c);
+    return;
+  }
   if (isStale(token)) return;
 
   const rows = buildDailyStatus(cyc, [me], getRequests(), recs)

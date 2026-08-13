@@ -7,7 +7,7 @@
    التقارير وفي بروفايل الموظف. لا تُعاد صياغتها.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { db, doc, getDoc, collection, query, where, getDocs } from './firebase.js';
+import { db, collection, query, where, getDocs } from './firebase.js';
 import { ymd, AR_DAYS } from './dates.js';
 import { tsToDate } from './format.js';
 import { resolveShift, shiftWindowFor, compensableMin,
@@ -122,32 +122,32 @@ export function dayBounds(sessions) {
 /* ── سجلات الموظف نفسه ──
    ⚠️ لا تستعمل fetchAttendance هنا. هي تستعلم بالتاريخ فقط، وقاعدة القراءة
    تسمح للموظف بسجلاته هو فقط — وFirestore يرفض الاستعلام كاملاً ما لم يكن
-   مقيَّداً بحيث تحقّق كل نتيجة محتملة شرط القاعدة. النتيجة كانت أن بطاقة
-   «سجلّي في هذه الدورة» ما تظهر أبداً لأي موظف.
+   مقيَّداً بحيث تحقّق كل نتيجة محتملة شرط القاعدة، فيعود `permission-denied`
+   لا نتيجةً منقوصة. وقعت هذه بعينها في «كشف حضوري»: الشاشة ابتلعت الرفض
+   بـ`.catch(() => [])` فقرأت صفر سجلات، و buildDailyStatus تقرأ صفر سجلات
+   غياباً — فظهر موظفٌ حاضرٌ كلَّ أيامه غائباً في كلّها. ما عجزنا عن قراءته
+   ليس غياباً، ولا يُعرض كأنه هو.
 
-   إضافة where('employeeUid','==',uid) تحلّها لكنها تحتاج فهرساً مركّباً
-   يُنشأ من Console. ومعرّف الوثيقة معروف مسبقاً (uid_YYYY-MM-DD)، فنقرأها
-   مباشرة بلا استعلام ولا فهرس.
+   ⚠️ كانت هذه الدالة تقرأ يوماً يوماً بـgetDoc تفادياً للفهرس المركّب: معرّف
+   الوثيقة معروف مسبقاً (uid_YYYY-MM-DD) فلا تحتاج استعلاماً. سقط ذلك السبب —
+   `firestore.indexes.json` صار موجوداً ومنشوراً (المرحلة ٠)، والثمن كان
+   ٦٢ قراءة نقطية في كل فتحة صفحة (٣١ يوماً × مجموعتين) بينما الاستعلام
+   الواحد يقرأ الموجود وحده. على الخطة المجانية هذا فرق يُحسب.
 
-   ⚠️ يقبل الآن معرّفاً واحداً أو قائمة معرّفات. من استُعيد وصوله له تاريخ
-   موزّع على أكثر من UID، وقراءة الحالي وحده تُريه دورةً فارغة وتُريه في
-   «أدائي» غياباً لم يقع.
+   ⚠️ `in` لا `==`: «استعادة الوصول» تُنشئ حساباً بـuid جديد وسجلاته القديمة
+   مفهرسة بالقديم. القاعدة `isMine()` تقبل الاثنين فيقبلهما الاستعلام — وإلا
+   يتيتّم تاريخ الموظف كله عند أول استعادة ويظهر غياباً لم يقع.
 
-   ⚠️ القراءة تفشل بصمت (catch → null) لمن لا يملكها، فمرور معرّف لا يخصّ
-   القارئ لا يكسر شيئاً — يعود فارغاً. */
+   ⚠️ يحتاج فهرساً مركّباً (employeeUid, date) في المجموعتين. موجود في
+   `firestore.indexes.json` — والمحاكي يبنيه تلقائياً بينما الإنتاج لا،
+   فالنشر قبل وصول الواجهة للموظفين لا بعده. */
 export async function fetchMyAttendance(cycle, uid, coll = 'attendance') {
-  const uids = Array.isArray(uid) ? uid.filter(Boolean) : [uid];
-  const now = new Date();
-  const end = (cycle.end < now) ? cycle.end : now;
-  const days = [];
-  for (let d = new Date(cycle.start); d <= end; d.setDate(d.getDate() + 1)) days.push(ymd(d));
-
-  const snaps = await Promise.all(
-    uids.flatMap((id) => days.map((ds) => getDoc(doc(db, coll, `${id}_${ds}`)).catch(() => null)))
-  );
-  return snaps
-    .filter((s) => s && s.exists())
-    .map((s) => ({ id: s.id, ...s.data() }));
+  const uids = (Array.isArray(uid) ? uid : [uid]).filter(Boolean).slice(0, 30);
+  if (!uids.length) return [];
+  const snap = await getDocs(query(collection(db, coll),
+    where('employeeUid', 'in', uids),
+    where('date', '>=', ymd(cycle.start)), where('date', '<=', ymd(cycle.end))));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
 /* جلب سجلات الحضور ضمن دورة — من أي مجموعة (الموقع أو الجهاز).
