@@ -12,6 +12,9 @@ import {
   allowedMoves, canMove, roleFor, nextStepFor, dueStateOf, daysBetweenYmd,
   isStaleTask, sortTasks, boardColumns, managerPulse, taskAnalytics,
   analyticsBy, checklistPct, STATUS_AR, ACTIVE_STATUSES, STALE_DAYS,
+  /* الدفعة ١ — إصلاح العيوب الثلاثة */
+  progressOf, blockInfo, CLOSED_STATUSES, workloadBy, urgentPressure,
+  URGENT_SOFT_CAP, STATUSES,
   /* المرحلة ٧ */
   duePeriodsFor, recurringTaskId, isoWeekKey, MAX_BACKFILL_DAYS,
   leaveCovering, tasksHittingLeave,
@@ -53,8 +56,10 @@ eq('⚠️ الموظف لا يضع مهمته منجزة بنفسه',   false, 
 eq('⚠️ ولا يسحبها من الاعتماد',             [],    allowedMoves(T({ status: 'review' }), 'assignee'));
 eq('⚠️ ولا يفتح منجزة',                     [],    allowedMoves(T({ status: 'done' }), 'assignee'));
 
-eq('المدير يعتمد أو يُعيد للتحسين', ['done', 'in_progress'], allowedMoves(T({ status: 'review' }), 'manager'));
-eq('والأدمن مثله',                  ['done', 'in_progress'], allowedMoves(T({ status: 'review' }), 'admin'));
+/* ⚠️ 'cancelled' أُضيفت في الدفعة ١: المهمة التي يُقرَّر ألّا تُنفَّذ لم يكن
+   لها مخرج، فكانت تُعتمَد كذباً أو تبقى مفتوحة تشوّه كل رقم. */
+eq('المدير يعتمد أو يُعيد للتحسين أو يلغي', ['done', 'in_progress', 'cancelled'], allowedMoves(T({ status: 'review' }), 'manager'));
+eq('والأدمن مثله',                  ['done', 'in_progress', 'cancelled'], allowedMoves(T({ status: 'review' }), 'admin'));
 eq('المدير يؤرشف المنجزة',          ['archived', 'in_progress'], allowedMoves(T({ status: 'done' }), 'manager'));
 eq('المؤرشفة لا تتحرّك لأحد',        [], allowedMoves(T({ status: 'archived' }), 'admin'));
 eq('من لا دور له لا ينقل شيئاً',     [], allowedMoves(T({ status: 'new' }), null));
@@ -390,6 +395,135 @@ eq('والفلترة بالموظف',      1, searchArchive(arch, { uid: 'u2' })
 eq('والفلترة بالتقييم',     1, searchArchive(arch, { minRating: 4 }).length);
 eq('والفلترة بالمدى',       1, searchArchive(arch, { from: '2026-06-15' }).length);
 eq('وبلا فلتر يرجع الكل',   2, searchArchive(arch, {}).length);
+
+
+group('١٧. ⚠️ العيب الأول — رقم واحد لنسبة الإنجاز');
+
+/* ⚠️ كان `progress` اليدوي و checklistPct يُعرضان معاً في نفس البطاقة،
+   فيتباعدان: يشطب الموظف ٤ من ٥ بنود ويترك الشريط على ٢٠٪. */
+const pgChk = { status: 'in_progress', progress: 20,
+  checklist: [{ done: true }, { done: true }, { done: true }, { done: true }, { done: false }] };
+eq('⚠️ البنود تغلب التقدير اليدوي', 80,  progressOf(pgChk).pct);
+eq('والمصدر معلَن للواجهة',        'checklist', progressOf(pgChk).source);
+
+eq('وبلا بنود يبقى التقدير اليدوي', 45,
+   progressOf({ status: 'in_progress', progress: 45 }).pct);
+eq('ومصدره «يدوي»', 'manual', progressOf({ status: 'in_progress', progress: 45 }).source);
+
+eq('بلا بنود ولا تقدير → صفر لا null', 0, progressOf({ status: 'new' }).pct);
+eq('المنجزة ١٠٠٪ مهما قال الحقل', 100,
+   progressOf({ status: 'done', progress: 10 }).pct);
+eq('والمؤرشفة كذلك', 100, progressOf({ status: 'archived' }).pct);
+
+/* ⚠️ الملغاة لم تُنجَز ولم تُترك ناقصة — النسبة بلا معنى فلا يُرسم شريط */
+eq('⚠️ الملغاة بلا نسبة إطلاقاً', null,
+   progressOf({ status: 'cancelled', progress: 60 }).pct);
+eq('null لا ينهار', null, progressOf(null).pct);
+/* ⚠️ قيمة خارج المدى لا تُصدَّق: القاعدة تحرسها لكن وثيقة قديمة قد تحملها */
+eq('تقدير فاسد يسقط إلى صفر', 0, progressOf({ status: 'new', progress: 900 }).pct);
+
+group('١٨. ⚠️ العيب الثاني — التوقّف اليدوي غير الحجب بالاعتماديّة');
+
+const bDep = { id: 'b1', status: 'in_progress', blockedByTaskIds: ['x'] };
+const bAll = [{ id: 'x', status: 'in_progress', title: 'مانعة' }];
+const iDep = blockInfo(bDep, bAll, '2026-08-13');
+eq('⚠️ مهمة تعمل ومحجوبة باعتماديّة معاً', true,  iDep.byDeps);
+eq('وليست متوقّفة يدوياً',                 false, iDep.manual);
+
+const bMan = { id: 'b2', status: 'blocked', blockReason: 'أنتظر ردّ العميل',
+               createdAtYmd: '2026-08-12' };
+const iMan = blockInfo(bMan, [], '2026-08-13');
+eq('⚠️ متوقّفة يدوياً بلا أي اعتماديّة', true, iMan.manual);
+eq('وليست محجوبة',                       false, iMan.byDeps);
+eq('وسببها محفوظ', 'أنتظر ردّ العميل', iMan.reason);
+eq('ولا ينقصها سبب',                     false, iMan.reasonMissing);
+
+/* ⚠️ «متوقفة» بلا سبب يراها المدير فيطمئنّ — وهي منسيّة باسم آخر */
+eq('⚠️ توقّف بلا سبب يُرفع علمه', true,
+   blockInfo({ status: 'blocked', createdAtYmd: '2026-08-12' }, [], '2026-08-13').reasonMissing);
+eq('وتوقّف قديم يُوسم منسيّاً', true,
+   blockInfo({ status: 'blocked', blockReason: 'س', createdAtYmd: '2026-08-01' },
+             [], '2026-08-13').stale);
+
+group('١٩. ⚠️ العيب الثالث — الملغاة');
+
+eq('«ملغاة» في قائمة الحالات', true,  STATUSES.includes('cancelled'));
+eq('وليست حالةً نشِطة',        false, ACTIVE_STATUSES.includes('cancelled'));
+eq('وهي مغلقة',                true,  CLOSED_STATUSES.includes('cancelled'));
+
+/* ⚠️ الإلغاء قرار إداري: الموظف لا يخرج من مهمة ثقيلة بضغطة */
+eq('⚠️ الموظف لا يلغي مهمته', false, canMove({ status: 'in_progress' }, 'assignee', 'cancelled'));
+eq('ولا من «جديدة»',           false, canMove({ status: 'new' }, 'assignee', 'cancelled'));
+eq('والمدير يلغي من التنفيذ',  true,  canMove({ status: 'in_progress' }, 'manager', 'cancelled'));
+eq('ومن الانتظار',             true,  canMove({ status: 'review' }, 'manager', 'cancelled'));
+eq('ولا يلغي منجزة',           false, canMove({ status: 'done' }, 'manager', 'cancelled'));
+eq('والإلغاء يُتراجَع عنه',    true,  canMove({ status: 'cancelled' }, 'manager', 'in_progress'));
+eq('والموظف لا يحيي ملغاة',    false, canMove({ status: 'cancelled' }, 'assignee', 'in_progress'));
+
+/* ⚠️ الملغاة لا «تتأخر» — عدّها متأخرة كل يوم ينفخ رقم المتأخرات بلا عمل ناقص */
+eq('⚠️ الملغاة مغلقة فلا تتأخر', 'closed',
+   dueStateOf({ status: 'cancelled', dueDate: '2026-01-01' }, '2026-08-13').kind);
+
+/* ⚠️ خارج البسط والمقام معاً: ليست إنجازاً وليست تقصيراً */
+const anC = taskAnalytics([
+  { status: 'done',      dueDate: '2026-08-10', doneAtYmd: '2026-08-09' },
+  { status: 'cancelled', dueDate: '2026-08-01' },
+  { status: 'in_progress' }
+], '2026-08-13');
+eq('⚠️ الملغاة لا تُحسب منجزة',        1, anC.done);
+eq('ولا تدخل مقام «في الوقت»',        100, anC.onTimePct);
+eq('ولا تُعدّ نشِطة',                    1, anC.active);
+eq('وتُعدّ وحدها',                       1, anC.cancelled);
+eq('ولا تُعدّ متأخرة الآن',              0, anC.overdueNow);
+
+group('٢٠. حِمل الموظفين وضغط «العاجلة»');
+
+const wl = [
+  { assigneeUid: 'a', assigneeName: 'سالم', status: 'in_progress', priority: 'urgent', dueDate: '2026-08-01' },
+  { assigneeUid: 'a', assigneeName: 'سالم', status: 'review',      priority: 'normal' },
+  { assigneeUid: 'b', assigneeName: 'ريم',  status: 'in_progress', priority: 'low' },
+  { assigneeUid: 'c', assigneeName: 'ملغاة', status: 'cancelled',  priority: 'urgent' },
+  { assigneeUid: '',  status: 'in_progress', priority: 'high' }
+];
+const load = workloadBy(wl, '2026-08-13');
+eq('الأثقل أولاً',                'a',  load[0].uid);
+eq('وعدد مهامه النشِطة',            2,  load[0].active);
+eq('ومتأخّرته',                     1,  load[0].overdue);
+eq('وما ينتظر اعتماده',             1,  load[0].review);
+/* ⚠️ الوزن لا العدد: عاجلة متأخرة (٤+٣) + عادية (٢) = ٩ مقابل منخفضة = ١ */
+eq('⚠️ الوزن يفرّق العاجل المتأخر', 9,  load[0].load);
+eq('ريم أخفّ',                      1,  load[1].load);
+/* ⚠️ الملغاة والمهمة بلا مكلَّف خارج الحساب */
+eq('⚠️ الملغاة لا تُحمَّل على أحد',  2,  load.length);
+
+const up = urgentPressure([
+  { status: 'in_progress', priority: 'urgent' }, { status: 'new', priority: 'urgent' },
+  { status: 'review', priority: 'urgent' },      { status: 'blocked', priority: 'urgent' },
+  { status: 'done', priority: 'urgent' },        { status: 'cancelled', priority: 'urgent' }
+]);
+eq('العاجلة النشِطة وحدها تُعدّ', 4, up.count);
+eq('وتجاوزت الحدّ',            true, up.over);
+eq('والحدّ الافتراضي ثلاثة', 3, URGENT_SOFT_CAP);
+eq('وتحت الحدّ لا ضغط', false,
+   urgentPressure([{ status: 'new', priority: 'urgent' }]).over);
+
+group('٢١. لوحة المدير — الأرقام الستة من مصفوفة واحدة');
+
+const pl = managerPulse([
+  { status: 'in_progress', dueDate: '2026-08-01' },              /* متأخرة */
+  { status: 'in_progress', dueDate: '2026-08-13' },              /* اليوم */
+  { status: 'review' },
+  { status: 'blocked', blockReason: 'س' },
+  { status: 'in_progress', createdAtYmd: '2026-07-20' },         /* منسيّة */
+  { status: 'done' }, { status: 'cancelled' }
+], '2026-08-13');
+eq('المتأخرة',            1, pl.overdue);
+eq('المستحقّة اليوم',      1, pl.dueToday);
+eq('بانتظار الاعتماد',     1, pl.awaitingMe);
+eq('المتوقّفة',            1, pl.blocked);
+eq('⚠️ المنسيّة — أهمّها', 1, pl.stale);
+/* ⚠️ المغلقة والملغاة خارج «النشِط» */
+eq('والنشِط لا يشمل المغلقة', 5, pl.activeTotal);
 
 console.log(`\n\x1b[1m═══ النتيجة: ${pass} ناجح، ${fail} فاشل ═══\x1b[0m`);
 process.exit(fail ? 1 : 0);

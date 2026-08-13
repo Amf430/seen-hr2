@@ -822,6 +822,30 @@ await check('assignee timeEntries beyond 50',          false,
 await check('unrelated employee updates a task',       false,
   () => updateDoc(doc(emp2, 'tasks/tk1'), { status: 'in_progress' }));
 
+/* ── الدفعة ١ · سبب التوقّف والإلغاء ──
+
+   ⚠️ 'blocked' بلا سبب مكتوب مهمةٌ منسيّة باسم آخر: يقرأ المدير «متوقفة»
+   فيطمئنّ ولا يسأل. الواجهة تطلب السبب، والقاعدة تسمح بكتابته وتسقفه — لأن
+   كل حقل يكتبه المستخدم بلا سقف تخزينٌ مجاني على حساب المالك. */
+await check('assignee blocks with a reason',           true,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { status: 'blocked', blockReason: 'أنتظر ردّ العميل' }));
+await check('⚠️ assignee blockReason beyond 300',       false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { status: 'blocked', blockReason: 'س'.repeat(301) }));
+await check('assignee blockReason as a number',        false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { status: 'blocked', blockReason: 5 }));
+
+/* ⚠️ الإلغاء قرار إداري. لو مُنح للمكلَّف لصار مخرجاً من أي مهمة ثقيلة
+   بضغطة، وسقط معنى التكليف كله. */
+await check('⚠️ assignee CANCELS their own task',       false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { status: 'cancelled' }));
+await check('manager cancels a task',                  true,
+  () => updateDoc(doc(mgr, 'tasks/tk1'), { status: 'cancelled' }));
+/* ⚠️ والمكلَّف لا يحيي ما أُلغي — وإلا ألغى المدير فأعادها الموظف */
+await check('⚠️ assignee revives a cancelled task',     false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { status: 'in_progress' }));
+await check('manager revives it',                      true,
+  () => updateDoc(doc(mgr, 'tasks/tk1'), { status: 'in_progress' }));
+
 /* ── المدير والأدمن ── */
 await check('manager approves the task',               true,
   () => updateDoc(doc(mgr, 'tasks/tk1'), { status: 'done', managerRating: 4, managerNote: 'ممتاز' }));
