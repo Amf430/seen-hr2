@@ -200,7 +200,12 @@ export function dropAllowed(task, who, toStatus) {
     return { ok: false, needs: null,
       reason: who === 'assignee' ? 'notYours' : 'blocked' };
   }
+  /* ⚠️ الفيدباك إلزامي على المكلَّف وحده حين يرسلها للاعتماد: المدير يفتح
+     الإشعار فيجد «جاهزة» بلا كلمة عمّا أُنجز، فيسأل عمّا كان يجب أن يُكتب.
+     وبلا هذا السطر يتخطّى السحبُ نافذةً يفرضها الزرّ — وهو نفس عيب
+     «متوقفة بلا سبب» في طرف آخر. */
   const needs = toStatus === 'blocked' ? 'reason'
+              : (toStatus === 'review' && who === 'assignee') ? 'feedback'
               : (toStatus === 'done' && task.status === 'review') ? 'approve'
               : (toStatus === 'in_progress' && task.status === 'review') ? 'improve'
               : null;

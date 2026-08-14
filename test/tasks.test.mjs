@@ -629,6 +629,10 @@ eq('ولا يُعدّ مسموحاً',                  false, D('new', 'manager
 /* ⚠️ ثلاثة انتقالات تفتح نافذة ولا تُكتب مباشرةً: قيمةٌ تُكتب بلا سببها
    تُفقد معناها — متوقفة بلا سبب، ومعتمَدة بلا تقييم. */
 eq('التوقّف يطلب سبباً قبل الكتابة',  'reason',  D('in_progress', 'manager', 'blocked').needs);
+/* ⚠️ والإرسال للاعتماد يطلب فيدباك — من المكلَّف وحده. بلا هذا يتخطّى
+   السحبُ نافذةً يفرضها الزرّ، فيصل المديرَ «جاهزة» بلا كلمة عمّا أُنجز. */
+eq('⚠️ والإرسال للاعتماد يطلب فيدباك', 'feedback', D('in_progress', 'assignee', 'review').needs);
+eq('والمدير لا يُطلب منه فيدباك الموظف', null, D('in_progress', 'manager', 'review').needs);
 eq('والاعتماد يطلب تقييماً',           'approve', D('review', 'manager', 'done').needs);
 eq('والإعادة تطلب ملاحظة',             'improve', D('review', 'manager', 'in_progress').needs);
 eq('والبدء لا يطلب شيئاً',             null,      D('new', 'manager', 'in_progress').needs);
