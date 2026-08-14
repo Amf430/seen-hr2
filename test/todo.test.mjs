@@ -10,6 +10,7 @@
 
 import { normalizeItem, normalizeList, addItem, toggleItem, removeItem,
          prunable, pruneDone, dueReminders, todayView,
+         todoColumns, bucketOf, dueForBucket, setDue, TODO_BUCKETS, WEEK_DAYS,
          MAX_ITEMS, MAX_TEXT, MAX_OPEN, PRUNE_AFTER_DAYS } from '../js/lib/todo.js';
 
 let pass = 0, fail = 0;
@@ -164,6 +165,54 @@ eq('ومستحقّ اليوم يُعدّ', 1,
 eq('null لا ينهار',        0, todayView(null, null, TODAY).personal.length);
 eq('وخريطة ناقصة لا تنهار', null,
    todayView([{ id: '1', ref: 'zz' }], null, TODAY).tasks[0].task);
+
+
+group('٧. أعمدة القائمة — بالموعد لا بالحالة');
+
+/* ⚠️ القائمة الشخصية بلا آلة حالات: عنصرها منجزٌ أو غير منجز. فأعمدة
+   «جديدة ← قيد التنفيذ» عليها اختراعُ مراحل لا وجود لها. العمود هنا
+   الموعد — وهو السؤال الوحيد الذي يطرحه صاحب القائمة. */
+eq('خمسة أعمدة', 5, TODO_BUCKETS.length);
+eq('و«فات موعدها» لا يقبل إسقاطاً', false,
+   TODO_BUCKETS.find((b) => b.key === 'overdue').accepts);
+eq('وبقيّتها تقبل', 4, TODO_BUCKETS.filter((b) => b.accepts).length);
+
+eq('بلا موعد → بلا موعد', 'none',    bucketOf({ text: 'س' }, TODAY));
+eq('أمس → فات موعدها',   'overdue', bucketOf({ due: '2026-08-12' }, TODAY));
+eq('اليوم → اليوم',       'today',   bucketOf({ due: TODAY }, TODAY));
+eq('غداً → هذا الأسبوع',  'week',    bucketOf({ due: '2026-08-14' }, TODAY));
+/* ⚠️ ستة أيام قادمة لا «حتى الخميس»: أسبوعٌ ينتهي بيوم ثابت يفرغ العمود
+   يوم الأربعاء ويملؤه يوم السبت بلا أن يتغيّر شيء. */
+eq(`وآخر يوم في الأسبوع (+${WEEK_DAYS})`, 'week', bucketOf({ due: '2026-08-19' }, TODAY));
+eq('واليوم الذي يليه → لاحقاً',            'later', bucketOf({ due: '2026-08-20' }, TODAY));
+
+const cols = todoColumns([
+  { id: '1', text: 'فات',   due: '2026-08-01' },
+  { id: '2', text: 'اليوم', due: TODAY },
+  { id: '3', text: 'قريب',  due: '2026-08-16' },
+  { id: '4', text: 'بعيد',  due: '2026-09-30' },
+  { id: '5', text: 'بلا' },
+  { id: '6', text: 'منجز',  due: TODAY, done: true }
+], TODAY);
+eq('كل عمود ببنده', [1, 1, 1, 1, 1], cols.map((c) => c.items.length));
+/* ⚠️ المنجز خارج الأعمدة كلها: لوحةٌ فيها عمود «منجز» تجعل الشطب رحلةَ سحب */
+eq('⚠️ والمنجز خارجها كلها', 0,
+   cols.reduce((a, c) => a + c.items.filter((x) => x.done).length, 0));
+
+/* ── ما يصير إليه الموعد عند الإسقاط ── */
+eq('الإسقاط في «اليوم» يجعله لليوم', TODAY, dueForBucket('today', TODAY));
+eq('و«بلا موعد» يمسحه',              '',    dueForBucket('none', TODAY));
+eq('و«هذا الأسبوع» آخر الأسبوع', '2026-08-19', dueForBucket('week', TODAY));
+eq('و«لاحقاً» بعده',              '2026-08-20', dueForBucket('later', TODAY));
+/* ⚠️ null لا نصّ فارغ: الفارغ يمسح الموعد، وnull تعني «لا تفعل شيئاً».
+   الخلط بينهما يجعل الإسقاط على «فات موعدها» يمسح موعد البند. */
+eq('⚠️ و«فات موعدها» يُرجع null لا فراغاً', null, dueForBucket('overdue', TODAY));
+eq('وعمودٌ مجهول كذلك',                     null, dueForBucket('xx', TODAY));
+
+eq('setDue يغيّر موعد بنده وحده', ['2026-09-01', ''],
+   setDue([{ id: 'a', text: 'أ' }, { id: 'b', text: 'ب' }], 'a', '2026-09-01')
+     .map((x) => x.due));
+eq('ومعرّف مجهول لا يغيّر شيئاً', 2, setDue([{ id: 'a', text: 'أ' }, { id: 'b', text: 'ب' }], 'z', TODAY).length);
 
 console.log(`\n\x1b[1m═══ النتيجة: ${pass} ناجح، ${fail} فاشل ═══\x1b[0m`);
 process.exit(fail ? 1 : 0);

@@ -144,3 +144,69 @@ function byDue(a, b) {
   if (b.due) return 1;
   return 0;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   أعمدة القائمة — بالموعد لا بالحالة
+
+   ⚠️ القائمة الشخصية **بلا آلة حالات**: عنصرها منجزٌ أو غير منجز، لا أكثر.
+   فأعمدة «جديدة ← قيد التنفيذ ← منجزة» عليها اختراعُ مراحل لا وجود لها،
+   ويجعل شطب تذكيرٍ رحلةَ ثلاثة أعمدة. العمود الطبيعي هنا **الموعد** — وهو
+   السؤال الوحيد الذي يطرحه صاحب القائمة: ما الذي عليّ اليوم؟
+
+   ⚠️ والسحب يغيّر الموعد لا الحالة: نقلُ بندٍ إلى «اليوم» يجعله لليوم،
+   وإلى «بلا موعد» يمسح موعده. فالإيماءة نفسها والمعنى يتبع العمود.
+
+   ⚠️ «متأخرة» عمودُ قراءة لا إسقاط: لا يُجدوَل شيءٌ في الماضي. الإسقاط
+   عليه يُرفض برسالته لا بصمت.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+export const TODO_BUCKETS = [
+  { key: 'overdue', label: 'فات موعدها', accepts: false },
+  { key: 'today',   label: 'اليوم',       accepts: true  },
+  { key: 'week',    label: 'هذا الأسبوع', accepts: true  },
+  { key: 'later',   label: 'لاحقاً',      accepts: true  },
+  { key: 'none',    label: 'بلا موعد',    accepts: true  }
+];
+
+const addDays = (ymd, n) => {
+  const [y, m, d] = String(ymd || '').split('-').map(Number);
+  if (!y) return '';
+  const x = new Date(y, m - 1, d + n);
+  const p = (v) => String(v).padStart(2, '0');
+  return `${x.getFullYear()}-${p(x.getMonth() + 1)}-${p(x.getDate())}`;
+};
+
+/* ⚠️ «هذا الأسبوع» ستة أيام قادمة لا «حتى الخميس»: أسبوعٌ ينتهي بيوم ثابت
+   يجعل العمود يفرغ يوم الأربعاء ويمتلئ يوم السبت بلا أن يتغيّر شيء. */
+export const WEEK_DAYS = 6;
+
+export function bucketOf(item, todayYmd) {
+  if (!item || !item.due) return 'none';
+  if (item.due < todayYmd) return 'overdue';
+  if (item.due === todayYmd) return 'today';
+  return item.due <= addDays(todayYmd, WEEK_DAYS) ? 'week' : 'later';
+}
+
+/* → [{ key, label, accepts, items }] — المنجز خارجها كله */
+export function todoColumns(items, todayYmd) {
+  const open = normalizeList(items).filter((x) => !x.done);
+  return TODO_BUCKETS.map((b) => ({
+    ...b,
+    items: open.filter((x) => bucketOf(x, todayYmd) === b.key)
+      .sort((a, c) => (a.due && c.due ? (a.due < c.due ? -1 : 1) : a.due ? -1 : c.due ? 1 : 0))
+  }));
+}
+
+/* الموعد الذي يصير إليه البند حين يُسقَط في عمود.
+   → نصّ تاريخ · '' لمسح الموعد · null إن كان العمود لا يقبل الإسقاط */
+export function dueForBucket(bucketKey, todayYmd) {
+  if (bucketKey === 'today') return todayYmd;
+  if (bucketKey === 'week')  return addDays(todayYmd, WEEK_DAYS);
+  if (bucketKey === 'later') return addDays(todayYmd, WEEK_DAYS + 1);
+  if (bucketKey === 'none')  return '';
+  return null;                                   /* overdue وما لا يُعرف */
+}
+
+export function setDue(items, id, due) {
+  return normalizeList(items).map((x) => (x.id === id ? { ...x, due: due || '' } : x));
+}

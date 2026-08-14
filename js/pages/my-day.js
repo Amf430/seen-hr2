@@ -33,7 +33,8 @@ import { ymdKsa } from '../lib/dates.js';
 import { greeting, firstName, fmtDayDate } from '../lib/format.js';
 import { readTodos, writeTodos } from '../lib/todo-io.js';
 import { addItem, toggleItem, removeItem, todayView, prunable, pruneDone,
-         dueReminders, MAX_TEXT, PRUNE_AFTER_DAYS } from '../lib/todo.js';
+         dueReminders, todoColumns, dueForBucket, setDue,
+         MAX_TEXT, PRUNE_AFTER_DAYS } from '../lib/todo.js';
 import { tasksForAssignee } from '../lib/tasks.js';
 import { dueStateOf, progressOf, STATUS_AR } from '../lib/task-flow.js';
 import { isStale, go } from '../lib/nav.js';
@@ -44,6 +45,13 @@ export async function render(view, token) {
   const me = getMe();
   const today = ymdKsa();
 
+  /* ⚠️ مفتاح مستقلّ عن مفتاح لوحة المهام: من يريد المهام لوحةً لا يريد
+     بالضرورة تذكيراته لوحةً — قائمةٌ من خمسة بنود على خمسة أعمدة أفرغُ
+     من قائمة. */
+  const VIEW_KEY = 'seen-hr:todo-view';
+  let mode = 'list';
+  try { mode = localStorage.getItem(VIEW_KEY) === 'board' ? 'board' : 'list'; } catch (e) { /* خصوصية مشدّدة */ }
+
   /* ⚠️ ترويسة بتاريخ اليوم وتحية باسمه — لا سطر عنوانٍ جافّ. هذه صفحةٌ
      تُفتح كل صباح، والتاريخ فيها معلومة تُستعمل لا زينة. */
   const head = el('header', 'dayhead');
@@ -53,6 +61,17 @@ export async function render(view, token) {
        <p class="dayhead__sub">${esc(greeting())}، ${esc(firstName(me.name || ''))}</p>
      </div>
      <span class="dayhead__date">${esc(fmtDayDate())}</span>`;
+  const viewBtn = button('', 'btn sm ghost', () => {
+    mode = mode === 'board' ? 'list' : 'board';
+    try { localStorage.setItem(VIEW_KEY, mode); } catch (e) { /* لا شيء يُفقد */ }
+    draw();
+  });
+  const paintViewBtn = () => {
+    viewBtn.innerHTML = icon(mode === 'board' ? 'list' : 'dashboard') +
+      (mode === 'board' ? 'عرض قائمة' : 'عرض لوحة');
+  };
+  paintViewBtn();
+  head.querySelector('div').appendChild(viewBtn);
   view.appendChild(head);
 
   const host = el('div', '');
@@ -79,6 +98,7 @@ export async function render(view, token) {
 
   const byId = new Map(tasks.map((t) => [t.id, t]));
   let showDone = false;
+
 
   async function save(next) {
     try { items = await writeTodos(next); draw(); return true; }
@@ -111,11 +131,17 @@ export async function render(view, token) {
     /* ══════════ القائمة الشخصية ══════════
        ⚠️ الوعد يُكتب في الشاشة لا في تعليق: الوعد الذي لا يُقرأ لا يُصدَّق،
        والقائمة التي يظنّها الموظف مقروءة لا يكتب فيها ما ينفعه. */
+    paintViewBtn();
     host.appendChild(sectionLabel(`تذكيراتي الخاصة (${v.personal.length})`,
       'لك وحدك — لا يراها مديرك ولا الموارد البشرية، ولا تدخل تقاريرك ولا تقييمك',
       null, 'shield'));
     if (!v.personal.length) {
       host.appendChild(el('p', 'daylist__empty', 'لا تذكيرات. اكتب واحداً في الأعلى.'));
+    } else if (mode === 'board') {
+      host.appendChild(todoBoard());
+      host.appendChild(el('p', 'help',
+        'اسحب البند بين الأعمدة ليتغيّر موعده — «اليوم» يجعله لليوم و«بلا موعد» يمسحه. ' +
+        'على الجوال: السحب لا يعمل باللمس، فاستعمل حقل الموعد عند الإضافة.'));
     } else {
       const l = el('div', 'daylist daylist--private');
       v.personal.forEach((x) => l.appendChild(todoRow(x)));
@@ -146,6 +172,80 @@ export async function render(view, token) {
         }
       }
     }
+  }
+
+  /* ── لوحة القائمة: أعمدة بالموعد ──
+     ⚠️ السحب هنا يغيّر **الموعد** لا الحالة: التذكير الشخصي بلا آلة حالات،
+     وعمودُه الطبيعي متى يُفعَل. و«فات موعدها» عمود قراءة لا إسقاط — لا
+     يُجدوَل شيء في الماضي، والرفض يُقال بنصّه لا بصمت. */
+  function todoBoard() {
+    const board = el('div', 'board');
+    let dragging = null;
+
+    todoColumns(items, today).forEach((col) => {
+      const c = el('section', 'board__col');
+      c.dataset.bucket = col.key;
+      c.innerHTML =
+        `<header class="board__head">
+           <span class="board__title">${esc(col.label)}</span>
+           <span class="board__count">${col.items.length}</span>
+         </header>`;
+      const body = el('div', 'board__body');
+      if (!col.items.length) body.appendChild(el('p', 'board__empty', 'لا شيء هنا'));
+      col.items.forEach((x) => body.appendChild(todoCard(x)));
+
+      c.addEventListener('dragover', (e) => {
+        if (!dragging) return;
+        if (bucketNow(dragging) === col.key) return;
+        e.preventDefault();
+        c.classList.add(col.accepts ? 'is-over' : 'is-deny');
+      });
+      c.addEventListener('dragleave', () => c.classList.remove('is-over', 'is-deny'));
+      c.addEventListener('drop', (e) => {
+        e.preventDefault();
+        c.classList.remove('is-over', 'is-deny');
+        const x = dragging; dragging = null;
+        if (!x || bucketNow(x) === col.key) return;
+        const nextDue = dueForBucket(col.key, today);
+        if (nextDue === null) { toast('لا يُجدوَل بندٌ في الماضي', 'err'); return; }
+        save(setDue(items, x.id, nextDue));
+      });
+
+      c.appendChild(body);
+      board.appendChild(c);
+    });
+
+    function bucketNow(x) {
+      return todoColumns([x], today).find((b) => b.items.length)?.key || 'none';
+    }
+
+    function todoCard(x) {
+      const card = el('button', 'tcard' + (x.due && x.due < today ? ' tcard--late' : ''));
+      card.type = 'button';
+      card.draggable = true;
+      card.innerHTML =
+        `<span class="tcard__title">${esc(x.text)}</span>` +
+        `<span class="tcard__foot">
+           <span class="tcard__who">${x.due ? esc(x.due) : 'بلا موعد'}</span>
+           ${x.remindAt ? `<span class="tcard__who">${icon('clock')}${esc(x.remindAt)}</span>` : ''}
+         </span>`;
+      /* ⚠️ الضغط يشطب هنا لا يفتح تفاصيل: التذكير الشخصي بلا صفحة تفاصيل،
+         وبطاقةٌ تُضغط ولا يحدث شيء تُقرأ عطلاً. */
+      card.onclick = () => save(toggleItem(items, x.id, today));
+      card.title = 'اضغط لشطبه';
+      card.addEventListener('dragstart', (e) => {
+        dragging = x; card.classList.add('is-dragging');
+        try { e.dataTransfer.setData('text/plain', x.id); } catch (err) { /* سفاري القديم */ }
+        e.dataTransfer.effectAllowed = 'move';
+      });
+      card.addEventListener('dragend', () => {
+        dragging = null; card.classList.remove('is-dragging');
+        board.querySelectorAll('.is-over,.is-deny')
+          .forEach((n) => n.classList.remove('is-over', 'is-deny'));
+      });
+      return card;
+    }
+    return board;
   }
 
   /* ── الإضافة السريعة ──

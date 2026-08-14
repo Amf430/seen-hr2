@@ -15,17 +15,34 @@ import { tasksForAssignee, moveTask, startTimer, stopTimer } from '../lib/tasks.
 import { boardColumns, dueStateOf, nextStepFor, progressOf, blockInfo,
          timeSummary, MAX_BLOCK_REASON, PRIORITY_AR, STATUS_AR } from '../lib/task-flow.js';
 import { isStale, go } from '../lib/nav.js';
-import { card, empty, sectionHead, button, loading, callout } from '../lib/ui.js';
+import { card, empty, sectionHead, button, loading, callout, pageHead } from '../lib/ui.js';
+import { taskBoard } from '../components/task-board.js';
+import { ACTIVE_STATUSES } from '../lib/task-flow.js';
+import { icon } from '../lib/icons.js';
 
 export async function render(view, token) {
   const me = getMe();
   const today = ymdKsa();
 
-  const head = card('');
-  head.appendChild(sectionHead({ text: 'مهامي', icon: 'check' }));
-  head.appendChild(el('p', 'desc',
-    'المهام المكلَّف بها. عند الانتهاء أرسلها للاعتماد ويعتمدها مديرك.'));
-  view.appendChild(head);
+  /* ⚠️ نفس مفتاح تفضيل شاشة المدير: من اختار اللوحة اختارها لنظام المهام
+     كلّه لا لشاشة بعينها. مفتاحان يجعلان الشاشتين تتباعدان بلا سبب. */
+  const VIEW_KEY = 'seen-hr:tasks-view';
+  let mode = 'board';
+  try { mode = localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'board'; } catch (e) { /* خصوصية مشدّدة */ }
+
+  const viewBtn = button('', 'btn sm ghost', () => {
+    mode = mode === 'board' ? 'list' : 'board';
+    try { localStorage.setItem(VIEW_KEY, mode); } catch (e) { /* لا شيء يُفقد */ }
+    draw();
+  });
+  const paintViewBtn = () => {
+    viewBtn.innerHTML = icon(mode === 'board' ? 'list' : 'dashboard') +
+      (mode === 'board' ? 'عرض قائمة' : 'عرض لوحة');
+  };
+  paintViewBtn();
+
+  view.appendChild(pageHead('مهامي',
+    'المهام المكلَّف بها. عند الانتهاء أرسلها للاعتماد ويعتمدها مديرك.', viewBtn));
 
   const host = el('div', '');
   view.appendChild(host);
@@ -50,6 +67,37 @@ export async function render(view, token) {
     if (!tasks.length) {
       host.appendChild(el('div', 'card',
         '<div class="empty">لا مهام مكلَّف بها حالياً.</div>'));
+      return;
+    }
+
+    paintViewBtn();
+
+    /* ══════════ اللوحة ══════════
+       ⚠️ أعمدة الموظف **النشِطة وحدها** لا BOARD_STATUSES: عمود «منجزة»
+       يحتاج استعلاماً ثانياً لا يحتاجه الموظف — هو يسأل «وش المطلوب مني
+       الحين» لا «ماذا اعتُمد». والمدير يسأل الثانية فيدفع ثمنها.
+
+       ⚠️ ولا زرّ «منجزة» يظهر له بأي حال: dropAllowed ترفضه في كل حالة،
+       وهو الحارس نفسه الذي يحرس الأزرار. */
+    if (mode === 'board') {
+      const bc = card('');
+      bc.appendChild(taskBoard({
+        tasks, who: 'assignee', today, statuses: ACTIVE_STATUSES,
+        onOpen: (t) => go('task', t.id),
+        onMove: async (t, to) => {
+          try { await moveTask(t, to); toast('حُدّثت الحالة', 'ok'); await draw(); }
+          catch (e) { console.error(e); toast('تعذّر تحديث الحالة', 'err'); }
+        },
+        onNeeds: (t, to, needs) => {
+          if (needs === 'reason') openBlock(t, draw);
+          else if (needs === 'feedback') openFeedback(t, draw);
+        },
+        onDeny: (msg) => { if (msg) toast(msg, 'err'); }
+      }));
+      bc.appendChild(el('p', 'help',
+        'اسحب البطاقات بين الأعمدة، أو اضغط بطاقةً للتفاصيل. ' +
+        'على الجوال: افتح المهمة وانقلها من زرّ الإجراء — السحب لا يعمل باللمس.'));
+      host.appendChild(bc);
       return;
     }
 
