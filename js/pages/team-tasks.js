@@ -21,6 +21,9 @@ import { isStale, go } from '../lib/nav.js';
 import { isAdmin } from '../lib/perms.js';
 import { card, tableWrap, sectionHead, button, loading, callout, pageHead, statCard,
          rowMenu } from '../lib/ui.js';
+import { taskBoard } from '../components/task-board.js';
+import { icon } from '../lib/icons.js';
+import { BOARD_STATUSES, shouldArchive, MAX_BLOCK_REASON } from '../lib/task-flow.js';
 
 export async function render(view, token) {
   const me = getMe();
@@ -42,8 +45,27 @@ export async function render(view, token) {
      امتداد لهذه الصفحة لا وجهة مستقلّة — من يفتح مهام قسمه يبحث عن المفتوحة،
      ويعود للمنجزة عند السؤال عمّا أُنجز. */
   let deptSel = null;
+  /* ⚠️ تفضيل هذا الجهاز وحده — localStorage لا Firestore. من يفتح اللوحة
+     على شاشة كبيرة يريدها لوحةً، ومن يفتحها على جواله يريدها قائمة، وهو
+     الشخص نفسه. ولا شيء هنا يخصّ الحقيقة. */
+  const VIEW_KEY = 'seen-hr:tasks-view';
+  let view2 = 'board';
+  try { view2 = localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'board'; } catch (e) { /* خصوصية مشدّدة */ }
+
+  const viewBtn = button('', 'btn sm ghost', () => {
+    view2 = view2 === 'board' ? 'list' : 'board';
+    try { localStorage.setItem(VIEW_KEY, view2); } catch (e) { /* لا شيء يُفقد */ }
+    draw();
+  });
+  const paintViewBtn = () => {
+    viewBtn.innerHTML = icon(view2 === 'board' ? 'list' : 'dashboard') +
+      (view2 === 'board' ? 'عرض قائمة' : 'عرض لوحة');
+  };
+  paintViewBtn();
+
   const headActions = [
     button('مهمة جديدة', 'btn sm', () => openTaskForm(null), 'plus'),
+    viewBtn,
     button('المهام المنجزة', 'btn sm ghost', () => go('tasks-archive'), 'archive')
   ];
   view.appendChild(pageHead('مهام القسم',
@@ -66,6 +88,7 @@ export async function render(view, token) {
 
   let filterStatus = '', filterUid = '', onlyLate = false, filterStale = false,
       dueTodayOnly = false;
+
 
   async function draw() {
     host.innerHTML = '';
@@ -93,11 +116,16 @@ export async function render(view, token) {
     }
     if (isStale(token)) return;
 
-    /* الأرشفة التلقائية: دفعة محدودة من المنجزة منذ ٣٠ يوماً */
+    /* الأرشفة التلقائية: دفعة محدودة من المنجزة منذ ٣٠ يوماً.
+       ⚠️ ونحتفظ بالنتيجة للوحة: عمود «منجزة» يعرضها بلا استعلام ثالث. */
+    let doneTasks = [];
     try {
-      const done = await tasksForDept(dept, ['done']);
-      const n = await archiveDueTasks(done, today);
-      if (n) tasks = await tasksForDept(dept);
+      doneTasks = await tasksForDept(dept, ['done']);
+      const n = await archiveDueTasks(doneTasks, today);
+      if (n) {
+        tasks = await tasksForDept(dept);
+        doneTasks = doneTasks.filter((t) => !shouldArchive(t, today));
+      }
     } catch (e) { console.error('archive', e); }
     if (isStale(token)) return;
 
@@ -232,6 +260,36 @@ export async function render(view, token) {
     if (dueTodayOnly) list = list.filter((t) => dueStateOf(t, today).kind === 'today');
     if (filterStale)  list = list.filter((t) => isStaleTask(t, today));
 
+    paintViewBtn();
+
+    /* ══════════ اللوحة ══════════
+       ⚠️ «منجزة» عمودٌ هنا وليست في ACTIVE_STATUSES: تُجلب باستعلامها
+       المستقلّ (الذي يُنفَّذ أصلاً للأرشفة) فلا قراءة إضافية، ويحتاج المدير
+       أن يرى ما اعتُمد بجوار ما ينتظره. */
+    if (view2 === 'board') {
+      const bc = card('');
+      bc.appendChild(sectionHead({ text: `المهام (${list.length})`, icon: 'dashboard' }));
+      bc.appendChild(taskBoard({
+        tasks: list.concat(doneTasks), who: roleFor(list[0] || { departments: [dept] }, me) || 'manager',
+        today, statuses: BOARD_STATUSES,
+        onOpen: (t) => go('task', t.id),
+        onMove: (t, to) => quickMove(t, to),
+        onNeeds: (t, to, needs) => {
+          if (needs === 'approve') openApprove(t);
+          else if (needs === 'improve') openImprove(t);
+          else if (needs === 'reason') openBlockReason(t);
+        },
+        onDeny: (msg) => { if (msg) toast(msg, 'err'); }
+      }));
+      /* ⚠️ يُقال صراحةً أن السحب لسطح المكتب: HTML5 DnD لا يعمل على اللمس،
+         ومستخدمُ الجوال الذي يحاول السحب ويفشل يظنّ النظام معطّلاً. */
+      bc.appendChild(el('p', 'help',
+        'اسحب البطاقات بين الأعمدة لنقل حالتها، أو اضغط بطاقةً للتفاصيل. ' +
+        'على الجوال: افتح المهمة وانقلها من زرّ الإجراء — السحب لا يعمل باللمس.'));
+      host.appendChild(bc);
+      return;
+    }
+
     const c = card('');
     c.appendChild(sectionHead({ text: `المهام (${list.length})`, icon: 'check' }));
     if (!list.length) {
@@ -302,6 +360,32 @@ export async function render(view, token) {
     });
     c.appendChild(w);
     host.appendChild(c);
+  }
+
+  /* ⚠️ التوقّف يطلب سبباً حتى حين يقع بالسحب: «متوقفة» بلا سبب يقرؤها
+     المدير فيطمئنّ ولا يسأل — وهي منسيّة باسم آخر. الإسقاط يفتح النافذة. */
+  function openBlockReason(t) {
+    const m = openModal(`
+      <h3>إيقاف مؤقّت — ${esc(t.title)}</h3>
+      <div class="field">
+        <label for="tbWhy">ما الذي يمنع التقدّم؟ *</label>
+        <textarea id="tbWhy" rows="3" maxlength="${MAX_BLOCK_REASON}"
+          placeholder="بانتظار ردّ العميل · ينقصه ملف من المحاسبة"></textarea>
+      </div>
+      <div class="err" id="tbErr"></div>
+      <div class="row">
+        <button class="btn ghost" id="tbCancel">إلغاء</button>
+        <button class="btn" id="tbOk">أوقفها</button>
+      </div>`);
+    m.$('#tbCancel').onclick = m.close;
+    m.$('#tbOk').onclick = async () => {
+      const why = m.$('#tbWhy').value.trim();
+      if (why.length < 3) { m.$('#tbErr').textContent = 'اكتب السبب — كلمتان تكفيان'; return; }
+      try {
+        await moveTask(t, 'blocked', { blockReason: why.slice(0, MAX_BLOCK_REASON) });
+        m.close(); toast('أُوقفت مؤقتاً', 'ok'); await draw();
+      } catch (e) { console.error(e); m.$('#tbErr').textContent = 'تعذّر الحفظ'; }
+    };
   }
 
   async function quickMove(t, to) {

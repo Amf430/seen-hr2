@@ -165,13 +165,46 @@ export function sortTasks(tasks, todayYmd) {
   });
 }
 
-/* توزيع المهام على أعمدة اللوحة */
-export function boardColumns(tasks, todayYmd) {
+/* ═══ أعمدة اللوحة ═══
+
+   ⚠️ «منجزة» عمودٌ على اللوحة وليست حالةً نشِطة: المدير يحتاج أن يرى ما
+   اعتُمد هذا الأسبوع بجوار ما ينتظره، وإخفاؤه يجعل اللوحة تقول إن لا شيء
+   أُنجز. لكنها تُجلب باستعلامها المستقلّ ولا تدخل ACTIVE_STATUSES — تلك
+   تُستعمل في `where('status','in',…)` وأي زيادة فيها تُثقل كل قراءة.
+
+   ⚠️ و«متوقفة» عمودٌ لا وسم: المهمة المتوقّفة تحتاج أن تُرى مجموعةً في
+   مكان واحد ليُسأل عن كلٍّ منها ما ينتظر. */
+export const BOARD_STATUSES = ['new', 'in_progress', 'blocked', 'review', 'done'];
+
+export function boardColumns(tasks, todayYmd, statuses = ACTIVE_STATUSES) {
   const sorted = sortTasks(tasks, todayYmd);
-  return ACTIVE_STATUSES.map((s) => ({
+  return statuses.map((s) => ({
     status: s, label: STATUS_AR[s],
     tasks: sorted.filter((t) => t.status === s)
   }));
+}
+
+/* ═══ هل يُقبل إسقاط بطاقة في هذا العمود؟ ═══
+   → { ok, reason, needs }
+
+   ⚠️ السحب لا يتجاوز آلة الحالات: هو طريقٌ ثانٍ إلى **نفس** allowedMoves
+   التي تحكم الأزرار. طريقٌ يتجاوزها يجعل الموظف يعتمد مهمته بجرّها.
+
+   ⚠️ و`needs` تقول للواجهة أن الانتقال يحتاج مدخلاً قبل تنفيذه — لا
+   يُكتب بلا سببه: التوقّف بلا سبب مهمةٌ منسيّة، والاعتماد بلا تقييم يُفقد
+   التحليلات مادّتها. الإسقاط يفتح النافذة ولا يكتب مباشرةً. */
+export function dropAllowed(task, who, toStatus) {
+  if (!task || !toStatus) return { ok: false, reason: 'none', needs: null };
+  if (task.status === toStatus) return { ok: false, reason: 'same', needs: null };
+  if (!canMove(task, who, toStatus)) {
+    return { ok: false, needs: null,
+      reason: who === 'assignee' ? 'notYours' : 'blocked' };
+  }
+  const needs = toStatus === 'blocked' ? 'reason'
+              : (toStatus === 'done' && task.status === 'review') ? 'approve'
+              : (toStatus === 'in_progress' && task.status === 'review') ? 'improve'
+              : null;
+  return { ok: true, reason: 'ok', needs };
 }
 
 /* ═══ شريط لوحة المدير ═══

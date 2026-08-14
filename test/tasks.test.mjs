@@ -17,6 +17,8 @@ import {
   URGENT_SOFT_CAP, STATUSES,
   /* الدفعة ٢ — سجل النشاط المشتقّ */
   buildTimeline, filterTimeline, EVENT_AR,
+  /* لوحة السحب */
+  dropAllowed, BOARD_STATUSES,
   /* المرحلة ٧ */
   duePeriodsFor, recurringTaskId, isoWeekKey, MAX_BACKFILL_DAYS,
   leaveCovering, tasksHittingLeave,
@@ -602,6 +604,56 @@ eq('ووضع مجهول يرجع الكل', tl.length, filterTimeline(tl, 'xx').
 eq('null لا ينهار', 0, filterTimeline(null, 'chat').length);
 
 eq('لكل حدث نصّ عربي', true, !!EVENT_AR.created && !!EVENT_AR.cancelled);
+
+
+group('٢٣. لوحة السحب — الإسقاط لا يتجاوز آلة الحالات');
+
+/* ⚠️ السحب طريقٌ ثانٍ إلى نفس allowedMoves لا بابٌ خلفيّ. لو مرّ إسقاطٌ
+   تمنعه الأزرار، صار الموظف يعتمد مهمته بجرّها — وهو ما تمنعه خطوة
+   «بانتظار الاعتماد» التي يقوم عليها قسم التحليلات كله. */
+const D = (status, who, to) => dropAllowed({ status }, who, to);
+
+eq('الموظف يبدأ التنفيذ بالسحب',      true,  D('new', 'assignee', 'in_progress').ok);
+eq('ويرسلها للاعتماد',                 true,  D('in_progress', 'assignee', 'review').ok);
+/* ⚠️ الحارس الأهم في الملف كله */
+eq('⚠️ الموظف لا يُسقطها في «منجزة»', false, D('review', 'assignee', 'done').ok);
+eq('ويُقال له لماذا لا «ممنوع» وحدها', 'notYours', D('review', 'assignee', 'done').reason);
+eq('⚠️ ولا يسحبها من الاعتماد',        false, D('review', 'assignee', 'in_progress').ok);
+eq('⚠️ ولا يلغيها',                    false, D('in_progress', 'assignee', 'cancelled').ok);
+eq('والمدير يعتمد',                    true,  D('review', 'manager', 'done').ok);
+
+/* ⚠️ الإسقاط في العمود نفسه ليس رفضاً — لا رسالة ولا كتابة */
+eq('⚠️ الإسقاط في مكانه لا يفعل شيئاً', 'same', D('new', 'manager', 'new').reason);
+eq('ولا يُعدّ مسموحاً',                  false, D('new', 'manager', 'new').ok);
+
+/* ⚠️ ثلاثة انتقالات تفتح نافذة ولا تُكتب مباشرةً: قيمةٌ تُكتب بلا سببها
+   تُفقد معناها — متوقفة بلا سبب، ومعتمَدة بلا تقييم. */
+eq('التوقّف يطلب سبباً قبل الكتابة',  'reason',  D('in_progress', 'manager', 'blocked').needs);
+eq('والاعتماد يطلب تقييماً',           'approve', D('review', 'manager', 'done').needs);
+eq('والإعادة تطلب ملاحظة',             'improve', D('review', 'manager', 'in_progress').needs);
+eq('والبدء لا يطلب شيئاً',             null,      D('new', 'manager', 'in_progress').needs);
+
+eq('مهمة معدومة لا تنهار', false, dropAllowed(null, 'manager', 'done').ok);
+eq('وحالة معدومة كذلك',    false, dropAllowed({ status: 'new' }, 'manager', '').ok);
+
+group('٢٤. أعمدة اللوحة');
+
+/* ⚠️ «منجزة» عمودٌ ولا تدخل ACTIVE_STATUSES: تلك تُستعمل في
+   `where('status','in',…)` وكل زيادة فيها تُثقل قراءة اللوحة اليومية. */
+eq('خمسة أعمدة على اللوحة', 5, BOARD_STATUSES.length);
+eq('⚠️ و«منجزة» فيها',      true,  BOARD_STATUSES.includes('done'));
+eq('⚠️ وليست في النشِطة',    false, ACTIVE_STATUSES.includes('done'));
+eq('و«متوقفة» عمودٌ لا وسم', true,  BOARD_STATUSES.includes('blocked'));
+eq('والملغاة ليست عموداً',   false, BOARD_STATUSES.includes('cancelled'));
+
+const bcols = boardColumns([
+  { id: '1', status: 'new', title: 'أ' },
+  { id: '2', status: 'done', title: 'ب' },
+  { id: '3', status: 'blocked', title: 'ج' }
+], '2026-08-13', BOARD_STATUSES);
+eq('عمودٌ لكل حالة ولو فارغاً', 5, bcols.length);
+eq('والمنجزة تجد عمودها', 1, bcols.find((c) => c.status === 'done').tasks.length);
+eq('والافتراضي يبقى النشِطة وحدها', 4, boardColumns([], '2026-08-13').length);
 
 console.log(`\n\x1b[1m═══ النتيجة: ${pass} ناجح، ${fail} فاشل ═══\x1b[0m`);
 process.exit(fail ? 1 : 0);

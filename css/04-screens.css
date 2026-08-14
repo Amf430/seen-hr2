@@ -777,3 +777,68 @@
 .sheet__day.is-missingIn{background:var(--violet-bg);border-color:transparent}
 .sheet__day.is-missingIn .sheet__n,.sheet__day.is-missingIn .sheet__t{color:var(--violet)}
 .sheet__sw.is-missingIn{background:var(--violet);opacity:.6}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   لوحة المهام — أعمدة بالحالة والسحب بينها (طلب المالك ٢٠٢٦-٠٨-١٤)
+
+   ⚠️ تمرير أفقي على الحاوية لا على الصفحة: أربعة أعمدة لا تدخل شاشة ٣٩٠px،
+   وتركُ الصفحة كلها تنزلق أفقياً يكسر الشريط العلوي والدوك معها.
+
+   ⚠️ والعمود يبقى بعرض ثابت: أعمدةٌ تتقلّص بعدد بطاقاتها تجعل «للتنفيذ»
+   الفارغ خيطاً و«قيد التنفيذ» لوحاً — والعين تقرأ الحجم قبل الرقم.
+   ══════════════════════════════════════════════════════════════════════════ */
+.board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(260px,1fr);
+  gap:var(--sp-3);overflow-x:auto;padding-block:var(--sp-2) var(--sp-3);
+  margin-block-start:var(--sp-3);
+  scroll-snap-type:x proximity}
+.board__col{scroll-snap-align:start;min-inline-size:0;
+  background:var(--surface-3);border:1px solid var(--border-soft);
+  border-radius:var(--r-md);padding:var(--sp-2);
+  display:flex;flex-direction:column;
+  transition:background var(--dur-1) var(--ease),border-color var(--dur-1) var(--ease)}
+
+.board__head{display:flex;align-items:center;justify-content:space-between;
+  gap:var(--sp-2);padding:var(--sp-1) var(--sp-2) var(--sp-2)}
+.board__title{font-size:var(--fs-sm);font-weight:var(--fw-bold);color:var(--ink-2)}
+.board__count{font-size:var(--fs-caption);color:var(--muted-strong);
+  background:var(--card);border:1px solid var(--border-soft);
+  min-inline-size:22px;text-align:center;
+  border-radius:var(--r-pill);padding:1px var(--sp-2);
+  font-variant-numeric:tabular-nums}
+
+.board__body{display:flex;flex-direction:column;gap:var(--sp-2);min-block-size:60px}
+.board__empty{color:var(--muted);font-size:var(--fs-caption);
+  text-align:center;padding:var(--sp-5) 0}
+
+/* ⚠️ حالتا الإسقاط مختلفتان بصريّاً: المقبول عنّابي والمرفوض أحمر مقطّع.
+   حالةٌ واحدة تجعل المستخدم يُسقط ثم يقرأ رسالة الرفض — وهو يعرف قبلها. */
+.board__col.is-over{background:var(--maroon-tint);border-color:var(--maroon-2)}
+.board__col.is-deny{border-color:var(--red);border-style:dashed}
+
+/* ── البطاقة ── */
+.tcard{display:flex;flex-direction:column;gap:var(--sp-1);align-items:stretch;
+  text-align:start;font:inherit;cursor:pointer;
+  background:var(--card);border:1px solid var(--border);
+  border-radius:var(--r-sm);padding:var(--sp-3);
+  transition:border-color var(--dur-1) var(--ease),box-shadow var(--dur-1) var(--ease)}
+.tcard:hover{border-color:var(--border-strong);box-shadow:var(--e-1)}
+.tcard:focus-visible{outline:var(--focus-w) solid var(--focus);outline-offset:2px}
+.tcard[draggable="true"]{cursor:grab}
+.tcard.is-dragging{opacity:.45;cursor:grabbing}
+/* المتأخرة بخيط أحمر على حافّتها — تُقرأ قبل قراءة نصّها */
+.tcard--late{border-inline-start:3px solid var(--red)}
+
+.tcard__title{font-size:var(--fs-base);font-weight:var(--fw-medium);color:var(--ink);
+  line-height:var(--lh-snug);word-break:break-word}
+.tcard__sub{font-size:var(--fs-caption);color:var(--muted-strong)}
+.tcard__foot{display:flex;align-items:center;justify-content:space-between;
+  gap:var(--sp-2);flex-wrap:wrap;margin-block-start:var(--sp-1)}
+.tcard__who{font-size:var(--fs-caption);color:var(--muted-strong)}
+.tcard__flags{display:flex;gap:var(--sp-2);flex-wrap:wrap;
+  font-size:var(--fs-micro);color:var(--muted-strong);line-height:1.5}
+
+/* ⚠️ على الشاشة الضيّقة عمودٌ واحد بعرض الشاشة تقريباً: عمودان نصفيّان
+   يجعلان البطاقة سطرين ونصفاً ولا يُقرأ عنوانها. */
+@media (max-width:640px){
+  .board{grid-auto-columns:minmax(84vw,1fr)}
+}
