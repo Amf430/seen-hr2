@@ -17,20 +17,20 @@ import { getUsers, getRequests } from '../lib/state.js';
 import { ymdKsa, cycleOf } from '../lib/dates.js';
 import { allTasks } from '../lib/tasks.js';
 import { taskAnalytics, analyticsBy } from '../lib/task-flow.js';
+import { barList } from '../lib/charts.js';
 import { fetchAttendance, buildDailyStatus } from '../lib/attendance.js';
 import { teamSummaryOf } from '../lib/team-stats.js';
 import { isStale } from '../lib/nav.js';
-import { card, grid, stat, tableWrap, sectionHead, loading, callout } from '../lib/ui.js';
+import { card, tableWrap, sectionHead, loading, callout, pageHead, statCard } from '../lib/ui.js';
 
 export async function render(view, token) {
   const today = ymdKsa();
   const cyc = cycleOf(new Date());
 
-  const head = card('');
-  head.appendChild(sectionHead({ text: 'تحليلات المهام', icon: 'chart' }));
-  head.appendChild(el('p', 'desc',
+  /* ⚠️ رأس صفحة لا بطاقة عنوان — الهوية الجديدة: البنية بالحدّ لا بالظلّ،
+     والعنوان لا يستهلك بطاقة كاملة بلا معلومة. */
+  view.appendChild(pageHead('تحليلات المهام',
     'أرقام المهام لكل قسم ولكل موظف، مقروءة بجانب أرقام الانضباط في الحضور.'));
-  view.appendChild(head);
 
   const host = el('div', '');
   host.appendChild(loading('جارٍ حساب التحليلات…'));
@@ -56,27 +56,38 @@ export async function render(view, token) {
 
   /* ── الإجمالي ── */
   const an = taskAnalytics(tasks, today);
-  const g = grid(3);
-  g.append(
-    stat(String(an.total), 'إجمالي المهام'),
-    stat(String(an.active), 'نشطة الآن'),
-    stat(String(an.overdueNow), 'متأخرة الآن', an.overdueNow ? 'r' : 'ok'),
-    stat(an.onTimePct === null ? '—' : `${an.onTimePct}%`, 'أُنجزت في وقتها',
-         an.onTimePct === null ? '' : an.onTimePct >= 80 ? 'ok' : 'a'),
-    stat(an.avgDays === null ? '—' : `${an.avgDays} يوم`, 'متوسط زمن الإنجاز'),
-    stat(an.reopenRate === null ? '—' : `${an.reopenRate}%`, 'معدّل الإعادة',
-         an.reopenRate && an.reopenRate > 20 ? 'a' : '')
+  const sg = el('div', 'statgrid statgrid--3');
+  sg.append(
+    statCard({ label: 'إجمالي المهام', value: an.total, ico: 'check',
+      sub: `${an.active} نشِطة الآن` }),
+    statCard({ label: 'متأخرة الآن', value: an.overdueNow, ico: 'clock',
+      tone: an.overdueNow ? 'bad' : 'good',
+      sub: an.overdueNow ? 'تجاوزت موعدها ولم تُغلق' : 'لا شيء تجاوز موعده' }),
+    statCard({ label: 'أُنجزت في وقتها', value: an.onTimePct === null ? '—' : an.onTimePct + '٪',
+      ico: 'check', tone: an.onTimePct === null ? '' : an.onTimePct >= 80 ? 'good' : 'warn',
+      sub: 'على المنجزة وحدها' }),
+    statCard({ label: 'متوسّط زمن الإنجاز', value: an.avgDays === null ? '—' : an.avgDays,
+      ico: 'clock', sub: an.avgDays === null ? 'لا بيانات كافية' : 'يوماً من الإنشاء للاعتماد' }),
+    statCard({ label: 'معدّل الإعادة', value: an.reopenRate === null ? '—' : an.reopenRate + '٪',
+      ico: 'back', tone: an.reopenRate && an.reopenRate > 20 ? 'warn' : '',
+      sub: 'أُعيدت للتحسين بعد إرسالها' }),
+    /* ⚠️ الملغاة تُعرض ولا تُخفى: عددٌ كبير منها يقول شيئاً عن التخطيط لا
+       عن الموظفين — ولا تدخل «في الوقت» بسطاً ولا مقاماً. */
+    statCard({ label: 'ملغاة', value: an.cancelled, ico: 'x',
+      sub: 'خارج حساب الإنجاز — لا إنجازٌ ولا تقصير' })
   );
-  const kpi = card('');
-  kpi.appendChild(g);
-  kpi.appendChild(el('p', 'help',
+  host.appendChild(sg);
+  host.appendChild(el('p', 'help',
     '«أُنجزت في وقتها» محسوبة على المنجزة وحدها — خلطها بالجارية يجعل من عنده عمل مفتوح يبدو متعثّراً.'));
-  host.appendChild(kpi);
 
   /* ── لكل قسم ── */
   const byDept = analyticsBy(tasks, today, (t) => t.department);
   const dc = card('');
   dc.appendChild(sectionHead({ text: 'حسب القسم', icon: 'building' }));
+  /* ⚠️ barList يبني HTML لا SVG: النصّ العربي داخل SVG لا يرث الاتجاه
+     فينقلب ترتيب الكلمات. الشريط هنا عنصر عادي بحدّ ولون. */
+  if (byDept.length > 1) dc.appendChild(el('div', '',
+    barList(byDept.slice(0, 8).map((d) => ({ label: d.key, value: d.total })))));
   dc.appendChild(tableWrap(`
     <table class="tight">
       <thead><tr><th>القسم</th><th class="num">المهام</th><th class="num">نشطة</th>

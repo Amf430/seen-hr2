@@ -143,15 +143,15 @@ tr.row-total td {
 .logo {
   display: flex; align-items: center; gap: var(--sp-3, 12px);
   padding: var(--sp-5, 20px) var(--sp-4, 16px);
-  border-block-end: 1px solid var(--a-white-08, rgba(255,255,255,.08));
+  border-block-end: 1px solid var(--border);
 }
-.logo b    { font-size: var(--fs-base, .9375rem); display: block; color: #fff; font-weight: 700 }
-.logo span { font-size: var(--fs-caption, .75rem); color: var(--a-white-56, rgba(255,255,255,.56)) }
+.logo b    { font-size: var(--fs-sm, .8125rem); display: block; color: var(--ink); font-weight: 600 }
+.logo span { font-size: var(--fs-micro, .6875rem); color: var(--muted-strong) }
 
 /* عنوان المجموعة — الكود يُصدر شرطة واحدة، ونظام التصميم عرّف شرطتين */
 .nav-group-title {
   font-size: var(--fs-caption, .75rem); font-weight: var(--fw-bold, 700);
-  color: var(--a-white-56, rgba(255,255,255,.56));
+  color: var(--muted-strong);
   padding: 0 var(--sp-3, 12px) var(--sp-2, 8px);
   margin-block-start: var(--sp-4, 16px);
 }
@@ -159,7 +159,7 @@ tr.row-total td {
 .nav-group-title + .nav-group { margin-block-start: var(--sp-2, 8px) }
 .nav-label { flex: 1; min-inline-size: 0 }
 
-.dev-credit--dark { color: var(--a-white-40, rgba(255,255,255,.4)) }
+.dev-credit--dark { color: var(--muted) }
 
 /* أيقونة التنبيه في لوحة القيادة — الكود يُصدر __icon، والتصميم عرّف __ic */
 .alert-item__icon { font-size: var(--fs-lg, 1.125rem); line-height: 1 }
@@ -205,7 +205,12 @@ tr.row-total td {
     opacity: 0; pointer-events: none; visibility: hidden;
     transition: opacity .22s ease, visibility .22s;
   }
-  .content { padding: var(--sp-4, 16px) }
+  /* ⚠️ المساحة السفلية تفسح لشريط الوجهات الثابت (.dock في 02-layout.css).
+     كُتبت هنا لا هناك لأن هذا الملف يُحمَّل أخيراً فيتغلّب: قاعدة padding
+     المختصرة تصفّر أي padding-block-end يُكتب قبلها. حصل فعلاً — كان الدوك
+     يغطّي آخر صفّ من كل جدول وآخر زرّ في كل نموذج. */
+  .content { padding: var(--sp-4, 16px);
+             padding-block-end: calc(52px + var(--sp-8, 32px) + env(safe-area-inset-bottom,0px)) }
   .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)) }
   .grid.cols-3 { grid-template-columns: repeat(2, minmax(0, 1fr)) }
 }
@@ -340,26 +345,26 @@ body.is-locked {
 .sidebar .foot {
   flex: none; margin-block-start: auto;
   padding: var(--sp-3, 12px) var(--sp-4, 16px) max(var(--sp-4, 16px), env(safe-area-inset-bottom));
-  border-block-start: 1px solid var(--a-white-12, rgba(255,255,255,.12));
+  border-block-start: 1px solid var(--border);
 }
-.sidebar .foot .who  { color: #fff; font-weight: var(--fw-bold, 700); font-size: var(--fs-sm, .8125rem) }
-.sidebar .foot .role { color: var(--a-white-56, rgba(255,255,255,.56)); font-size: var(--fs-caption, .75rem);
+.sidebar .foot .who  { color: var(--ink); font-weight: var(--fw-bold, 700); font-size: var(--fs-sm, .8125rem) }
+.sidebar .foot .role { color: var(--muted-strong); font-size: var(--fs-caption, .75rem);
                        margin-block-end: var(--sp-3, 10px) }
 .sidebar .foot #logoutBtn {
   inline-size: 100%; min-block-size: 40px;
   border-radius: var(--r-md, 10px);
-  background: var(--a-white-12, rgba(255,255,255,.12));
-  border: 1px solid var(--a-white-16, rgba(255,255,255,.16));
-  color: #fff; font-weight: var(--fw-bold, 700); font-size: var(--fs-sm, .8125rem);
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--ink-2); font-weight: var(--fw-medium, 500); font-size: var(--fs-sm, .8125rem);
   cursor: pointer; transition: background .15s;
 }
-.sidebar .foot #logoutBtn:hover { background: var(--a-white-16, rgba(255,255,255,.2)) }
+.sidebar .foot #logoutBtn:hover { background: var(--surface-3); color: var(--ink) }
 
 /* شعار الدرج — .logo .brand-mark لا يطابق أياً من قاعدتي التصميم */
 .logo .brand-mark {
   inline-size: 42px; block-size: 42px; flex: none;
   border-radius: var(--r-md, 12px);
-  background: var(--a-white-16, rgba(255,255,255,.16)); color: #fff;
+  background: var(--maroon); color: #fff;
   font-size: var(--fs-lg, 1.125rem); font-weight: 800;
   display: grid; place-items: center;
 }
@@ -380,8 +385,9 @@ body.is-locked {
   box-shadow:none !important;
   border-radius:0 !important;
   object-fit:contain;
-  /* الرمز الأبيض على العنّابي الداكن — بلا خلفية ولا إطار */
-  inline-size:38px; block-size:38px;
+  /* ⚠️ الرمز الملوّن (mark.png) على الشريط الأبيض — النسخة البيضاء
+     كانت تختفي تماماً بعد أن صار الشريط فاتحاً. */
+  inline-size:36px; block-size:36px;
 }
 
 /* شاشتا الدخول وتغيير كلمة المرور: اللوقو كاملاً بنصّه */

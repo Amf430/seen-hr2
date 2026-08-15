@@ -461,8 +461,10 @@ const MORNING = { type: 'morning', start: '08:00', end: '16:00' };
 const at = (hhmm, day = '2026-08-02') => new Date(`${day}T${hhmm}:00`);
 
 const w1 = checkInWindow(at('12:00'), MORNING);
-eq('النافذة تفتح قبل الوردية بساعتين', 6, w1.opensAt.getHours());
-eq('وتُقفل عند نهاية الوردية',        16, w1.closesAt.getHours());
+/* ⚠️ كانت ساعتين ونهايةَ الوردية حتى ٢٠٢٦-٠٨-١٢. قرار المالك ٢٠٢٦-٠٨-١٣:
+   ساعة قبل البداية، وأربع ساعات بعدها. */
+eq('النافذة تفتح قبل الوردية بساعة', 7,  w1.opensAt.getHours());
+eq('وتُقفل بعد بدايتها بأربع ساعات', 12, w1.closesAt.getHours());
 eq('يوم الراحة بلا نافذة إطلاقاً', null, checkInWindow(at('12:00'), { type: 'off' }));
 
 /* قفل صريح من الخطة يتقدّم على نهاية الوردية */
@@ -473,34 +475,51 @@ eq('checkInCutoff الصريح يُقصّر النافذة', 10,
 const nightPlan = { type: 'evening', start: '22:00', end: '06:00', checkInCutoff: '02:00' };
 const wn = checkInWindow(at('23:00'), nightPlan);
 eq('قفل ٠٢:٠٠ على وردية ليلية يقع في اليوم التالي', 3, wn.closesAt.getDate());
-eq('ونافذتها تفتح ٢٠:٠٠ من نفس اليوم', 20, wn.opensAt.getHours());
+eq('ونافذتها تفتح ٢١:٠٠ من نفس اليوم', 21, wn.opensAt.getHours());
 
 /* ── القرار: قبل النافذة · داخلها · بعدها ── */
 const gate = (hhmm, over = {}) =>
-  checkInAllowed(at(hhmm), MORNING, { hasSessionToday: false, allowLate: true, ...over });
+  checkInAllowed(at(hhmm), MORNING, { hasSessionToday: false, ...over });
+
+/* ⚠️ النافذة الجديدة (قرار المالك ٢٠٢٦-٠٨-١٣): ساعة قبل البداية، وأربع
+   ساعات بعدها. الوردية ٠٨:٠٠ ⇒ ٠٧:٠٠ ← ١٢:٠٠. */
+eq('تفتح قبل البداية بساعة لا ساعتين', 7, checkInWindow(at('09:00'), MORNING).opensAt.getHours());
+eq('وتُغلق بعد البداية بأربع ساعات',   12, checkInWindow(at('09:00'), MORNING).closesAt.getHours());
+/* ⚠️ الأقرب من الاثنين: وردية ثلاث ساعات لا تُفتح نافذتها بعد انتهائها */
+eq('⚠️ وردية قصيرة: النافذة تُغلق بنهايتها لا ببداية+٤',
+   11, checkInWindow(at('09:00'), { type: 'morning', start: '08:00', end: '11:00' }).closesAt.getHours());
 
 eq('الخامسة صباحاً — قبل فتح النافذة',
    { ok: false, reason: 'early' },
    (() => { const g = gate('05:00'); return { ok: g.ok, reason: g.reason }; })());
+eq('السادسة — صارت قبل النافذة بعد تقليصها لساعة',
+   { ok: false, reason: 'early' },
+   (() => { const g = gate('06:00'); return { ok: g.ok, reason: g.reason }; })());
 eq('السابعة — داخل النافذة المبكرة',
    { ok: true, reason: 'open' },
    (() => { const g = gate('07:00'); return { ok: g.ok, reason: g.reason }; })());
+eq('الحادية عشرة والنصف — آخر النافذة',
+   { ok: true, reason: 'open' },
+   (() => { const g = gate('11:30'); return { ok: g.ok, reason: g.reason }; })());
 eq('العاشرة — داخل الدوام',
    { ok: true, reason: 'open' },
    (() => { const g = gate('10:00'); return { ok: g.ok, reason: g.reason }; })());
 
-/* ⚠️ جوهر طلب المالك — الحالتان المتقابلتان بعد القفل */
-eq('السادسة مساءً ولم يسجّل اليوم إطلاقاً → مسموح وموسوم',
-   { ok: true, reason: 'late', late: true },
-   (() => { const g = gate('18:00'); return { ok: g.ok, reason: g.reason, late: g.late }; })());
+/* ⚠️⚠️ قرار المالك ٢٠٢٦-٠٨-١٣ **ناسخٌ لقرار ٢٠٢٦-٠٨-١٢**: لا تسجيل حضور
+   بعد النافذة إطلاقاً — لا موسوماً ولا غير موسوم. من فاتته يُسجَّل انصرافه
+   وحده ويحمل يومه «نسيان بصمة الحضور».
+
+   لو سقط أحد هذين الاختبارين فقد عاد «الحضور المتأخر» من حيث لا نريد. */
+eq('⚠️ الواحدة ظهراً ولم يسجّل → فاتته البصمة، ولا حضور',
+   { ok: false, reason: 'missedIn' },
+   (() => { const g = gate('13:00'); return { ok: g.ok, reason: g.reason }; })());
+eq('⚠️ ولا وسم late على أي حال', undefined, gate('18:00').late);
 eq('السادسة مساءً وعنده جلسة اليوم → انتهى يومه',
    { ok: false, reason: 'done' },
    (() => { const g = gate('18:00', { hasSessionToday: true }); return { ok: g.ok, reason: g.reason }; })());
-
-/* الإعداد يقفل المتأخر لمن أراد ذلك لاحقاً */
-eq('allowLateCheckIn=false يمنع المتأخر حتى لمن لم يسجّل',
-   { ok: false, reason: 'closed' },
-   (() => { const g = gate('18:00', { allowLate: false }); return { ok: g.ok, reason: g.reason }; })());
+/* ⚠️ الفرق بين الحالتين ليس تجميلاً: الأولى أمامها إجراء والثانية لا */
+eq('⚠️ «فاتته» و«انتهى يومه» حالتان مختلفتان', true,
+   gate('13:00').reason !== gate('13:00', { hasSessionToday: true }).reason);
 
 /* ── يوم الراحة يبقى مفتوحاً ── */
 eq('يوم الراحة: التسجيل متاح ويُوسم offDayWork',
@@ -515,8 +534,13 @@ eq('وحتى بعد منتصف النهار في يوم الراحة', true,
 const PM = { type: 'evening', start: '15:00', end: '23:00' };
 eq('من يبدأ ٣ العصر يقدر يسجّل الساعة ٤ عصراً',
    true, checkInAllowed(at('16:00'), PM, {}).ok);
-eq('وقفل ثابت على ٤:٠٠ كان سيمنعه — النافذة تتبع ورديته',
-   true, checkInAllowed(at('22:00'), PM, {}).ok);
+/* ⚠️ نافذته ١٤:٠٠ ← ١٩:٠٠، فالعاشرة مساءً صارت خارجها — وهذا مقصود:
+   القاعدة أربع ساعات من بداية وردية كلٍّ، لا نهايتها. */
+eq('⚠️ والعاشرة مساءً خارج نافذته الآن', 
+   { ok: false, reason: 'missedIn' },
+   (() => { const g = checkInAllowed(at('22:00'), PM, {}); return { ok: g.ok, reason: g.reason }; })());
+eq('وقفل ثابت على ٤:٠٠ كان سيمنعه من البداية — النافذة تتبع ورديته',
+   true, checkInAllowed(at('15:30'), PM, {}).ok);
 eq('وبعد نهاية ورديته وعنده جلسة → انتهى',
    false, checkInAllowed(at('23:30'), PM, { hasSessionToday: true }).ok);
 
@@ -550,12 +574,18 @@ eq('جلسة مفتوحة → انصراف مُفعَّل',
 
 /* بلا جلسة مفتوحة: البوّابة هي الحاكمة */
 eq('بلا جلسة + بوّابة مفتوحة → زرّ حضور',
-   { kind: 'in', disabled: false, late: false },
-   (() => { const s = btn(); return { kind: s.kind, disabled: s.disabled, late: s.late }; })());
-eq('بلا جلسة + بوّابة متأخرة → حضور متأخر',
-   { kind: 'in', disabled: false, late: true, label: 'تسجيل حضور متأخر' },
-   (() => { const s = btn({ gate: { ok: true, late: true } });
-            return { kind: s.kind, disabled: s.disabled, late: s.late, label: s.label }; })());
+   { kind: 'in', disabled: false, label: 'تسجيل حضور' },
+   (() => { const s = btn(); return { kind: s.kind, disabled: s.disabled, label: s.label }; })());
+
+/* ⚠️⚠️ من فاتته نافذة الحضور **ليس بلا إجراء**: تعطيل زرّه يترك يومه غياباً
+   كاملاً وهو داوم. يُسجَّل انصرافه، ويحمل يومه «نسيان بصمة الحضور». */
+eq('⚠️ فاتته البصمة → زرّ انصراف مُفعَّل لا زرّ مقفل',
+   { kind: 'out-missing', disabled: false, label: 'تسجيل انصراف', missedIn: true },
+   (() => { const s = btn({ gate: { ok: false, reason: 'missedIn' } });
+            return { kind: s.kind, disabled: s.disabled, label: s.label, missedIn: s.missedIn }; })());
+/* ⚠️ ولا يأخذ شكل الحضور: الأخضر يوهمه أنه سجّل دخوله */
+eq('⚠️ ولا يُسمّى «حضور» بأي حال', false,
+   btn({ gate: { ok: false, reason: 'missedIn' } }).label.includes('حضور'));
 eq('بلا جلسة + انتهى يومه → مقفل برسالته',
    { disabled: true, label: 'أنهيت دوامك اليوم' },
    (() => { const s = btn({ gate: { ok: false, reason: 'done' } });

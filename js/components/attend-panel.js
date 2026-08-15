@@ -48,9 +48,18 @@ export function attendPanel(view) {
 
   /* ── بطاقة الساعة ── */
   const hero = el('div', 'attend-hero');
+  /* ⚠️ عمودان: الساعة وسياق اليوم في جهة، والفعل في الجهة الأخرى (طلب
+     المالك). كان الزرّ في بطاقة ثانية أسفل جدولٍ يكرّر ما في التقويم تحته —
+     فيقرأ الموظف حالته ثلاث مرّات قبل أن يصل إلى الزرّ. */
   hero.innerHTML = `
+   <div class="hero__row">
+    <div class="hero__clock">
     <div class="clock-day">${AR_DAYS[dow]}</div>
-    <div class="clock-time num" id="liveClock">--:--:--</div>
+    <div class="clock-time num" id="liveClock">
+      <span class="clock-seg" id="ckH">--</span><span class="clock-sep">:</span
+      ><span class="clock-seg" id="ckM">--</span><span class="clock-sep">:</span
+      ><span class="clock-seg clock-seg--s" id="ckS">--</span>
+    </div>
     <div class="clock-date">${fmtDate(now)}</div>
     <div class="shift-line">${icon('clock')} ورديتك اليوم: ${esc(shiftLabelOf(dow))}</div>
     <div class="hero__geo ${rule.mode === 'remote' ? 'is-anywhere' : ''}" id="heroGeo">${
@@ -59,10 +68,40 @@ export function attendPanel(view) {
         : icon('pin') + ' ' + esc(rule.allowed.length === 1 ? rule.allowed[0].name
             : rule.allowed.length ? `${rule.allowed.length} فروع مسموحة` : 'لا يوجد فرع')
     }</div>
-    <div class="work-timer" id="workTimer"><span class="wt-idle">…</span></div>`;
+    </div>
+    <div class="hero__act">
+      <div class="todaycard" id="heroAct">
+        <div class="todaycard__info">
+          <span class="todaycard__label">اليوم</span>
+          <div class="work-timer" id="workTimer"><span class="wt-idle">…</span></div>
+        </div>
+      </div>
+    </div>
+   </div>`;
   view.appendChild(hero);
 
   const clockEl = hero.querySelector('#liveClock');
+  const segH = hero.querySelector('#ckH'), segM = hero.querySelector('#ckM'), segS = hero.querySelector('#ckS');
+
+  /* ═══ كتابة الساعة بحركة ═══
+     ⚠️ الخانة تُكتب **فقط حين تتغيّر قيمتها**: كتابة الثلاث كل ثانية تُعيد
+     تشغيل حركة الساعات والدقائق ستّين مرة في الدقيقة، فتهتزّ الساعة كلها
+     بلا سبب. المقارنة قبل الكتابة تجعل الحركة تقع عند التغيّر وحده.
+
+     ⚠️ prefers-reduced-motion يُطفئ الحركة في CSS لا هنا — المنطق واحد،
+     والتفضيل شأن العرض. */
+  const bump = (elm, val) => {
+    if (!elm || elm.textContent === val) return;
+    elm.textContent = val;
+    elm.classList.remove('is-tick');
+    void elm.offsetWidth;          /* يُجبر إعادة تشغيل الحركة */
+    elm.classList.add('is-tick');
+  };
+  const writeClock = (t) => {
+    bump(segH, p2(t.getHours()));
+    bump(segM, p2(t.getMinutes()));
+    bump(segS, p2(t.getSeconds()));
+  };
   const timerEl = hero.querySelector('#workTimer');
 
   /* لا فرع ولا وضع «عن بُعد» → ما يقدر يسجّل */
@@ -77,19 +116,26 @@ export function attendPanel(view) {
       }</div>`));
     const tickOnly = () => {
       const t = new Date();
-      clockEl.textContent = `${p2(t.getHours())}:${p2(t.getMinutes())}:${p2(t.getSeconds())}`;
+      writeClock(t);
     };
     tickOnly(); setPageInterval(tickOnly, 1000);
     return;
   }
 
-  const card = el('div', 'card');
-  const statusBox = el('div', '', '<div class="empty"><span class="spinner"></span> جارٍ تحميل حالتك…</div>');
-  card.appendChild(statusBox);
+  /* ⚠️ الجدول التفصيلي حُذف (طلب المالك): «الحالة الآن» و«أول حضور» و«آخر
+     انصراف» كانت تكرّر ما يقوله مؤقّت الدوام فوقها وتقويم الكشف تحتها —
+     ثلاث قراءات لحالة واحدة. المكان وعدد الجلسات في تفاصيل اليوم بالتقويم.
+
+     ⚠️ statusBox بقي متغيّراً فارغاً لا عنصراً في الصفحة: paintStatus ما
+     زالت تُستدعى من paintAll ومن مستمع اللقطات، وحذفُها يحتاج تتبّع خمسة
+     مواضع — فتُترك تكتب في عنصر غير معلَّق، وهو أرخص من كسر المستمع. */
+  const statusBox = el('div', '');
 
   const actBtn = el('button', 'btn btn--xl', '…');
   actBtn.disabled = true;
-  card.appendChild(actBtn);
+  hero.querySelector('#heroAct').appendChild(actBtn);
+
+  const card = el('div', 'card');
 
   const bioNote = el('p', 'help', '');
   card.appendChild(bioNote);
@@ -158,10 +204,14 @@ export function attendPanel(view) {
       gate: (loaded && !loadErr && !isOpen()) ? checkInGate() : null
     });
     actBtn.disabled = st.disabled;
-    actBtn.className = 'btn btn--xl'
-      + (st.kind === 'out' ? ' danger' : '')
-      + (st.late ? ' warn' : '');
-    actBtn.textContent = st.label;
+    /* ⚠️ الصيغة تتبع الفعل لا الحالة: الحضور فعلٌ إيجابي فيمتلئ أخضر،
+       والانصراف فعلٌ يُنهي فيُحدَّد أحمر بلا ملء — كما في مرجع التصميم.
+       والتأخير يصبغه كهرمانياً: الزرّ يعمل لكنه يقول إنك متأخر قبل الضغط. */
+    /* ⚠️ «انصرافٌ بلا دخول» يأخذ شكل الانصراف لا الحضور: هو انصرافٌ فعلاً،
+       وإعطاؤه الأخضر يوهم الموظف أنه سجّل حضوره. */
+    actBtn.className = 'btn attendbtn attendbtn--'
+      + (st.kind === 'out' || st.kind === 'out-missing' ? 'out' : 'in');
+    actBtn.innerHTML = icon('clock') + esc(st.label);
   }
 
   /* بوّابة تسجيل الحضور — مصدر واحد تستعمله اللوحة والتنفيذ معاً، فلا
@@ -169,7 +219,6 @@ export function attendPanel(view) {
   function checkInGate() {
     return checkInAllowed(new Date(), myShiftToday(), {
       hasSessionToday: sessionsOf(todayDoc).length > 0,
-      allowLate: getSettings().allowLateCheckIn !== false
     });
   }
 
@@ -178,12 +227,15 @@ export function attendPanel(view) {
     gateNote.innerHTML = '';
     if (!loaded || loadErr || isOpen()) return;
     const g = checkInGate();
-    if (g.ok && g.late) {
-      gateNote.appendChild(callout('warn', 'انتهى وقت تسجيل الحضور لورديتك',
-        'ما زال بإمكانك التسجيل لأنك لم تسجّل اليوم إطلاقاً، وسيُوسم السجل «حضور متأخر» ويظهر لمديرك.'));
-    } else if (!g.ok && g.reason === 'closed') {
-      gateNote.appendChild(callout('warn', 'انتهى وقت تسجيل الحضور لورديتك',
-        'راجع مديرك أو قدّم طلب تصحيح بصمة.'));
+    /* ⚠️ يُقال له ما يفعله الآن، لا ما فاته وحده: «انتهى الوقت» بلا مخرج
+       تترك الموظف الذي داوم يومه كاملاً بلا سجلّ ولا حيلة. */
+    if (!g.ok && g.reason === 'missedIn') {
+      gateNote.appendChild(callout('warn', 'فاتك وقت تسجيل الحضور',
+        `أُغلق التسجيل ${g.closesAt ? 'الساعة ' + hm(g.closesAt) : ''}. سجّل انصرافك بالزرّ أدناه — ` +
+        'يُحفظ يومك بـ«نسيان بصمة الحضور»، وتُصحّحه بطلب من «أدائي» يعتمده مديرك.'));
+    } else if (!g.ok && g.reason === 'done') {
+      gateNote.appendChild(callout('info', 'أنهيت دوامك اليوم',
+        'سجّلت حضورك وانصرافك. لا تسجيل جديد اليوم.'));
     } else if (!g.ok && g.reason === 'early' && g.opensAt) {
       gateNote.appendChild(callout('info', 'لم يبدأ وقت التسجيل بعد',
         `يفتح التسجيل الساعة ${hm(g.opensAt)}.`));
@@ -244,8 +296,14 @@ export function attendPanel(view) {
        تُرفض من القاعدة برسالة مضلّلة عن ساعة الجهاز، أو — أسوأ — تُغلق جلسة
        أمس بطابع اليوم فتظهر وردية 24 ساعة. نُعيد البناء بدل ذلك. */
     if (ymdKsa() !== dateStr) { toast('تغيّر التاريخ — جارٍ التحديث'); rerender(); return; }
-    await doAttendance(isOpen() ? 'out' : 'in', ref, actBtn, bioNote, rule,
-      (b) => { busy = b; if (!b) paintAll(); });
+    /* ⚠️ ثلاث حالات لا اثنتان: جلسة مفتوحة → انصراف · نافذة مفتوحة → حضور ·
+       فاتته النافذة ولا جلسة → انصرافٌ بلا دخول يُوسم «نسيان بصمة الحضور». */
+    const missedIn = attendButtonState({
+      loaded, loadErr, hasOpenSession: isOpen(),
+      gate: isOpen() ? null : checkInGate()
+    }).kind === 'out-missing';
+    await doAttendance(isOpen() || missedIn ? 'out' : 'in', ref, actBtn, bioNote, rule,
+      (b) => { busy = b; if (!b) paintAll(); }, missedIn);
   };
 
   /* ── تذكير الانصراف ──
@@ -277,7 +335,7 @@ export function attendPanel(view) {
     const t = new Date();
     /* عبور منتصف الليل — أعد بناء اللوحة كاملة على اليوم الجديد */
     if (ymdKsa(t) !== dateStr) { rerender(); return; }
-    clockEl.textContent = `${p2(t.getHours())}:${p2(t.getMinutes())}:${p2(t.getSeconds())}`;
+    writeClock(t);
     paintTimer(); paintBtn();
     /* الفحص كل ثانية رخيص: يخرج فوراً ما لم تكن هناك جلسة مفتوحة، ولا يُطلق
        التنبيه إلا مرة واحدة في اليوم بفضل الحارس في reminders.js. */
@@ -294,7 +352,7 @@ export function attendPanel(view) {
 }
 
 /* ═══════════════════ تنفيذ التسجيل ═══════════════════ */
-async function doAttendance(kind, ref, btn, bioNote, rule, setBusy) {
+async function doAttendance(kind, ref, btn, bioNote, rule, setBusy, missedIn = false) {
   const me = getMe();
   setBusy(true); btn.disabled = true;
   const fail = (msg) => { toast(msg, 'err'); setBusy(false); };
@@ -304,7 +362,6 @@ async function doAttendance(kind, ref, btn, bioNote, rule, setBusy) {
   if (kind === 'in') {
     const g = checkInAllowed(new Date(), myShiftToday(), {
       hasSessionToday: false,
-      allowLate: getSettings().allowLateCheckIn !== false
     });
     if (!g.ok) return fail('انتهى وقت تسجيل الحضور لورديتك');
   }
@@ -322,19 +379,21 @@ async function doAttendance(kind, ref, btn, bioNote, rule, setBusy) {
     return -1;
   })();
   if (kind === 'in'  && openIdx >= 0) return fail('أنت مسجّل دخول بالفعل — سجّل الانصراف أولاً');
-  if (kind === 'out' && openIdx < 0)  return fail('لست مسجّل دخول حالياً');
+  /* ⚠️ `missedIn` استثناءٌ واحد على «لا انصراف بلا دخول»: من فاتته نافذة
+     الحضور داوم فعلاً، وتعطيلُ الزرّ عليه يترك يومه غياباً كاملاً وهو حاضر.
+     يُسجَّل انصرافه بلا دخول، ويحمل يومه «نسيان بصمة الحضور» يُصحَّح بطلب. */
+  if (kind === 'out' && openIdx < 0 && !missedIn) return fail('لست مسجّل دخول حالياً');
   if (kind === 'in'  && preSessions.length >= 12) return fail('وصلت الحد الأقصى لجلسات اليوم');
 
   /* ⚠️ القرار النهائي لتسجيل الحضور — بعد معرفة جلسات اليوم الحقيقية من
-     السيرفر. القاعدة المعتمَدة: من لم يسجّل اليوم إطلاقاً يُسمح له بحضور
-     متأخر موسوم، ومن عنده جلسة سابقة انتهى يومه.
+     السيرفر. القاعدة المعتمَدة (٢٠٢٦-٠٨-١٣): النافذة تُغلق بعد بداية
+     الوردية بأربع ساعات، ولا حضور بعدها لأحد.
      ⚠️ ولا تُطبَّق هذه البوّابة على الانصراف أبداً — الانصراف لا يُقفل. */
   const shiftNow = myShiftToday();
   const gate = kind === 'in'
     ? checkInAllowed(new Date(), shiftNow, {
         hasSessionToday: preSessions.length > 0,
-        allowLate: getSettings().allowLateCheckIn !== false
-      })
+        })
     : { ok: true };
   if (!gate.ok) {
     return fail(gate.reason === 'done'
@@ -441,10 +500,11 @@ async function doAttendance(kind, ref, btn, bioNote, rule, setBusy) {
         /* علامة على السجل أن لهذه الجلسة صورة إثبات — الأدمن يعرف أين يبحث
            بلا استعلام إضافي على كل صف. */
         inPhoto: !!photo,
-        /* ⚠️ وسمان للمراجعة لا للمنع — الحضور سُجّل فعلاً في الحالتين.
-           lateCheckIn: سجّل بعد قفل نافذة ورديته لأنه لم يسجّل اليوم إطلاقاً.
-           offDayWork:  دوام في يوم راحته. لا نمنعه، لكن لا نُخفيه عن مديره. */
-        ...(gate.late ? { lateCheckIn: true } : {}),
+        /* ⚠️ وسمٌ للمراجعة لا للمنع: دوام في يوم راحته. لا نمنعه، لكن لا
+           نُخفيه عن مديره.
+
+           ⚠️ و`lateCheckIn` حُذف مع قرار ٢٠٢٦-٠٨-١٣: لم يعد هناك تسجيل
+           حضور بعد النافذة أصلاً، فالوسم بلا حالة تُنتجه. */
         ...(gate.reason === 'offDay' ? { offDayWork: true } : {}),
         source: 'web'
       }]);
@@ -453,7 +513,6 @@ async function doAttendance(kind, ref, btn, bioNote, rule, setBusy) {
         department: me.department || '', date: ymdKsa(now), dow,
         shiftLabel: shiftLabelOf(dow), source: 'web',
         branchId, branchName, workMode: rule.mode,
-        ...(gate.late ? { lateCheckIn: true } : {}),
         sessions
       }, { merge: true });
       /* ⚠️ الصورة تُحفظ بعد نجاح الجلسة. لو فشل حفظها لا نُبطل الحضور — الموظف
@@ -463,6 +522,27 @@ async function doAttendance(kind, ref, btn, bioNote, rule, setBusy) {
         catch (e) { console.error('photo', e); toast('سُجّل حضورك، لكن تعذّر رفع الصورة', 'err'); }
       }
       toast(`تم تسجيل الحضور — ${branchName}`, 'ok');
+    } else if (missedIn && openIdx < 0) {
+      /* ── انصرافٌ بلا دخول ──
+         ⚠️ جلسة واحدة `in: null`، والوثيقة تحمل `missedCheckIn: true`.
+         الوسم صريح ولا يُشتقّ: القاعدة على السيرفر تحتاجه لتفرّق هذا المسار
+         عن جلسة عادية، والاشتقاق من `in == null` وحده يفتح باباً لكتابة
+         جلسة مشوّهة تُقرأ لاحقاً حضوراً. */
+      const sessions = preSessions.concat([{
+        in: null, out: now,
+        outLoc: loc, outAcc: pos ? Math.round(pos.acc || 0) : null,
+        outBranchId: branchId, outBranchName: branchName,
+        outGeoDenied: !pos, missedIn: true, source: 'web'
+      }]);
+      await setDoc(ref, {
+        employeeUid: me.id, employeeName: me.name, employeeEmpId: me.empId || '',
+        department: me.department || '', date: ymdKsa(now), dow,
+        shiftLabel: shiftLabelOf(dow), source: 'web',
+        branchId, branchName, workMode: rule.mode,
+        missedCheckIn: true,
+        sessions
+      }, { merge: true });
+      toast('سُجّل انصرافك. يومك عليه «نسيان بصمة الحضور» — قدّم طلب تصحيح من «أدائي».', 'ok');
     } else {
       const sessions = preSessions;
       sessions[openIdx] = {

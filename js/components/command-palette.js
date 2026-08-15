@@ -13,10 +13,12 @@
    Firestore، فمدير القسم لا يرى في البحث إلا ما يراه في شاشاته.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { el, esc, openModal } from '../lib/dom.js';
+import { el, esc, openModal, toast, uid } from '../lib/dom.js';
 import { getUsers, getRequests, getMe } from '../lib/state.js';
 import { go } from '../lib/nav.js';
 import { PAGES, canOpen, NAV_GROUPS } from '../config/pages.js';
+import { readTodos, writeTodos } from '../lib/todo-io.js';
+import { addItem } from '../lib/todo.js';
 import { icon } from '../lib/icons.js';
 import { STATUS_AR } from '../lib/dates.js';
 import { fmtDate } from '../lib/format.js';
@@ -29,11 +31,37 @@ const norm = (s) => (s == null ? '' : String(s))
 
 const hit = (hay, q) => norm(hay).includes(q);
 
+/* ⚠️ الكتابة هنا لا في الصفحة: الغرض كلّه ألّا يغادر المستخدم ما يفعله.
+   والفشل يُقال صراحةً — عنصرٌ ظنّ أنه حُفظ ولم يُحفظ أسوأ من رفضٍ ظاهر. */
+async function quickAdd(text) {
+  try {
+    const cur = await readTodos();
+    const r = addItem(cur, { text }, uid());
+    if (r.error) { toast(r.error, 'err'); return; }
+    await writeTodos(r.items);
+    toast('أُضيف إلى قائمتك', 'ok');
+  } catch (e) { console.error('quick-add', e); toast('تعذّرت الإضافة', 'err'); }
+}
+
 /* ── جمع النتائج ── */
-function search(q) {
+function search(q, raw) {
   const me = getMe();
   if (!me) return [];
   const out = [];
+
+  /* ── الإضافة السريعة إلى القائمة الشخصية ──
+     ⚠️ أعيد استعمال ⌘K بدل اختصار جديد وواجهة جديدة: المستخدم يعرف هذا
+     الصندوق أصلاً، واختصارٌ ثانٍ يُتعلَّم مرّةً ويُنسى.
+
+     ⚠️ وأول النتائج دائماً لا آخرها: من كتب نصّاً حرّاً لا يطابق صفحةً ولا
+     موظفاً يريد الأغلب أن يسجّله. والنصّ نفسه يبقى قابلاً للبحث تحته. */
+  const text = String(raw || '').trim();
+  if (text.length >= 2) {
+    out.push({ kind: 'todo', id: 'todo-add', ico: 'plus',
+      title: `أضف «${text}» إلى قائمتي`,
+      sub: 'قائمة شخصية — لا يراها أحد غيرك',
+      run: () => quickAdd(text) });
+  }
 
   /* الصفحات المتاحة لهذا الدور */
   for (const g of NAV_GROUPS) {
@@ -74,7 +102,7 @@ function search(q) {
   return out.sort((a, b) => rank[a.kind] - rank[b.kind]).slice(0, 40);
 }
 
-const KIND_AR = { page: 'شاشة', emp: 'موظف', req: 'طلب' };
+const KIND_AR = { page: 'شاشة', emp: 'موظف', req: 'طلب', todo: 'أضف' };
 
 export function openPalette() {
   const m = openModal(`
@@ -114,7 +142,7 @@ export function openPalette() {
 
   input.oninput = () => {
     const q = norm(input.value);
-    results = q.length >= 1 ? search(q) : [];
+    results = q.length >= 1 ? search(q, input.value) : [];
     active = 0;
     draw();
   };

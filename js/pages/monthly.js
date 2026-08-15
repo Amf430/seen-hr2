@@ -7,9 +7,11 @@ import { deleteRequests } from '../lib/requests.js';
 import { logAction } from '../lib/audit.js';
 import { openTypedConfirm } from '../components/review-modals.js';
 import { rerender } from '../lib/nav.js';
-import { card, empty, tableWrap, grid, stat, sectionHead, button } from '../lib/ui.js';
+import { card, empty, tableWrap, grid, stat, sectionHead, button, pageHead } from '../lib/ui.js';
 
 export function render(view) {
+  view.appendChild(pageHead('تقارير الدورات', 'دورة من ٢٦ إلى ٢٥ — تصدير Excel لكل دورة'));
+
   const all = getRequests();
   const cur = cycleOf(new Date());
   const map = new Map(); map.set(cur.key, cur);

@@ -9,7 +9,8 @@
    firestore.rules. أي شرط هنا بلا نظير هناك هو وعد بلا سند.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-export const STATUSES = ['new', 'in_progress', 'blocked', 'review', 'done', 'archived'];
+export const STATUSES = ['new', 'in_progress', 'blocked', 'review', 'done',
+                        'cancelled', 'archived'];
 
 export const STATUS_AR = {
   new:         'جديدة',
@@ -17,8 +18,18 @@ export const STATUS_AR = {
   blocked:     'متوقفة',
   review:      'بانتظار الاعتماد',
   done:        'منجزة',
+  cancelled:   'ملغاة',
   archived:    'مؤرشفة'
 };
+
+/* ═══ الحالات المغلقة ═══
+   ⚠️ `cancelled` أُضيفت لأن المهمة التي يُقرَّر ألّا تُنفَّذ لم يكن لها مخرج:
+   إمّا تُعتمَد `done` كذباً فتدخل «الإنجاز في الوقت»، أو تبقى مفتوحة للأبد
+   فتُحسب متأخرة كل يوم. الاثنان يشوّهان كل رقم في التحليلات.
+
+   ⚠️ وهي **ليست إنجازاً وليست نشِطة**: تُطرح من بسط «المنجزة» ومن مقامها معاً.
+   إدخالها في المقام يعاقب من أُلغيت مهمته بقرار مديره. */
+export const CLOSED_STATUSES = ['done', 'cancelled', 'archived'];
 
 export const PRIORITY_AR = { low: 'منخفضة', normal: 'عادية', high: 'مرتفعة', urgent: 'عاجلة' };
 export const PRIORITY_ORDER = { urgent: 0, high: 1, normal: 2, low: 3 };
@@ -41,15 +52,19 @@ const EMPLOYEE_MOVES = {
   blocked:     ['in_progress'],
   review:      [],            /* بيد المدير الآن — لا يسحبها الموظف */
   done:        [],
+  cancelled:   [],            /* الإلغاء قرار إداري — لا يلغي أحدٌ مهمته */
   archived:    []
 };
 
+/* ⚠️ الإلغاء للمدير وحده وفي كل حالة نشِطة. ولو مُنح للموظف لصار مخرجاً من
+   أي مهمة ثقيلة بضغطة، وسقط معنى التكليف. */
 const MANAGER_MOVES = {
-  new:         ['in_progress', 'blocked'],
-  in_progress: ['blocked', 'review', 'done'],
-  blocked:     ['in_progress'],
-  review:      ['done', 'in_progress'],   /* اعتماد، أو إعادة «يحتاج تحسين» */
+  new:         ['in_progress', 'blocked', 'cancelled'],
+  in_progress: ['blocked', 'review', 'done', 'cancelled'],
+  blocked:     ['in_progress', 'cancelled'],
+  review:      ['done', 'in_progress', 'cancelled'],  /* اعتماد، أو إعادة «يحتاج تحسين» */
   done:        ['archived', 'in_progress'],
+  cancelled:   ['in_progress', 'archived'],           /* الإلغاء يُتراجَع عنه — والأرشفة تُنهيه */
   archived:    []
 };
 
@@ -95,7 +110,9 @@ export function nextStepFor(task, who) {
    تُدخل المنطقة الزمنية في حساب لا علاقة له بها. */
 export function dueStateOf(task, todayYmd) {
   if (!task || !task.dueDate) return { kind: 'none', days: null, text: '' };
-  if (task.status === 'done' || task.status === 'archived')
+  /* ⚠️ الملغاة مغلقة كالمنجزة: مهمةٌ أُلغيت لا «تتأخر» بعد إلغائها، وعدّها
+     متأخرةً كل يوم يجعل رقم المتأخرات ينمو بلا عملٍ ناقص وراءه. */
+  if (CLOSED_STATUSES.includes(task.status))
     return { kind: 'closed', days: null, text: '' };
 
   const days = daysBetweenYmd(todayYmd, task.dueDate);
@@ -148,24 +165,116 @@ export function sortTasks(tasks, todayYmd) {
   });
 }
 
-/* توزيع المهام على أعمدة اللوحة */
-export function boardColumns(tasks, todayYmd) {
+/* ═══ أعمدة اللوحة ═══
+
+   ⚠️ «منجزة» عمودٌ على اللوحة وليست حالةً نشِطة: المدير يحتاج أن يرى ما
+   اعتُمد هذا الأسبوع بجوار ما ينتظره، وإخفاؤه يجعل اللوحة تقول إن لا شيء
+   أُنجز. لكنها تُجلب باستعلامها المستقلّ ولا تدخل ACTIVE_STATUSES — تلك
+   تُستعمل في `where('status','in',…)` وأي زيادة فيها تُثقل كل قراءة.
+
+   ⚠️ و«متوقفة» عمودٌ لا وسم: المهمة المتوقّفة تحتاج أن تُرى مجموعةً في
+   مكان واحد ليُسأل عن كلٍّ منها ما ينتظر. */
+export const BOARD_STATUSES = ['new', 'in_progress', 'blocked', 'review', 'done'];
+
+export function boardColumns(tasks, todayYmd, statuses = ACTIVE_STATUSES) {
   const sorted = sortTasks(tasks, todayYmd);
-  return ACTIVE_STATUSES.map((s) => ({
+  return statuses.map((s) => ({
     status: s, label: STATUS_AR[s],
     tasks: sorted.filter((t) => t.status === s)
   }));
 }
 
-/* شريط لوحة المدير — الأرقام الثلاثة التي يفتح الشاشة من أجلها */
+/* ═══ هل يُقبل إسقاط بطاقة في هذا العمود؟ ═══
+   → { ok, reason, needs }
+
+   ⚠️ السحب لا يتجاوز آلة الحالات: هو طريقٌ ثانٍ إلى **نفس** allowedMoves
+   التي تحكم الأزرار. طريقٌ يتجاوزها يجعل الموظف يعتمد مهمته بجرّها.
+
+   ⚠️ و`needs` تقول للواجهة أن الانتقال يحتاج مدخلاً قبل تنفيذه — لا
+   يُكتب بلا سببه: التوقّف بلا سبب مهمةٌ منسيّة، والاعتماد بلا تقييم يُفقد
+   التحليلات مادّتها. الإسقاط يفتح النافذة ولا يكتب مباشرةً. */
+export function dropAllowed(task, who, toStatus) {
+  if (!task || !toStatus) return { ok: false, reason: 'none', needs: null };
+  if (task.status === toStatus) return { ok: false, reason: 'same', needs: null };
+  if (!canMove(task, who, toStatus)) {
+    return { ok: false, needs: null,
+      reason: who === 'assignee' ? 'notYours' : 'blocked' };
+  }
+  /* ⚠️ الفيدباك إلزامي على المكلَّف وحده حين يرسلها للاعتماد: المدير يفتح
+     الإشعار فيجد «جاهزة» بلا كلمة عمّا أُنجز، فيسأل عمّا كان يجب أن يُكتب.
+     وبلا هذا السطر يتخطّى السحبُ نافذةً يفرضها الزرّ — وهو نفس عيب
+     «متوقفة بلا سبب» في طرف آخر. */
+  const needs = toStatus === 'blocked' ? 'reason'
+              : (toStatus === 'review' && who === 'assignee') ? 'feedback'
+              : (toStatus === 'done' && task.status === 'review') ? 'approve'
+              : (toStatus === 'in_progress' && task.status === 'review') ? 'improve'
+              : null;
+  return { ok: true, reason: 'ok', needs };
+}
+
+/* ═══ شريط لوحة المدير ═══
+
+   ⚠️ كله مشتقّ من **المصفوفة المحمَّلة أصلاً** لـ tasksForDept — صفر قراءة
+   إضافية من Firestore. الأرقام التي تحتاج استعلاماً ثانياً لا تستحقّه: لوحة
+   المدير تُفتح عشرات المرّات يومياً، والحصّة المجانية ٥٠ ألف قراءة.
+
+   ⚠️ و`stale` ليست زينة — هي أهم رقم في اللوحة. المتأخرة يراها أحد ويسأل
+   عنها، والمنسيّة لا يذكرها أحد. */
 export function managerPulse(tasks, todayYmd) {
   const active = (tasks || []).filter((t) => ACTIVE_STATUSES.includes(t.status));
   return {
     overdue:      active.filter((t) => dueStateOf(t, todayYmd).kind === 'overdue').length,
+    dueToday:     active.filter((t) => dueStateOf(t, todayYmd).kind === 'today').length,
     awaitingMe:   active.filter((t) => t.status === 'review').length,
     stale:        active.filter((t) => isStaleTask(t, todayYmd)).length,
+    blocked:      active.filter((t) => t.status === 'blocked').length,
     activeTotal:  active.length
   };
+}
+
+/* ═══ حِمل الموظفين ═══
+   → [{ uid, name, active, overdue, dueToday, review, load }] الأثقل أولاً
+
+   ⚠️ `load` ليس عدد المهام: مهمة عاجلة متأخرة ليست كمهمة عادية مستحقّة بعد
+   شهر. الوزن = الأولوية + غرامة التأخّر. رقمٌ نسبيّ للترتيب وحده — لا يُعرض
+   للموظف ولا يدخل تقييمه، وإلا صار هدفاً يُدار بدل أن يكون قياساً.
+
+   ⚠️ ويُحسب على المكلَّف الأصلي: التفويض إضافة لا استبدال، فلا يُنقل الحِمل. */
+const LOAD_WEIGHT = { urgent: 4, high: 3, normal: 2, low: 1 };
+
+export function workloadBy(tasks, todayYmd) {
+  const map = new Map();
+  (tasks || []).filter((t) => ACTIVE_STATUSES.includes(t.status)).forEach((t) => {
+    const uid = t.assigneeUid || '';
+    if (!uid) return;
+    if (!map.has(uid)) map.set(uid, {
+      uid, name: t.assigneeName || '', active: 0, overdue: 0, dueToday: 0, review: 0, load: 0
+    });
+    const row = map.get(uid);
+    const due = dueStateOf(t, todayYmd);
+    row.active++;
+    if (due.kind === 'overdue') row.overdue++;
+    if (due.kind === 'today')   row.dueToday++;
+    if (t.status === 'review')  row.review++;
+    row.load += (LOAD_WEIGHT[t.priority] ?? 2) + (due.kind === 'overdue' ? 3 : 0);
+  });
+  return [...map.values()].sort((a, b) => b.load - a.load || b.active - a.active);
+}
+
+/* ═══ حدّ «عاجلة» الناعم ═══
+
+   ⚠️ تنبيه لا منع — ولا يمكن أن يكون منعاً: فرضه في قاعدة يحتاج عدّ مهام
+   القسم داخل القاعدة، وFirestore لا يقدر على استعلام داخل شرط (نفس علّة
+   «٣ طلبات تصحيح في الدورة»).
+
+   ولماذا أصلاً: حين يصير كل شيء عاجلاً لا يبقى شيء عاجل، ويفقد الفرز معناه
+   لأن نصف اللوحة في المرتبة الأولى. */
+export const URGENT_SOFT_CAP = 3;
+
+export function urgentPressure(tasks, cap = URGENT_SOFT_CAP) {
+  const urgent = (tasks || []).filter((t) =>
+    ACTIVE_STATUSES.includes(t.status) && t.priority === 'urgent');
+  return { count: urgent.length, cap, over: urgent.length > cap, tasks: urgent };
 }
 
 /* ═══ التحليلات ═══
@@ -178,7 +287,19 @@ export function managerPulse(tasks, todayYmd) {
    كل المهام تخلط «تأخّر» بـ«لم ينتهِ بعد»، فيبدو من عنده مهام جارية متعثّراً. */
 export function taskAnalytics(tasks, todayYmd) {
   const all = tasks || [];
-  const done = all.filter((t) => t.status === 'done' || t.status === 'archived');
+  /* ⚠️ الملغاة خارج البسط والمقام معاً: ليست إنجازاً فلا تُحسب منجزةً،
+     وليست تقصيراً فلا تُحسب في مقام «الإنجاز في الوقت». إدخالها في المقام
+     يعاقب موظفاً أُلغيت مهمته بقرار مديره.
+
+     ⚠️ و`cancelledAt` لا `status` وحدها: الملغاة تُؤرشَف بعد حين
+     (cancelled → archived انتقالٌ مسموح)، فتفقد كلمة «ملغاة» من حالتها
+     وتدخل «المنجزة» صامتةً. ظهر هذا على المحاكي: مهمتان مؤرشفتان إحداهما
+     ملغاة، والشاشة تقول «أُنجزت في وقتها ١٠٠٪». الطابع يبقى بعد الأرشفة
+     فهو المرجع. */
+  const wasCancelled = (t) => t.status === 'cancelled' || !!t.cancelledAt;
+  const done = all.filter((t) => (t.status === 'done' || t.status === 'archived')
+                              && !wasCancelled(t));
+  const cancelled = all.filter(wasCancelled).length;
   const onTime = done.filter((t) => !t.dueDate || !t.doneAtYmd
                                  || daysBetweenYmd(t.doneAtYmd, t.dueDate) >= 0);
   const rated = done.filter((t) => typeof t.managerRating === 'number' && t.managerRating > 0);
@@ -192,6 +313,7 @@ export function taskAnalytics(tasks, todayYmd) {
     total: all.length,
     active: all.filter((t) => ACTIVE_STATUSES.includes(t.status)).length,
     done: done.length,
+    cancelled,
     overdueNow: all.filter((t) => dueStateOf(t, todayYmd).kind === 'overdue').length,
     onTimePct: done.length ? Math.round((onTime.length / done.length) * 100) : null,
     avgDays: durations.length
@@ -217,12 +339,70 @@ export function analyticsBy(tasks, todayYmd, keyFn) {
     .sort((a, b) => b.total - a.total);
 }
 
-/* نسبة إنجاز القائمة الفرعية — تُعرض بجوار progress لا بدلاً منه */
+/* نسبة إنجاز القائمة الفرعية وحدها — لا تُعرض مباشرةً، انظر progressOf */
 export function checklistPct(task) {
   const list = (task && task.checklist) || [];
   if (!list.length) return null;
   return Math.round((list.filter((c) => c.done).length / list.length) * 100);
 }
+
+/* ═══ نسبة الإنجاز — مصدر واحد ═══
+
+   ⚠️ كان هناك رقمان لنفس الشيء يُعرضان في نفس البطاقة: `progress` يكتبه
+   الموظف بيده، و`checklistPct` محسوبة من البنود. يتباعدان حتماً — يشطب
+   الموظف ٤ من ٥ بنود ويترك الشريط على ٢٠٪، فيقرأ مديره رقمين متناقضين عن
+   نفس المهمة. وهو نقضٌ حرفي لقاعدة المشروع «حسبة واحدة في مكان واحد».
+
+   القاعدة الآن: **البنود تحكم متى وُجدت.** رقمٌ مشتقّ من فعلٍ ملموس أصدق
+   من رقم يقدّره صاحبه عن نفسه. وحين لا بنود يبقى التقدير اليدوي — وهو خير
+   من لا شيء.
+
+   ⚠️ والمغلقة ١٠٠٪ دائماً عدا الملغاة: الملغاة لم تُنجَز ولم تُترك ناقصة،
+   فنسبتها بلا معنى — تُرجع null ولا يُرسم لها شريط.
+
+   → عدد 0..100، أو null حين لا معنى للنسبة
+   → source: 'checklist' | 'manual' | 'status' — تشرح للواجهة من أين جاء */
+export function progressOf(task) {
+  if (!task) return { pct: null, source: 'none' };
+  if (task.status === 'cancelled') return { pct: null, source: 'status' };
+  if (task.status === 'done' || task.status === 'archived')
+    return { pct: 100, source: 'status' };
+
+  const chk = checklistPct(task);
+  if (chk !== null) return { pct: chk, source: 'checklist' };
+
+  const manual = Number(task.progress);
+  if (Number.isFinite(manual) && manual >= 0 && manual <= 100)
+    return { pct: Math.round(manual), source: 'manual' };
+  return { pct: 0, source: 'manual' };
+}
+
+/* ═══ الحجب بالاعتماديّة — وسمٌ لا حالة ═══
+
+   ⚠️ كان `blocked` يحمل معنيين لا علاقة بينهما في الكود: **حالة** يضعها
+   الموظف («أنتظر ردّ عميل») و**حقل** `blockedByTaskIds` («تنتظر مهمة
+   أخرى»). فمهمة `in_progress` قد تكون محجوبة باعتماديّة، ومهمة `blocked`
+   بلا أي مانع مسجَّل — والمدير يقرأ الكلمة نفسها في الحالين ويفهم شيئين.
+
+   الفصل الآن: الحالة للتوقّف الإنساني وله **سبب مكتوب**، والاعتماديّة وسمٌ
+   يُعرض بجانب أي حالة كانت.
+
+   ⚠️ `blocked` بلا سبب مهمةٌ منسيّة باسم آخر — لذلك `blockReason` مطلوب. */
+export function blockInfo(task, allTasks, todayYmd) {
+  const deps = blockersOf(task, allTasks);
+  const manual = task && task.status === 'blocked';
+  return {
+    byDeps: deps.length > 0,
+    deps,
+    manual,
+    reason: (task && task.blockReason) || '',
+    /* ⚠️ توقّفٌ بلا سبب مكتوب ومضى عليه أسبوع = منسيّة، لا متوقّفة */
+    reasonMissing: manual && !(task && task.blockReason),
+    stale: manual && isStaleTask(task, todayYmd)
+  };
+}
+
+export const MAX_BLOCK_REASON = 300;
 
 /* ═══════════════════════════════════════════════════════════════════════════
    المرحلة ٧ — التوسعات الثماني
@@ -426,4 +606,113 @@ export function searchArchive(tasks, { text = '', uid = '', minRating = 0, from 
     if (to && (t.doneAtYmd || '') > to) return false;
     return true;
   });
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   سجل نشاط المهمة — الدفعة ٢
+
+   ⚠️⚠️ **لماذا مشتقّ لا مخزَّن.** «يُسجَّل تلقائياً» تعني كوداً على الخادم،
+   ولا خادم عندنا. وأي حدث يُكتب من متصفّح الموظف يستطيع الموظف تزويره: يكتب
+   «المدير اعتمد المهمة» وهو لم يعتمد. **سجل نشاط قابل للتزوير أسوأ من
+   غيابه** — لأنه يُقرأ كدليل ويُبنى عليه قرار.
+
+   فالسجل هنا **يُركَّب في الذاكرة** من طوابع لا يكتبها إلا صاحب الصلاحية
+   والقاعدة تحرسها: createdAt · startedAt · doneAt · cancelledAt ·
+   archivedAt · reopenCount · delegatedBy · رسائل المحادثة · مدخلات الوقت.
+
+   النتيجة: **تسعة أحداث بصفر قراءة إضافية وصفر كتابة وصفر إمكانية تزوير.**
+
+   ⚠️ ولا يُخزَّن شيء: كل ما يظهر هنا موجود أصلاً في وثيقة المهمة. تخزين
+   نسخة ثانية منه يعني مصدرين للحقيقة يتباعدان — وهي نفس علّة النسبة
+   المزدوجة التي أُصلحت في الدفعة ١.
+
+   ⚠️ الطوابع تصل نصوص 'YYYY-MM-DD' من normalizeTask، والوقت الدقيق يبقى في
+   الحقل الأصلي. الترتيب بالتاريخ ثم بترتيب ثابت داخل اليوم — حدثان في يوم
+   واحد بلا وقت دقيق يجب ألّا يتبادلا مكانيهما بين إعادتَي رسم.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ترتيب الحدث داخل اليوم الواحد حين تتساوى التواريخ — يتبع منطق دورة الحياة */
+const EVENT_RANK = {
+  created: 0, delegated: 1, started: 2, blocked: 3, unblocked: 4,
+  time: 5, message: 6, review: 7, reopened: 8, cancelled: 9, done: 10, archived: 11
+};
+
+export const EVENT_AR = {
+  created:   'أُنشئت المهمة',
+  started:   'بدأ التنفيذ',
+  blocked:   'أُوقفت مؤقتاً',
+  review:    'أُرسلت للاعتماد',
+  reopened:  'أُعيدت للتحسين',
+  done:      'اعتُمد الإنجاز',
+  cancelled: 'أُلغيت',
+  archived:  'أُرشفت',
+  delegated: 'فُوِّضت',
+  message:   'تعليق',
+  time:      'سجّل وقتاً'
+};
+
+/* ═══ بناء السجل ═══
+   → [{ kind, ymd, actor, text, meta }] الأقدم أولاً
+
+   ⚠️ `messages` اختيارية: صفحة المهمة تشترك عليها لحظياً وتمرّرها، واللوحة
+   لا تقرؤها إطلاقاً — فالسجل يعمل بدونها ناقصاً التعليقات، ولا يفرض قراءة. */
+export function buildTimeline(task, messages = []) {
+  if (!task) return [];
+  const out = [];
+  const add = (kind, ymd, actor, text, meta) => {
+    if (!ymd) return;
+    out.push({ kind, ymd, actor: actor || '', text: text || EVENT_AR[kind] || '', meta: meta || null });
+  };
+
+  add('created', task.createdAtYmd, task.createdByName,
+      task.assigneeName ? `أُنشئت وكُلِّف بها ${task.assigneeName}` : 'أُنشئت بلا مكلَّف');
+
+  if (task.delegatedToUid && task.delegatedAtYmd)
+    add('delegated', task.delegatedAtYmd, task.delegatedByName,
+        `فُوِّضت إلى ${task.delegatedToName || ''}${task.delegatedUntil ? ` حتى ${task.delegatedUntil}` : ''}`);
+
+  add('started', task.startedAtYmd, task.assigneeName);
+
+  /* ⚠️ التوقّف الحالي وحده يظهر: الحقل يُستبدل عند كل توقّف، فتاريخ ما قبله
+     ضاع. وقد كتبتُ الأثر الكامل في أحداث الطبقة ٢ لا هنا — لا أدّعي سجلاً
+     لا أملك بياناته. */
+  if (task.status === 'blocked')
+    add('blocked', task.blockedAtYmd || task.startedAtYmd, task.assigneeName,
+        task.blockReason ? `أُوقفت: ${task.blockReason}` : 'أُوقفت مؤقتاً بلا سبب مكتوب');
+
+  /* ⚠️ لا يُشتقّ «أُرسلت للاعتماد» من وجود doneAt وحده: المهمة مرّت
+     بالاعتماد قطعاً، لكن **متى** غير معروف — والتاريخ المخترَع (البداية)
+     يضع الحدث قبل أسبوع من وقته الحقيقي. حدثٌ غائب أصدق من حدثٍ مؤرَّخ
+     بالتخمين. الوثائق التي كُتبت قبل حقل reviewAt تفقد هذا السطر وحده. */
+  if (task.reviewAtYmd) add('review', task.reviewAtYmd, task.assigneeName,
+    task.employeeFeedback ? `أُرسلت للاعتماد: ${task.employeeFeedback.slice(0, 120)}` : null);
+  else if (task.status === 'review') add('review', task.startedAtYmd, task.assigneeName,
+    task.employeeFeedback ? `أُرسلت للاعتماد: ${task.employeeFeedback.slice(0, 120)}` : null);
+
+  /* ⚠️ العدّاد يقول «كم مرّة» ولا يقول «متى». فيُعرض سطراً واحداً بعدده لا
+     أسطراً بتواريخ مخترَعة. */
+  if (task.reopenCount > 0)
+    add('reopened', task.doneAtYmd || task.startedAtYmd, '',
+        `أُعيدت للتحسين ${task.reopenCount === 1 ? 'مرة' : `${task.reopenCount} مرات`}` +
+        (task.managerNote ? ` — ${task.managerNote.slice(0, 120)}` : ''));
+
+  add('cancelled', task.cancelledAtYmd, '', task.cancelReason ? `أُلغيت: ${task.cancelReason}` : null);
+  add('done', task.doneAtYmd, '', task.managerRating ? `اعتُمد الإنجاز · تقييم ${task.managerRating}/5` : null);
+  add('archived', task.archivedAtYmd, '');
+
+  (messages || []).forEach((m) => {
+    add(m.kind === 'event' ? (m.event || 'message') : 'message',
+        m.ymd || null, m.authorName, m.text, { id: m.id, raw: m });
+  });
+
+  return out.sort((a, b) =>
+    (a.ymd < b.ymd ? -1 : a.ymd > b.ymd ? 1 : 0) ||
+    ((EVENT_RANK[a.kind] ?? 99) - (EVENT_RANK[b.kind] ?? 99)));
+}
+
+/* تصفية السجل — نفس الوثائق، ثلاثة مرشِّحات، صفر قراءة إضافية */
+export function filterTimeline(items, mode) {
+  if (mode === 'chat')   return (items || []).filter((x) => x.kind === 'message');
+  if (mode === 'events') return (items || []).filter((x) => x.kind !== 'message');
+  return items || [];
 }

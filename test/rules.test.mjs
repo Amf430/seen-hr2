@@ -701,6 +701,32 @@ await check('suspended manager queries own dept',             false,
 await check('admin queries zkAttendance unconstrained',       true,
   () => getDocs(query(collection(admin, 'zkAttendance'), where('date', '>=', '2026-01-01'))));
 
+/* ═══ «كشف حضوري» — الموظف يقرأ سجلّ نفسه ═══
+
+   ⚠️ هذه بعينها كُسرت في الإنتاج: الشاشة استعلمت بالتاريخ وحده فرُدّ
+   الاستعلام كاملاً، وابتلعت الشاشة الرفض بـ`.catch(() => [])` فقرأت صفر
+   سجلات — و buildDailyStatus تقرأ صفر سجلات غياباً. فظهر موظف حاضر كلَّ
+   أيامه غائباً في كلّها. الاختبار هنا يحرس شكل الاستعلام لا القاعدة وحدها. */
+await check('employee queries OWN attendance (uid + date)',   true,
+  () => getDocs(query(collection(emp, 'attendance'),
+    where('employeeUid', 'in', ['empU']), where('date', '>=', '2026-01-01'))));
+await check('employee queries OWN zkAttendance (uid + date)', true,
+  () => getDocs(query(collection(emp, 'zkAttendance'),
+    where('employeeUid', 'in', ['empU']), where('date', '>=', '2026-01-01'))));
+
+/* ⚠️ ومعرّفه القديم معه: استعادة الوصول تُنشئ uid جديداً وسجلاته القديمة
+   مفهرسة بالقديم — isMine() تقبل الاثنين، فلا يتيتّم تاريخه. */
+await check('employee queries own + previous uid',            true,
+  () => getDocs(query(collection(emp, 'zkAttendance'),
+    where('employeeUid', 'in', ['empU', 'oldEmpU']), where('date', '>=', '2026-01-01'))));
+
+/* ⚠️ والحدّ يبقى: معرّف واحد ليس له في القائمة يُسقط الاستعلام كلَّه */
+await check('employee sneaks another uid into the list',      false,
+  () => getDocs(query(collection(emp, 'zkAttendance'),
+    where('employeeUid', 'in', ['empU', 'someoneElse']), where('date', '>=', '2026-01-01'))));
+await check('employee queries attendance by date ONLY',       false,
+  () => getDocs(query(collection(emp, 'attendance'), where('date', '>=', '2026-01-01'))));
+
 /* ═══ 12. المهام (المرحلة ٥) ═══
 
    ⚠️ حقل القسم مصفوفة `departments` من اليوم الأول، فـ sameDept() لا تصلح
@@ -795,6 +821,30 @@ await check('assignee timeEntries beyond 50',          false,
   () => updateDoc(doc(emp, 'tasks/tk1'), { timeEntries: Array.from({ length: 51 }, () => ({ secs: 1 })) }));
 await check('unrelated employee updates a task',       false,
   () => updateDoc(doc(emp2, 'tasks/tk1'), { status: 'in_progress' }));
+
+/* ── الدفعة ١ · سبب التوقّف والإلغاء ──
+
+   ⚠️ 'blocked' بلا سبب مكتوب مهمةٌ منسيّة باسم آخر: يقرأ المدير «متوقفة»
+   فيطمئنّ ولا يسأل. الواجهة تطلب السبب، والقاعدة تسمح بكتابته وتسقفه — لأن
+   كل حقل يكتبه المستخدم بلا سقف تخزينٌ مجاني على حساب المالك. */
+await check('assignee blocks with a reason',           true,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { status: 'blocked', blockReason: 'أنتظر ردّ العميل' }));
+await check('⚠️ assignee blockReason beyond 300',       false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { status: 'blocked', blockReason: 'س'.repeat(301) }));
+await check('assignee blockReason as a number',        false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { status: 'blocked', blockReason: 5 }));
+
+/* ⚠️ الإلغاء قرار إداري. لو مُنح للمكلَّف لصار مخرجاً من أي مهمة ثقيلة
+   بضغطة، وسقط معنى التكليف كله. */
+await check('⚠️ assignee CANCELS their own task',       false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { status: 'cancelled' }));
+await check('manager cancels a task',                  true,
+  () => updateDoc(doc(mgr, 'tasks/tk1'), { status: 'cancelled' }));
+/* ⚠️ والمكلَّف لا يحيي ما أُلغي — وإلا ألغى المدير فأعادها الموظف */
+await check('⚠️ assignee revives a cancelled task',     false,
+  () => updateDoc(doc(emp, 'tasks/tk1'), { status: 'in_progress' }));
+await check('manager revives it',                      true,
+  () => updateDoc(doc(mgr, 'tasks/tk1'), { status: 'in_progress' }));
 
 /* ── المدير والأدمن ── */
 await check('manager approves the task',               true,
@@ -1219,6 +1269,104 @@ await check('admin deletes any event',                true,  () => deleteDoc(doc
 /* ⚠️ والأصل يبقى مقفلاً: التقويم لم يفتح إجازات الزملاء للموظف */
 await check('⚠️ employee still cannot read peer leave requests', false,
   () => getDocs(query(collection(emp, 'requests'), where('department', '==', 'المبيعات'))));
+
+
+/* ═══ القائمة الشخصية — الدفعة ٥ ═══
+
+   ⚠️⚠️ هذه أكثر قاعدة في النظام تعتمد على **ما هو غائب منها**: لا isAdmin()
+   ولا sameDept(). الوعد للموظف أن أحداً لا يقرأ قائمته، وأدمنٌ يقرأها يكسر
+   الوعد كما يكسره مديره — والقائمة التي يظنّها صاحبها مقروءة يكتب فيها ما
+   يصلح للعرض لا ما ينفعه، فتفقد سبب وجودها.
+
+   ⚠️ وقواعد Firestore **لا تنحدر إلى المجموعات الفرعية**: قاعدة
+   /users/{uid} تمنح المدير قراءةً بـsameDept()، وهذه المجموعة تحتها ولا
+   تصلها تلك القاعدة. الاختبارات أدناه تثبت ذلك بالتجربة لا بالافتراض. */
+console.log('\n\x1b[1m═══ 15. PERSONAL TO-DO LIST ═══\x1b[0m');
+
+const todoPath = 'users/empU/private/todos';
+const todoDoc  = (items) => ({ items, updatedAt: serverTimestamp() });
+
+await check('employee writes own list',                true,
+  () => setDoc(doc(emp, todoPath), todoDoc([{ id: 'a', text: 'اتصل بالعميل' }])));
+await check('employee reads own list',                 true,
+  () => getDoc(doc(emp, todoPath)));
+
+/* ⚠️ الثلاثة التالية هي الميزة كلها — لا الأداء ولا الشكل */
+await check('⚠️ MANAGER reads an employee list',        false,
+  () => getDoc(doc(mgr, todoPath)));
+await check('⚠️ ADMIN reads an employee list',          false,
+  () => getDoc(doc(admin, todoPath)));
+await check('⚠️ another employee reads it',             false,
+  () => getDoc(doc(emp2, todoPath)));
+await check('stranger reads it',                       false,
+  () => getDoc(doc(stranger, todoPath)));
+
+await check('manager writes into it',                  false,
+  () => setDoc(doc(mgr, todoPath), todoDoc([{ id: 'x', text: 'افعل هذا' }])));
+await check('admin writes into it',                    false,
+  () => setDoc(doc(admin, todoPath), todoDoc([])));
+await check('employee writes into ANOTHER list',       false,
+  () => setDoc(doc(emp, 'users/emp2U/private/todos'), todoDoc([])));
+
+/* ⚠️ السقوف: هذه أقلّ مسارات النظام إشرافاً — لا مدير يراجعها ولا اعتماد،
+   فمصفوفة بلا سقف تخزينٌ مجاني على حساب المالك. */
+await check('⚠️ list beyond 100 items',                 false,
+  () => setDoc(doc(emp, todoPath),
+    todoDoc(Array.from({ length: 101 }, (_, i) => ({ id: 'i' + i, text: 'س' })))));
+await check('exactly 100 items',                       true,
+  () => setDoc(doc(emp, todoPath),
+    todoDoc(Array.from({ length: 100 }, (_, i) => ({ id: 'i' + i, text: 'س' })))));
+await check('items as a string not a list',            false,
+  () => setDoc(doc(emp, todoPath), { items: 'سين', updatedAt: serverTimestamp() }));
+await check('⚠️ an extra field smuggled in',            false,
+  () => setDoc(doc(emp, todoPath), { items: [], updatedAt: serverTimestamp(), sharedWith: 'mgrU' }));
+/* ⚠️ الطابع من السيرفر: بدونه يكتب جهازٌ متأخّر الساعة فوق أحدث نسخة */
+await check('⚠️ a client-chosen updatedAt',             false,
+  () => setDoc(doc(emp, todoPath), { items: [], updatedAt: Timestamp.fromMillis(0) }));
+await check('no updatedAt at all',                     false,
+  () => setDoc(doc(emp, todoPath), { items: [] }));
+
+
+/* ═══ انصرافٌ بلا دخول — قرار المالك ٢٠٢٦-٠٨-١٣ ═══
+
+   ⚠️ نافذة الحضور تُغلق بعد بداية الوردية بأربع ساعات، ولا حضور متأخر بعدها.
+   من داوم ولم يبصم دخولاً يسجّل انصرافه وحده: جلسة بلا `in`، والوثيقة تحمل
+   `missedCheckIn`. الوسم **مطلوب صراحةً** لا مشتقّاً من `in == null` — قاعدة
+   تقبل أي جلسة بلا `in` تقبل جلسةً مشوّهة أيضاً، وتُقرأ لاحقاً حضوراً. */
+console.log('\n\x1b[1m═══ 16. CHECK-OUT WITH NO CHECK-IN ═══\x1b[0m');
+
+const outOnly = (over = {}) => ({
+  ...attDoc(),
+  missedCheckIn: true,
+  sessions: [{ in: null, out: Timestamp.now(), outLoc: { lat: 21.5, lng: 39.1 }, source: 'web' }],
+  ...over
+});
+const missRef = () => doc(emp, 'attendance/empU_' + ymdKsa());
+
+await check('employee records a departure with no arrival', true,
+  () => setDoc(missRef(), outOnly()));
+
+/* ⚠️ بلا الوسم تُرفض: هذا ما يمنع كتابة جلسة مشوّهة تُقرأ حضوراً */
+await check('⚠️ same shape WITHOUT the missedCheckIn flag', false,
+  () => setDoc(missRef(), { ...outOnly(), missedCheckIn: false }));
+await check('⚠️ and with the flag missing entirely', false,
+  () => setDoc(missRef(), (() => { const d = outOnly(); delete d.missedCheckIn; return d; })()));
+
+/* ⚠️ ولا يفتح الوسمُ باباً لتزوير وقت الخروج */
+await check('backdated departure with the flag', false,
+  () => setDoc(missRef(), outOnly({
+    sessions: [{ in: null, out: Timestamp.fromMillis(Date.now() - 6 * 3600 * 1000), source: 'web' }] })));
+await check('flag plus a real check-in time', false,
+  () => setDoc(missRef(), outOnly({
+    sessions: [{ in: Timestamp.now(), out: Timestamp.now(), source: 'web' }] })));
+await check('two sessions at once', false,
+  () => setDoc(missRef(), outOnly({
+    sessions: [{ in: null, out: Timestamp.now(), source: 'web' },
+               { in: null, out: Timestamp.now(), source: 'web' }] })));
+await check('someone else records it for them', false,
+  () => setDoc(doc(emp2, 'attendance/empU_' + ymdKsa()), outOnly()));
+await check('for a past date', false,
+  () => setDoc(doc(emp, 'attendance/empU_2026-01-10'), outOnly({ date: '2026-01-10' })));
 
 console.log(`\n\x1b[1m═══ RESULT: ${pass} passed, ${fail} failed ═══\x1b[0m`);
 if (failures.length) { console.log('\nFAILURES:'); failures.forEach((f) => console.log('  • ' + f)); }

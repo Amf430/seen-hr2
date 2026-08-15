@@ -2,7 +2,8 @@
    بطاقة الطلب — تُستخدم في «طلباتي» و«بانتظار موافقتك» ولوحة القيادة.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { el, esc, extLink } from '../lib/dom.js';
+import { el, esc, extLink, toast } from '../lib/dom.js';
+import { avatar, button } from '../lib/ui.js';
 import { fmtDate, fmtDT } from '../lib/format.js';
 import { STATUS_AR } from '../lib/dates.js';
 import { canApproveType } from '../lib/perms.js';
@@ -103,6 +104,44 @@ export function requestCard(r, forAdmin) {
   }
 
   return c;
+}
+
+/* ═══ صفّ اعتماد بإجراء مباشر ═══
+   للوحة الأدمن: صورة رمزية، واسم، وسطر «النوع · المدّة · التاريخ»، وزرّان.
+   القرار يُتخذ من اللوحة بلا فتح صفحة الطلبات.
+
+   ⚠️ الموافقة تُنفَّذ مباشرةً، والرفض يفتح نافذة السبب — لا لأن الشكل يقتضيه
+   بل لأن reject(r, reason) تشترط سبباً، ولأن سبب الرفض يصل الموظف. مرجع
+   التصميم يضع علامة × تنفّذ فوراً؛ نسخُها هنا يعني رفضاً بلا سبب.
+
+   ⚠️ onDone تُستدعى بعد نجاح القرار ليعاد رسم القائمة — بلا ذلك يبقى الصفّ
+   المُعتمَد ظاهراً فيضغطه الأدمن ثانيةً. */
+export function approvalRow(r, onDone) {
+  const row = el('div', 'approw');
+  const who = r.employeeName || '—';
+  const when = r.type === 'permission'
+    ? fmtDate(r.date)
+    : `${fmtDate(r.startDate)} ← ${fmtDate(r.endDate)}`;
+  const dur = r.type === 'permission' ? 'استئذان' : `${r.days || 1} يوم`;
+
+  row.appendChild(avatar(who, 34));
+  const body = el('div', 'approw__body',
+    `<b class="approw__name">${esc(who)}</b>` +
+    `<span class="approw__meta">${esc(r.categoryLabel || '')} · ${esc(dur)} · ${esc(when)}</span>`);
+  row.appendChild(body);
+
+  const acts = el('div', 'approw__acts');
+  const ok = button('', 'iconbtn iconbtn--ok', async () => {
+    ok.disabled = no.disabled = true;
+    try { await approve(r); toast('تمت الموافقة'); onDone?.(); }
+    catch (e) { console.error(e); toast('تعذّر تنفيذ الموافقة', 'err'); ok.disabled = no.disabled = false; }
+  }, 'check');
+  ok.setAttribute('aria-label', `الموافقة على طلب ${who}`);
+  const no = button('', 'iconbtn iconbtn--no', () => openReject(r, onDone), 'x');
+  no.setAttribute('aria-label', `رفض طلب ${who}`);
+  acts.append(ok, no);
+  row.appendChild(acts);
+  return row;
 }
 
 /* صف مختصر للوحة القيادة والرئيسية */

@@ -14,11 +14,16 @@ import { ymdKsa } from '../lib/dates.js';
 import { tasksForDept, createTask, moveTask, updateTask,
          generateRecurring, archiveDueTasks, delegateTask } from '../lib/tasks.js';
 import { sortTasks, dueStateOf, managerPulse, isStaleTask, roleFor,
+         workloadBy, urgentPressure, progressOf, blockInfo,
          nextStepFor, tasksHittingLeave, leaveCovering, isBlocked, blockersOf,
          STATUS_AR, PRIORITY_AR } from '../lib/task-flow.js';
 import { isStale, go } from '../lib/nav.js';
 import { isAdmin } from '../lib/perms.js';
-import { card, grid, stat, tableWrap, sectionHead, button, loading, callout } from '../lib/ui.js';
+import { card, tableWrap, sectionHead, button, loading, callout, pageHead, statCard,
+         rowMenu } from '../lib/ui.js';
+import { taskBoard } from '../components/task-board.js';
+import { icon } from '../lib/icons.js';
+import { BOARD_STATUSES, shouldArchive, MAX_BLOCK_REASON } from '../lib/task-flow.js';
 
 export async function render(view, token) {
   const me = getMe();
@@ -35,19 +40,44 @@ export async function render(view, token) {
     return;
   }
 
-  const head = card('');
-  const bar = el('div', 'cluster');
+  /* ⚠️ رأس واحد بالإجراءات بدل بطاقة عنوان تشغل ثلث الشاشة بلا معلومة.
+     و«المهام المنجزة» زرّ هنا لا رابط في الشريط الجانبي (طلب المالك): الأرشيف
+     امتداد لهذه الصفحة لا وجهة مستقلّة — من يفتح مهام قسمه يبحث عن المفتوحة،
+     ويعود للمنجزة عند السؤال عمّا أُنجز. */
   let deptSel = null;
+  /* ⚠️ تفضيل هذا الجهاز وحده — localStorage لا Firestore. من يفتح اللوحة
+     على شاشة كبيرة يريدها لوحةً، ومن يفتحها على جواله يريدها قائمة، وهو
+     الشخص نفسه. ولا شيء هنا يخصّ الحقيقة. */
+  const VIEW_KEY = 'seen-hr:tasks-view';
+  let view2 = 'board';
+  try { view2 = localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'board'; } catch (e) { /* خصوصية مشدّدة */ }
+
+  const viewBtn = button('', 'btn sm ghost', () => {
+    view2 = view2 === 'board' ? 'list' : 'board';
+    try { localStorage.setItem(VIEW_KEY, view2); } catch (e) { /* لا شيء يُفقد */ }
+    draw();
+  });
+  const paintViewBtn = () => {
+    viewBtn.innerHTML = icon(view2 === 'board' ? 'list' : 'dashboard') +
+      (view2 === 'board' ? 'عرض قائمة' : 'عرض لوحة');
+  };
+  paintViewBtn();
+
+  const headActions = [
+    button('مهمة جديدة', 'btn sm', () => openTaskForm(null), 'plus'),
+    viewBtn,
+    button('المهام المنجزة', 'btn sm ghost', () => go('tasks-archive'), 'archive')
+  ];
+  view.appendChild(pageHead('مهام القسم',
+    'تابع ما وصلت إليه مهام قسمك، واعتمد المنجز منها.', ...headActions));
+
   if (depts.length > 1) {
-    deptSel = el('select', 'select-lg');
+    deptSel = el('select', '');
     deptSel.innerHTML = depts.map((d) => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
+    const bar = el('div', 'toolbar');
     bar.appendChild(deptSel);
+    view.appendChild(bar);
   }
-  head.appendChild(sectionHead({ text: 'مهام القسم', icon: 'check' },
-    button('مهمة جديدة', 'btn sm', () => openTaskForm(null))));
-  head.appendChild(el('p', 'desc', 'تابع ما وصلت إليه مهام قسمك، واعتمد المنجز منها.'));
-  if (deptSel) head.appendChild(bar);
-  view.appendChild(head);
 
   const host = el('div', '');
   view.appendChild(host);
@@ -56,7 +86,9 @@ export async function render(view, token) {
   /* موظفو القسم — للتكليف. المدير لا يكلّف خارج قسمه. */
   const staffOf = (d) => getUsers().filter((u) => u.role !== 'admin' && u.department === d);
 
-  let filterStatus = '', filterUid = '', onlyLate = false;
+  let filterStatus = '', filterUid = '', onlyLate = false, filterStale = false,
+      dueTodayOnly = false;
+
 
   async function draw() {
     host.innerHTML = '';
@@ -84,11 +116,16 @@ export async function render(view, token) {
     }
     if (isStale(token)) return;
 
-    /* الأرشفة التلقائية: دفعة محدودة من المنجزة منذ ٣٠ يوماً */
+    /* الأرشفة التلقائية: دفعة محدودة من المنجزة منذ ٣٠ يوماً.
+       ⚠️ ونحتفظ بالنتيجة للوحة: عمود «منجزة» يعرضها بلا استعلام ثالث. */
+    let doneTasks = [];
     try {
-      const done = await tasksForDept(dept, ['done']);
-      const n = await archiveDueTasks(done, today);
-      if (n) tasks = await tasksForDept(dept);
+      doneTasks = await tasksForDept(dept, ['done']);
+      const n = await archiveDueTasks(doneTasks, today);
+      if (n) {
+        tasks = await tasksForDept(dept);
+        doneTasks = doneTasks.filter((t) => !shouldArchive(t, today));
+      }
     } catch (e) { console.error('archive', e); }
     if (isStale(token)) return;
 
@@ -105,21 +142,93 @@ export async function render(view, token) {
       `${hitting.length} مهمة يستحقّ موعدها ومسؤولها في إجازة`,
       hitting.map((h) => `«${h.task.title}» — ${h.task.assigneeName} حتى ${h.leave.endDate}`).join(' · ')));
 
-    /* ⚠️ الترتيب مقصود: المنسيّة أولاً لأنها الوحيدة التي لا يذكّر بها أحد */
-    const g = grid(3);
-    g.append(
-      stat(String(pulse.stale), 'بلا حراك ٧ أيام', pulse.stale ? 'r' : 'ok'),
-      stat(String(pulse.overdue), 'متأخرة', pulse.overdue ? 'a' : 'ok'),
-      stat(String(pulse.awaitingMe), 'بانتظار اعتمادي', pulse.awaitingMe ? 'a' : '')
+    /* ⚠️ الأرقام أفعالٌ لا عدّادات: كل بطاقة تفرز القائمة على ما تعدّه.
+       «٣ متأخرة» رقمٌ ميت ما لم يوصلك إلى الثلاثة، والأدمن كان ينزل يفرز
+       يدوياً بعد قراءته.
+       ⚠️ الترتيب مقصود: المنسيّة أولاً لأنها الوحيدة التي لا يذكّر بها أحد. */
+    const sg = el('div', 'statgrid statgrid--3');
+    const jump = (setter) => () => { setter(); draw(); };
+    const clearF = () => { onlyLate = false; filterStale = false; dueTodayOnly = false; filterStatus = ''; };
+    sg.append(
+      statCard({ label: 'بلا حراك ٧ أيام', value: pulse.stale, ico: 'alert',
+        tone: pulse.stale ? 'bad' : 'good',
+        sub: pulse.stale ? 'لا أحد يذكّر بها — اضغط لعرضها' : 'كل المهام تتحرّك',
+        onClick: pulse.stale ? jump(() => { const v = !filterStale; clearF(); filterStale = v; }) : null }),
+      statCard({ label: 'متأخرة', value: pulse.overdue, ico: 'clock',
+        tone: pulse.overdue ? 'warn' : 'good',
+        sub: pulse.overdue ? 'تجاوزت موعدها — اضغط لعرضها' : 'لا شيء تجاوز موعده',
+        onClick: pulse.overdue ? jump(() => { const v = !onlyLate; clearF(); onlyLate = v; }) : null }),
+      statCard({ label: 'تستحق اليوم', value: pulse.dueToday, ico: 'calendar',
+        tone: pulse.dueToday ? 'warn' : '',
+        sub: pulse.dueToday ? 'موعدها اليوم — اضغط لعرضها' : 'لا شيء يستحق اليوم',
+        onClick: pulse.dueToday ? jump(() => { const v = !dueTodayOnly; clearF(); dueTodayOnly = v; }) : null }),
+      statCard({ label: 'بانتظار اعتمادي', value: pulse.awaitingMe, ico: 'inbox',
+        tone: pulse.awaitingMe ? 'warn' : '',
+        sub: pulse.awaitingMe ? 'أرسلها الموظف وتنتظر قرارك' : 'لا شيء ينتظر قرارك',
+        onClick: pulse.awaitingMe ? jump(() => { const v = filterStatus !== 'review'; clearF(); filterStatus = v ? 'review' : ''; }) : null }),
+      statCard({ label: 'متوقفة', value: pulse.blocked, ico: 'x',
+        tone: pulse.blocked ? 'warn' : '',
+        sub: pulse.blocked ? 'ينتظر كلٌّ منها شيئاً — اضغط لعرضها' : 'لا شيء متوقّف',
+        onClick: pulse.blocked ? jump(() => { const v = filterStatus !== 'blocked'; clearF(); filterStatus = v ? 'blocked' : ''; }) : null }),
+      statCard({ label: 'مهام نشِطة', value: pulse.activeTotal, ico: 'check',
+        sub: 'ما لم يُغلق بعد في هذا القسم' })
     );
-    const kpi = card('');
-    kpi.appendChild(g);
-    if (pulse.stale) kpi.appendChild(el('p', 'help',
+    host.appendChild(sg);
+
+    /* ⚠️ حين يصير كل شيء عاجلاً لا يبقى شيء عاجل، ويفقد الفرز معناه لأن نصف
+       اللوحة في المرتبة الأولى. تنبيه لا منع — فرضه في قاعدة يحتاج عدّ مهام
+       القسم داخل القاعدة وFirestore لا يقدر عليه. */
+    const up = urgentPressure(tasks);
+    if (up.over) host.appendChild(callout('warn',
+      `${up.count} مهام «عاجلة» مفتوحة في القسم`,
+      'حين يصير كل شيء عاجلاً لا يبقى شيء عاجل. راجع أيّها عاجل فعلاً: ' +
+      up.tasks.slice(0, 4).map((t) => `«${t.title}»`).join(' · ')));
+    if (pulse.stale) host.appendChild(el('p', 'help',
       'المهمة المنسيّة أخطر من المتأخرة: المتأخرة يسأل عنها أحد، والمنسيّة لا يذكرها أحد.'));
-    host.appendChild(kpi);
+
+    /* ── حِمل الموظفين ──
+       ⚠️ من نفس المصفوفة المحمَّلة — صفر قراءة إضافية. والوزن لا العدد:
+       مهمة عاجلة متأخرة ليست كمهمة عادية مستحقّة بعد شهر، وترتيبٌ بالعدد
+       وحده يُظهر من عنده عشر مهام تافهة أثقل ممّن عنده ثلاث حرجة.
+
+       ⚠️ ولا يُعرض للموظف ولا يدخل تقييمه: رقمٌ يراه صاحبه يصير هدفاً
+       يُدار بدل أن يكون قياساً. */
+    const load = workloadBy(tasks, today);
+    if (load.length) {
+      const lc = card('');
+      lc.appendChild(sectionHead({ text: 'توزيع المهام على الفريق', icon: 'people' }));
+      const lw = tableWrap(`
+        <table class="tight">
+          <thead><tr><th>الموظف</th><th class="num">نشِطة</th><th class="num">متأخرة</th>
+            <th class="num">اليوم</th><th class="num">تنتظر اعتمادي</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>`);
+      const ltb = lw.querySelector('tbody');
+      const heaviest = load[0].load;
+      load.forEach((r, i) => {
+        const tr = el('tr', '');
+        tr.innerHTML = `
+          <td><b>${esc(r.name || '—')}</b>${
+            i === 0 && load.length > 1 && heaviest > 0
+              ? '<div class="cell-sub text-amber">الأثقل حِملاً</div>' : ''}</td>
+          <td class="num">${r.active}</td>
+          <td class="num ${r.overdue ? 'text-red' : ''}">${r.overdue || '—'}</td>
+          <td class="num ${r.dueToday ? 'text-amber' : ''}">${r.dueToday || '—'}</td>
+          <td class="num">${r.review || '—'}</td>`;
+        const td = el('td', '');
+        td.appendChild(button('مهامه', 'btn sm ghost',
+          () => { filterUid = filterUid === r.uid ? '' : r.uid; draw(); }));
+        tr.appendChild(td);
+        ltb.appendChild(tr);
+      });
+      lc.appendChild(lw);
+      lc.appendChild(el('p', 'help',
+        'الترتيب بوزن المهام لا بعددها — العاجلة المتأخرة تزن أكثر. ولا يظهر هذا للموظفين ولا يدخل تقييمهم.'));
+      host.appendChild(lc);
+    }
 
     /* ── الفلاتر ── */
-    const fc = card('');
+    const fc = el('div', 'filterbar');
     const fbar = el('div', 'cluster');
     const stSel = el('select', '');
     stSel.innerHTML = '<option value="">كل الحالات</option>' +
@@ -128,11 +237,19 @@ export async function render(view, token) {
     const uSel = el('select', '');
     uSel.innerHTML = '<option value="">كل الموظفين</option>' +
       staffOf(dept).map((u) => `<option value="${esc(u.id)}"${filterUid === u.id ? ' selected' : ''}>${esc(u.name)}</option>`).join('');
-    const lateBtn = button(onlyLate ? '✓ المتأخرة فقط' : 'المتأخرة فقط',
-      'btn sm ' + (onlyLate ? '' : 'ghost'), () => { onlyLate = !onlyLate; draw(); });
+    const lateBtn = button('المتأخرة فقط', 'btn sm ' + (onlyLate ? '' : 'ghost'),
+      () => { onlyLate = !onlyLate; filterStale = false; draw(); }, onlyLate ? 'check' : 'clock');
+    const staleBtn = button('بلا حراك', 'btn sm ' + (filterStale ? '' : 'ghost'),
+      () => { filterStale = !filterStale; onlyLate = false; draw(); }, filterStale ? 'check' : 'alert');
     stSel.onchange = () => { filterStatus = stSel.value; draw(); };
     uSel.onchange  = () => { filterUid = uSel.value; draw(); };
-    fbar.append(stSel, uSel, lateBtn);
+    fbar.append(stSel, uSel, lateBtn, staleBtn);
+    /* ⚠️ زرّ المسح يظهر عند وجود فرز فعّال وحده: زرٌّ دائم لا يفعل شيئاً
+       يعلّم المستخدم تجاهل الأزرار. */
+    if (filterStatus || filterUid || onlyLate || filterStale || dueTodayOnly) {
+      fbar.appendChild(button('مسح الفرز', 'btn sm ghost',
+        () => { clearF(); filterUid = ''; draw(); }, 'x'));
+    }
     fc.appendChild(fbar);
     host.appendChild(fc);
 
@@ -140,6 +257,38 @@ export async function render(view, token) {
     if (filterStatus) list = list.filter((t) => t.status === filterStatus);
     if (filterUid)    list = list.filter((t) => t.assigneeUid === filterUid);
     if (onlyLate)     list = list.filter((t) => dueStateOf(t, today).kind === 'overdue');
+    if (dueTodayOnly) list = list.filter((t) => dueStateOf(t, today).kind === 'today');
+    if (filterStale)  list = list.filter((t) => isStaleTask(t, today));
+
+    paintViewBtn();
+
+    /* ══════════ اللوحة ══════════
+       ⚠️ «منجزة» عمودٌ هنا وليست في ACTIVE_STATUSES: تُجلب باستعلامها
+       المستقلّ (الذي يُنفَّذ أصلاً للأرشفة) فلا قراءة إضافية، ويحتاج المدير
+       أن يرى ما اعتُمد بجوار ما ينتظره. */
+    if (view2 === 'board') {
+      const bc = card('');
+      bc.appendChild(sectionHead({ text: `المهام (${list.length})`, icon: 'dashboard' }));
+      bc.appendChild(taskBoard({
+        tasks: list.concat(doneTasks), who: roleFor(list[0] || { departments: [dept] }, me) || 'manager',
+        today, statuses: BOARD_STATUSES,
+        onOpen: (t) => go('task', t.id),
+        onMove: (t, to) => quickMove(t, to),
+        onNeeds: (t, to, needs) => {
+          if (needs === 'approve') openApprove(t);
+          else if (needs === 'improve') openImprove(t);
+          else if (needs === 'reason') openBlockReason(t);
+        },
+        onDeny: (msg) => { if (msg) toast(msg, 'err'); }
+      }));
+      /* ⚠️ يُقال صراحةً أن السحب لسطح المكتب: HTML5 DnD لا يعمل على اللمس،
+         ومستخدمُ الجوال الذي يحاول السحب ويفشل يظنّ النظام معطّلاً. */
+      bc.appendChild(el('p', 'help',
+        'اسحب البطاقات بين الأعمدة لنقل حالتها، أو اضغط بطاقةً للتفاصيل. ' +
+        'على الجوال: افتح المهمة وانقلها من زرّ الإجراء — السحب لا يعمل باللمس.'));
+      host.appendChild(bc);
+      return;
+    }
 
     const c = card('');
     c.appendChild(sectionHead({ text: `المهام (${list.length})`, icon: 'check' }));
@@ -176,23 +325,72 @@ export async function render(view, token) {
           onLeave ? `<div class="cell-sub text-amber">في إجازة حتى ${esc(onLeave.endDate)}</div>` : ''}</td>
         <td><span class="pill pill--dot ${t.status === 'review' ? 'pending' : ''}">${esc(STATUS_AR[t.status])}</span></td>
         <td class="num ${due.kind === 'overdue' ? 'text-red' : ''}">${esc(due.text || t.dueDate || '—')}</td>`;
+      /* ── إجراءات سريعة بلا فتح المهمة ──
+         ⚠️ زرّ واحد للأمام لكل حالة، من nextStepFor نفسها التي تستعملها
+         شاشة الموظف — حسبة واحدة في مكان واحد. والمدير يعتمد عشر مهام في
+         الجلسة، فرحلة «افتح ← اعتمد ← ارجع» عشر مرّات هي الشاشة كلها.
+
+         ⚠️ ولا زرّ «إنهاء» يظهر للمكلَّف هنا: هو يرسل للاعتماد والمدير
+         يعتمد — إسقاط هذه الخطوة يُسقط أساس التحليلات كلّه. */
       const td = el('td', '');
       const acts = el('div', 'actions-cell');
       const who = roleFor(t, me);
       const step = nextStepFor(t, who);
-      if (step && t.status === 'review') {
+      if (t.status === 'review') {
         acts.appendChild(button('اعتماد', 'btn sm', () => openApprove(t)));
         acts.appendChild(button('يحتاج تحسين', 'btn sm ghost', () => openImprove(t)));
+      } else if (step) {
+        acts.appendChild(button(step.label, 'btn sm ghost', async () => {
+          try { await moveTask(t, step.to); toast('حُدّثت الحالة', 'ok'); await draw(); }
+          catch (e) { console.error(e); toast('تعذّر تحديث الحالة', 'err'); }
+        }));
       }
-      acts.appendChild(button(t.delegatedToUid ? 'التفويض' : 'تفويض', 'btn sm ghost',
-        () => openDelegate(t)));
-      acts.appendChild(button('فتح', 'btn sm ghost', () => go('task', t.id)));
+      acts.appendChild(rowMenu([
+        { label: t.delegatedToUid ? 'التفويض' : 'تفويض', ico: 'people', onClick: () => openDelegate(t) },
+        { label: 'تعديل', ico: 'doc', onClick: () => openTaskForm(t) },
+        null,
+        ...(t.status === 'cancelled'
+          ? [{ label: 'أعدها للتنفيذ', ico: 'back', onClick: () => quickMove(t, 'in_progress') }]
+          : [{ label: 'إلغاء المهمة', ico: 'x', danger: true, onClick: () => quickMove(t, 'cancelled') }]),
+        { label: 'فتح التفاصيل', ico: 'inbox', onClick: () => go('task', t.id) }
+      ]));
       td.appendChild(acts);
       tr.appendChild(td);
       tb.appendChild(tr);
     });
     c.appendChild(w);
     host.appendChild(c);
+  }
+
+  /* ⚠️ التوقّف يطلب سبباً حتى حين يقع بالسحب: «متوقفة» بلا سبب يقرؤها
+     المدير فيطمئنّ ولا يسأل — وهي منسيّة باسم آخر. الإسقاط يفتح النافذة. */
+  function openBlockReason(t) {
+    const m = openModal(`
+      <h3>إيقاف مؤقّت — ${esc(t.title)}</h3>
+      <div class="field">
+        <label for="tbWhy">ما الذي يمنع التقدّم؟ *</label>
+        <textarea id="tbWhy" rows="3" maxlength="${MAX_BLOCK_REASON}"
+          placeholder="بانتظار ردّ العميل · ينقصه ملف من المحاسبة"></textarea>
+      </div>
+      <div class="err" id="tbErr"></div>
+      <div class="row">
+        <button class="btn ghost" id="tbCancel">إلغاء</button>
+        <button class="btn" id="tbOk">أوقفها</button>
+      </div>`);
+    m.$('#tbCancel').onclick = m.close;
+    m.$('#tbOk').onclick = async () => {
+      const why = m.$('#tbWhy').value.trim();
+      if (why.length < 3) { m.$('#tbErr').textContent = 'اكتب السبب — كلمتان تكفيان'; return; }
+      try {
+        await moveTask(t, 'blocked', { blockReason: why.slice(0, MAX_BLOCK_REASON) });
+        m.close(); toast('أُوقفت مؤقتاً', 'ok'); await draw();
+      } catch (e) { console.error(e); m.$('#tbErr').textContent = 'تعذّر الحفظ'; }
+    };
+  }
+
+  async function quickMove(t, to) {
+    try { await moveTask(t, to); toast('حُدّثت الحالة', 'ok'); await draw(); }
+    catch (e) { console.error(e); toast('تعذّر تحديث الحالة', 'err'); }
   }
 
   /* ── اعتماد ── */

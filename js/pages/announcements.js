@@ -16,7 +16,7 @@ import {
 } from '../lib/announcements.js';
 import { isStale } from '../lib/nav.js';
 import { isAdmin } from '../lib/perms.js';
-import { card, empty, tableWrap, sectionHead, button, loading, callout } from '../lib/ui.js';
+import { card, empty, tableWrap, sectionHead, button, loading, callout, pageHead } from '../lib/ui.js';
 
 export async function render(view, token) {
   return isAdmin() ? adminView(view, token) : employeeView(view, token);

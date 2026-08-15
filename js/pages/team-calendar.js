@@ -16,17 +16,18 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import { el, esc, toast, openModal, confirmAction } from '../lib/dom.js';
+import { icon } from '../lib/icons.js';
 import { getMe, getUsers, getSettings } from '../lib/state.js';
 import { ymdKsa, AR_DAYS } from '../lib/dates.js';
 import { fmtDT } from '../lib/format.js';
-import { monthGrid, shiftMonth, dayLayers, conflictsInRange, canEditEvent,
+import { monthGrid, shiftMonth, dayLayers, conflictsInRange, canEditEvent, timelineRows,
          DEFAULT_CONFLICT_PCT } from '../lib/calendar.js';
 import { fetchLeavesForMonth, fetchEvents, saveEvent, deleteEvent } from '../lib/calendar-io.js';
 import { resolveShift, shiftText } from '../lib/shifts.js';
 import { tasksForDept } from '../lib/tasks.js';
 import { isStale } from '../lib/nav.js';
 import { isAdmin, isManager } from '../lib/perms.js';
-import { card, empty, sectionHead, button, loading, callout } from '../lib/ui.js';
+import { card, empty, sectionHead, button, loading, callout, avatar } from '../lib/ui.js';
 
 export async function render(view, token) {
   const me = getMe();
@@ -66,6 +67,34 @@ export async function render(view, token) {
     bar.appendChild(deptSel);
   }
   bar.append(prevBtn, monthLbl, nextBtn);
+
+  /* ── الشبكة أو الخطّ الزمني ──
+     الشبكة تجيب «من غائب اليوم؟»، والخطّ الزمني يجيب «متى يغيب كلٌّ منهم؟» —
+     وهو السؤال الذي يقرّر الموافقة على طلب جديد. المدير يحتاج الاثنين.
+
+     ⚠️ الخطّ الزمني لمن يرى الطلبات وحده (أدمن أو مدير). الموظف لا يملك
+     قراءة `requests` على السيرفر أصلاً، فصفّه سيكون فارغاً دائماً — وعرضُ
+     مبدّلٍ لعرضٍ فارغ وعدٌ كاذب. */
+  let mode = 'grid';
+  if (full) {
+    const tg = el('div', 'viewtoggle');
+    tg.setAttribute('role', 'group');
+    tg.setAttribute('aria-label', 'طريقة عرض التقويم');
+    const tb = (m, label, ico) => {
+      const b = el('button', 'viewtoggle__btn' + (mode === m ? ' is-on' : ''), icon(ico) + esc(label));
+      b.type = 'button';
+      b.onclick = () => {
+        mode = m;
+        tg.querySelectorAll('.viewtoggle__btn').forEach((x) => x.classList.remove('is-on'));
+        b.classList.add('is-on');
+        draw();
+      };
+      return b;
+    };
+    tg.append(tb('grid', 'شبكة الشهر', 'calendar'), tb('timeline', 'خطّ زمني', 'chart'));
+    bar.appendChild(tg);
+  }
+
   head.appendChild(bar);
   view.appendChild(head);
 
@@ -122,6 +151,12 @@ export async function render(view, token) {
         `الحدّ المضبوط ${pct}٪، ويُعدَّل من إعدادات النظام.`));
     }
 
+    /* ── الخطّ الزمني ── */
+    if (mode === 'timeline') {
+      host.appendChild(timelineCard(g, leaves, staff, dept));
+      return;
+    }
+
     /* ── الشبكة ── */
     const c = card('');
     const grid = el('div', 'cal-grid');
@@ -172,6 +207,80 @@ export async function render(view, token) {
   /* ── إضافة/تعديل حدث ──
      ⚠️ نطاق الحدث حقلٌ واحد: قسم، أو فارغ = الشركة كلها. والأدمن وحده يقدر
      يجعله للشركة — مرآةٌ لقاعدة calendarEvents لا بديل عنها. */
+  /* ═══ بطاقة الخطّ الزمني ═══
+     صفّ لكل موظف، وأعمدة الأيام، وأشرطة تمتدّ على الإجازة.
+
+     ⚠️ الأعمدة شبكة CSS بعدد أيام الشهر — لا عرض ثابت لكل يوم: فبراير ٢٨
+     ومارس ٣١، والعرض الثابت يجعل الشهرين مختلفَي الطول على الشاشة فتُقارن
+     أطوالهما بالخطأ.
+
+     ⚠️ الاتجاه: الأيام تسير **يميناً←يساراً** كبقيّة الواجهة العربية،
+     فالشبكة داخل صفحة rtl ترتّب عمودها الأول يميناً تلقائياً. */
+  function timelineCard(g, leaves, staff, dept) {
+    const c = card('');
+    c.appendChild(sectionHead({ text: 'خطّ إجازات الفريق', icon: 'chart' }));
+    c.appendChild(el('p', 'desc', `${g.label} · قسم ${esc(dept)}`));
+
+    const rows = timelineRows(leaves, cur.year, cur.month, staff);
+    if (!rows.length) {
+      c.appendChild(empty('لا إجازات ولا استئذانات في هذا الشهر', 'calendar'));
+      return c;
+    }
+
+    const n = g.days.length;
+    const todayIdx = g.days.indexOf(today) + 1;   /* ٠ إن كان اليوم خارج الشهر */
+
+    const wrap = el('div', 'tl');
+    wrap.style.setProperty('--tl-days', n);
+
+    /* ترويسة الأيام */
+    const head2 = el('div', 'tl__row tl__row--head');
+    head2.appendChild(el('div', 'tl__who', ''));
+    const scale = el('div', 'tl__scale');
+    for (let d = 1; d <= n; d++) {
+      const cell = el('span', 'tl__day' + (d === todayIdx ? ' is-today' : ''), String(d));
+      scale.appendChild(cell);
+    }
+    head2.appendChild(scale);
+    wrap.appendChild(head2);
+
+    for (const r of rows) {
+      const row = el('div', 'tl__row');
+      const who = el('div', 'tl__who');
+      who.appendChild(avatar(r.name, 30));
+      who.appendChild(el('div', 'tl__id',
+        `<b>${esc(r.name)}</b>${r.jobTitle ? `<span>${esc(r.jobTitle)}</span>` : ''}`));
+      row.appendChild(who);
+
+      const track = el('div', 'tl__track');
+      if (todayIdx) {
+        const mark = el('span', 'tl__now');
+        mark.style.setProperty('--at', todayIdx);
+        track.appendChild(mark);
+      }
+      for (const b of r.bars) {
+        const bar2 = el('span', 'tl__bar tl__bar--' + esc(b.status) +
+          (b.type === 'permission' ? ' tl__bar--point' : '') +
+          (b.clippedStart ? ' is-clip-start' : '') + (b.clippedEnd ? ' is-clip-end' : ''),
+          `<span class="tl__lbl">${esc(b.label)}</span>`);
+        bar2.style.setProperty('--from', b.start);
+        bar2.style.setProperty('--span', b.span);
+        bar2.title = `${b.label} — ${b.span} يوم` +
+          (b.status === 'pending' ? ' (بانتظار الاعتماد)' : '');
+        track.appendChild(bar2);
+      }
+      row.appendChild(track);
+      wrap.appendChild(row);
+    }
+
+    c.appendChild(wrap);
+    c.appendChild(el('div', 'tl__legend',
+      '<span class="tl__key"><i class="tl__swatch tl__bar--approved"></i>معتمَدة</span>' +
+      '<span class="tl__key"><i class="tl__swatch tl__bar--pending"></i>بانتظار الاعتماد</span>' +
+      (todayIdx ? '<span class="tl__key"><i class="tl__swatch tl__swatch--now"></i>اليوم</span>' : '')));
+    return c;
+  }
+
   function openEvent(ev) {
     const isEdit = !!ev;
     const m = openModal(`

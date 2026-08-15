@@ -113,6 +113,7 @@ export function complianceRate(cyc, users, requests, zkRecs) {
   return {
     days: n,
     present, late, leave, absent: c('absent'), missing: c('missing'),
+    missingIn: c('missingIn'),
     onTime:  Math.round((present / n) * 100),
     overall: Math.round(((present + late + leave) / n) * 100)
   };
@@ -168,6 +169,7 @@ export function weekWindow(now = new Date()) {
   end.setHours(23, 59, 59, 999);
   return { start, end, key: ymd(start) + '_' + ymd(end), label: `${ymd(start)} ← ${ymd(end)}` };
 }
+
 
 export function weeklyPunctuality(users, zkRecs, webRecs, requests, now = new Date()) {
   const win = weekWindow(now);

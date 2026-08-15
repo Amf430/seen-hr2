@@ -30,7 +30,7 @@ import { isStale, go, rerender } from '../lib/nav.js';
 import { PERM_BACKDATE_DAYS, fixWindowOpen, fixCountInCycle,
          FIX_WINDOW_DAYS, FIX_MAX_PER_CYCLE } from '../lib/requests.js';
 import { openFixRequest } from '../components/fix-request-modal.js';
-import { card, grid, stat, empty, tableWrap, bar, sectionHead, callout, button } from '../lib/ui.js';
+import { card, empty, tableWrap, bar, sectionHead, callout, button, statCard } from '../lib/ui.js';
 
 export async function render(view, token) {
   const me = getMe();
@@ -83,30 +83,43 @@ export async function render(view, token) {
 
     const cnt = (k) => rows.filter((r) => r.cls === k).length;
     const pres = cnt('present'), late = cnt('late'), abs = cnt('absent'),
-          miss = cnt('missing'), lv = cnt('leave');
+          miss = cnt('missing'), missIn = cnt('missingIn'), lv = cnt('leave');
     const total = rows.length;
     /* الإجازة المعتمدة ليست غياباً — تُحسب ضمن الالتزام */
-    const commit = Math.round(((pres + late + lv) / total) * 100);
+    const commit = Math.round(((pres + late + lv + missIn) / total) * 100);
     const lateMin = rows.reduce((a, r) => a + (r.lateMin || 0), 0);
 
     /* ── الأرقام الأربعة بألوانها ──
        الأخضر حاضر في الوقت · الأصفر متأخر · الأحمر غائب */
-    const g = grid(4);
+    const g = el('div', 'statgrid');
     g.append(
-      stat(pres, 'حضور في الوقت', 'g'),
-      stat(late, 'أيام تأخير', late ? 'a' : ''),
-      stat(abs,  'أيام غياب',   abs ? 'r' : ''),
-      stat(lv,   'أيام إجازة')
+      statCard({ label: 'حضور في الوقت', value: pres, ico: 'check', tone: 'good',
+        sub: `من ${total} يوم عمل` }),
+      statCard({ label: 'أيام تأخير', value: late, ico: 'clock',
+        tone: late ? 'warn' : 'good', sub: late ? 'يُخصم عليها بدقائقها' : 'لا تأخير — أحسنت' }),
+      statCard({ label: 'أيام غياب', value: abs, ico: 'alert',
+        tone: abs ? 'bad' : 'good', sub: abs ? 'بلا إجازة معتمَدة' : 'لا غياب' }),
+      statCard({ label: 'أيام إجازة', value: lv, ico: 'calendar',
+        sub: 'معتمَدة — لا تُحسب غياباً' })
     );
     const sc = card('');
     sc.appendChild(sectionHead({ text: `أيام الدورة — ${cyc.label}`, icon: 'calendar' }));
     sc.appendChild(g);
 
-    const g2 = grid(3);
+    const g2 = el('div', 'statgrid');
     g2.append(
-      stat(commit + '%', 'نسبة الالتزام', commit >= 90 ? 'g' : commit >= 75 ? 'a' : 'r'),
-      stat(lateMin ? hhmm(lateMin) : '—', 'إجمالي التأخير', lateMin ? 'a' : ''),
-      stat(miss, 'نسيان بصمة انصراف', miss ? 'a' : '')
+      statCard({ label: 'نسبة الالتزام', value: commit + '%', ico: 'chart',
+        tone: commit >= 90 ? 'good' : commit >= 75 ? 'warn' : 'bad',
+        sub: 'الإجازة المعتمَدة محسوبة ضمنها' }),
+      statCard({ label: 'إجمالي التأخير', value: lateMin ? hhmm(lateMin) : '—', ico: 'clock',
+        tone: lateMin ? 'warn' : 'good', sub: lateMin ? 'مجموع دقائق الدورة' : 'لا تأخير' }),
+      statCard({ label: 'نسيان بصمة انصراف', value: miss, ico: 'gap',
+        tone: miss ? 'warn' : 'good', sub: miss ? 'يمكن طلب تصحيحها' : 'لا نواقص' }),
+      /* ⚠️ تُعرض منفصلة لا مدموجة مع أختها: نسيان الدخول ونسيان الخروج
+         خطآن مختلفان في طرفَي اليوم، ودمجهما يخفي أيّهما وقع. */
+      statCard({ label: 'نسيان بصمة حضور', value: missIn, ico: 'gap',
+        tone: missIn ? 'warn' : 'good',
+        sub: missIn ? 'داومت وفاتتك البصمة — صحّحها بطلب' : 'لا نواقص' })
     );
     sc.appendChild(g2);
     host.appendChild(sc);
@@ -135,8 +148,12 @@ export async function render(view, token) {
         `اليوم بلا بصمة انصراف لا تُحتسب ساعاته كاملةً. تقدر تقدّم طلب تصحيح عن الأيام ${FIX_WINDOW_DAYS} الماضية — يعتمده مديرك ثم الموارد البشرية.`));
       /* ⚠️ الأيام داخل النافذة وحدها تُعرض بزرّ: زرٌّ على يوم خارجها يُضغط
          ثم يُرفض، وهو أسوأ من غيابه. */
+      /* ⚠️ `missingIn` أولى الثلاث بالتصحيح لا آخرها: هي الحالة التي
+         أُنشئت لأجل هذا الطلب أصلاً (قرار ٢٠٢٦-٠٨-١٣) — الموظف داوم وفاتته
+         نافذة البصمة، والدليل بصمة خروجه. */
       const fixable = rows.filter((r) =>
-        (r.cls === 'missing' || r.cls === 'absent') && fixWindowOpen(r.dateStr));
+        (r.cls === 'missing' || r.cls === 'missingIn' || r.cls === 'absent')
+        && fixWindowOpen(r.dateStr));
       if (fixable.length) {
         const acts = el('div', 'actions-cell');
         fixable.forEach((r) => acts.appendChild(
@@ -228,11 +245,14 @@ function sourceCard(title, ico, recs, desc) {
       <td class="num">${w > 0 ? fmtDur(w) : '—'}</td></tr>`;
   }).join('');
 
-  const g = grid(3);
+  const g = el('div', 'statgrid');
   g.append(
-    stat(days, 'أيام مسجّلة'),
-    stat(fmtDur(secs), 'مجموع الساعات'),
-    stat(openDays, 'بلا خروج', openDays ? 'a' : '')
+    statCard({ label: 'أيام مسجّلة', value: days, ico: 'calendar', sub: 'في هذه الدورة' }),
+    statCard({ label: 'مجموع الساعات', value: fmtDur(secs), ico: 'clock',
+      sub: 'من أول بصمة لآخرها' }),
+    statCard({ label: 'بلا خروج', value: openDays, ico: 'gap',
+      tone: openDays ? 'warn' : 'good',
+      sub: openDays ? 'جلسات لم تُقفل ببصمة' : 'كل الجلسات مقفلة' })
   );
   c.appendChild(g);
   c.appendChild(tableWrap(`

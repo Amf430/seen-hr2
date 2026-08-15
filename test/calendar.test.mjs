@@ -7,7 +7,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import { monthGrid, shiftMonth, leavesOn, dayLayers, conflictOn, conflictsInRange,
-         eventsOn, canEditEvent, DEFAULT_CONFLICT_PCT, AR_MONTHS }
+         eventsOn, canEditEvent, timelineRows, DEFAULT_CONFLICT_PCT, AR_MONTHS }
   from '../js/lib/calendar.js';
 
 let pass = 0, fail = 0;
@@ -163,6 +163,68 @@ eq('⚠️ ولا حدث قسم آخر',              false, canEditEvent(EVENTS
 eq('ومدير المالية عكسه',             true,  canEditEvent(EVENTS[2], mgrFin));
 eq('⚠️ والموظف لا يعدّل شيئاً',        false, canEditEvent(EVENTS[0], empU));
 eq('ومدير بلا قسم لا يعدّل',          false, canEditEvent(EVENTS[0], { role: 'manager', department: '' }));
+
+group('١٥. الخطّ الزمني — صفّ لكل موظف');
+
+const TL = [
+  { type: 'leave', status: 'approved', employeeUid: 'u1', employeeName: 'سالم',
+    startDate: '2026-04-18', endDate: '2026-04-24', categoryLabel: 'سنوية' },
+  { type: 'leave', status: 'pending', employeeUid: 'u2', employeeName: 'نورة',
+    startDate: '2026-04-28', endDate: '2026-05-03', categoryLabel: 'سنوية' },
+  { type: 'leave', status: 'rejected', employeeUid: 'u3', employeeName: 'خالد',
+    startDate: '2026-04-10', endDate: '2026-04-12' },
+  { type: 'permission', status: 'approved', employeeUid: 'u4', employeeName: 'ريم',
+    date: '2026-04-05', categoryLabel: 'تأخير' },
+  { type: 'leave', status: 'approved', employeeUid: 'u5', employeeName: 'فهد',
+    startDate: '2026-03-28', endDate: '2026-04-02' },
+  { type: 'leave', status: 'approved', employeeUid: 'u6', employeeName: 'عمر',
+    startDate: '2026-06-01', endDate: '2026-06-05' }
+];
+const tl = timelineRows(TL, 2026, 3, [{ id: 'u1', jobTitle: 'مندوب مبيعات' }]);
+
+eq('صفّ لكل موظف له إجازة في الشهر', ['ريم', 'سالم', 'فهد', 'نورة'], tl.map((r) => r.name));
+eq('مرتّبة بالاسم', true, tl.map((r) => r.name).join() === [...tl.map((r) => r.name)].sort((a, b) => a.localeCompare(b)).join());
+eq('⚠️ المرفوض لا يُرسم — الشريط يقول «غائب» والمرفوض حاضر', false,
+   tl.some((r) => r.name === 'خالد'));
+eq('وإجازة شهر آخر لا تدخل', false, tl.some((r) => r.name === 'عمر'));
+
+const salem = tl.find((r) => r.name === 'سالم');
+eq('يبدأ يوم ١٨', 18, salem.bars[0].start);
+eq('ويمتدّ ٧ أيام — الطرفان محسوبان', 7, salem.bars[0].span);
+eq('والمسمّى يأتي من قائمة الموظفين', 'مندوب مبيعات', salem.jobTitle);
+
+const fahd = tl.find((r) => r.name === 'فهد');
+eq('⚠️ ما بدأ الشهر الماضي يُقصّ لليوم الأول', 1, fahd.bars[0].start);
+eq('ويُعلَّم مقصوص البداية', true, fahd.bars[0].clippedStart);
+eq('ومدّته داخل الشهر يومان', 2, fahd.bars[0].span);
+
+const noura = tl.find((r) => r.name === 'نورة');
+eq('⚠️ ما يمتدّ للشهر التالي يُقصّ لآخر يوم', 3, noura.bars[0].span);
+eq('ويُعلَّم مقصوص النهاية', true, noura.bars[0].clippedEnd);
+eq('والمعلّق يبقى معلّقاً — يُرسم متقطّعاً', 'pending', noura.bars[0].status);
+
+const reem = tl.find((r) => r.name === 'ريم');
+eq('الاستئذان يوم واحد', 1, reem.bars[0].span);
+eq('ويأخذ تاريخه من date لا startDate', 5, reem.bars[0].start);
+
+eq('شهر بلا إجازات يُرجع فارغاً', [], timelineRows(TL, 2026, 0, []));
+eq('قائمة فارغة لا تنهار', [], timelineRows([], 2026, 3, []));
+eq('null لا ينهار', [], timelineRows(null, 2026, 3, null));
+eq('طلب بلا تواريخ يُتجاهل', [],
+   timelineRows([{ type: 'leave', status: 'approved', employeeName: 'أ' }], 2026, 3, []));
+/* فبراير ٢٠٢٤ كبيسة — ٢٩ يوماً */
+eq('⚠️ آخر يوم في شهر كبيس يُقصّ على ٢٩ لا ٢٨', 29,
+   timelineRows([{ type: 'leave', status: 'approved', employeeName: 'أ',
+     startDate: '2024-02-27', endDate: '2024-03-05' }], 2024, 1, [])[0].bars[0].span + 26);
+
+const multi = timelineRows([
+  { type: 'leave', status: 'approved', employeeUid: 'u1', employeeName: 'سالم',
+    startDate: '2026-04-20', endDate: '2026-04-21' },
+  { type: 'leave', status: 'approved', employeeUid: 'u1', employeeName: 'سالم',
+    startDate: '2026-04-05', endDate: '2026-04-06' }
+], 2026, 3, []);
+eq('إجازتان لموظف واحد في صفّ واحد', 1, multi.length);
+eq('ومرتّبتان بالتاريخ', [5, 20], multi[0].bars.map((b) => b.start));
 
 console.log(`\n\x1b[1m═══ النتيجة: ${pass} ناجح، ${fail} فاشل ═══\x1b[0m`);
 process.exit(fail ? 1 : 0);

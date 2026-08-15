@@ -194,7 +194,34 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    /* ═════════════════════════ settings ═════════════════════════ */
+    /* ═════════════════════ personal to-do list ═════════════════════
+
+       An employee's own list, deliberately NOT a task. Tasks are assigned,
+       reviewed and counted; this is a person organising their own day.
+
+       ⚠️ isMine(uid) ONLY — no isAdmin(), no sameDept(), and that is the whole
+       point. The owner asked that a manager never see it, and an admin who can
+       read it breaks the same promise a manager would: a private list somebody
+       else can read stops being private, and people stop using it. There is
+       nothing here worth an audit trail — no balance, no approval, no money.
+
+       ⚠️ Firestore rules do NOT descend into subcollections, so the sameDept()
+       read that /users/{uid} grants a manager does not reach this document.
+       That is why the list lives here rather than as a field on the user.
+
+       ⚠️ One document holding an array, not a collection: it is read on every
+       home page load, and one read beats fifteen on the free plan. The caps
+       below matter more than usual for the same reason — an uncapped array is
+       free storage billed to the owner, and this one is written by the least
+       supervised path in the system.                                          */
+    match /users/{uid}/private/todos {
+      allow read: if isMine(uid);
+      allow write: if isMine(uid)
+        && d().keys().hasOnly(['items','updatedAt'])
+        && d().items is list
+        && d().items.size() <= 100
+        && d().updatedAt == request.time;
+    }
     /* ═════════════════════ hrTickets ═════════════════════
        An employee asking HR a question — insurance, a date, a payslip line.
        NOT an approval: nothing here touches a balance or the payroll, which is
@@ -534,8 +561,29 @@ service cloud.firestore {
         && d().source == 'web'
         && d().sessions is list
         && newN() == 1
-        && fresh(d().sessions[0].in)
-        && isOpen(d().sessions[0]);
+        && (
+          /* ── normal: an open session that starts now ── */
+          (fresh(d().sessions[0].in) && isOpen(d().sessions[0]))
+          ||
+          /* ── missed the check-in window (owner's decision, 2026-08-13) ──
+             The window closes four hours after the shift starts and there is
+             no late check-in any more. Someone who worked the day but never
+             punched in records the departure alone: a session with no `in`,
+             and the document says so.
+
+             ⚠️ `missedCheckIn` is required rather than inferred from a null
+             `in`. A rule that accepts any session whose `in` is missing
+             accepts a malformed session too, and a malformed session is read
+             later as attendance. The flag makes the intent explicit and makes
+             this branch impossible to reach by accident.
+
+             ⚠️ Closed on arrival — `out` is set and `in` never will be. The
+             update branch below refuses to touch a session whose `in` is
+             null, so this cannot be reopened into a fake attendance later. */
+          (d().get('missedCheckIn', false) == true
+            && d().sessions[0].in == null
+            && fresh(d().sessions[0].out))
+        );
 
       allow update: if isActive()
         && id == request.auth.uid + '_' + p().date
@@ -774,9 +822,26 @@ service cloud.firestore {
         || (taskDept() && deptUnchanged())
         || (taskAssignee()
             && only(['status','progress','startedAt','employeeFeedback','checklist',
-                     'lastMessageAt','messageCount','timeEntries','actualSecs'])
+                     'lastMessageAt','messageCount','timeEntries','actualSecs',
+                     'blockReason','blockedAt','reviewAt'])
+            /* ⚠️ طابعا سجل النشاط: مسموحان للمكلَّف لأنه هو من يوقف ويرسل
+               للاعتماد، ومقيَّدان بـfresh() فلا يُؤرَّخ حدثٌ في الماضي. سجلٌّ
+               يقبل تاريخاً يختاره كاتبه ليس سجلاً. غيابهما مقبول — السجل
+               مشتقّ ويتدرّج إلى ما قبلهما. */
+            /* ⚠️ الفحص على **ما تغيّر** لا على ما هو موجود: d() تحمل الوثيقة
+               بعد الكتابة كاملةً، فطابعٌ قديم لم يُلمس يفشل fresh() ويُسقط
+               كل كتابة تالية على المهمة. */
+            && (!changedAny(['blockedAt']) || fresh(d().blockedAt))
+            && (!changedAny(['reviewAt'])  || fresh(d().reviewAt))
             && d().status in ['in_progress','blocked','review']
-            && !(p().status in ['done','archived'])
+            /* ⚠️ 'cancelled' غائبة عمداً: الإلغاء قرار إداري. لو مُنح
+               للمكلَّف لصار مخرجاً من أي مهمة ثقيلة بضغطة واحدة. */
+            && !(p().status in ['done','cancelled','archived'])
+            /* ⚠️ سبب التوقّف: 'blocked' بلا سبب مكتوب مهمةٌ منسيّة باسم
+               آخر — يراها المدير «متوقفة» فيطمئنّ ولا يسأل. السقف هنا لأن
+               كل حقل يكتبه المستخدم بلا سقف تخزينٌ مجاني على حساب المالك. */
+            && d().get('blockReason','') is string
+            && d().get('blockReason','').size() <= 300
             /* ⚠️ without the three lines below the employee writes
                progress: 900 and every completion chart is meaningless */
             && d().get('progress',0) is int
@@ -788,6 +853,9 @@ service cloud.firestore {
 
       function deptUnchanged() {
         return d().departments == p().departments && d().department == p().department;
+      }
+      function changedAny(keys) {
+        return d().diff(p()).affectedKeys().hasAny(keys);
       }
 
       allow delete: if isAdmin();

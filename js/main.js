@@ -12,7 +12,7 @@ import { getMe, resetState } from './lib/state.js';
 import { loadSettings } from './lib/settings.js';
 import { go, resetNav } from './lib/nav.js';
 import { cleanupPage } from './lib/lifecycle.js';
-import { buildNav, paintIdentity, showScreen, initShellChrome, setBootStage } from './app/shell.js';
+import { buildNav, buildDock, paintIdentity, showScreen, initShellChrome, setBootStage } from './app/shell.js';
 import { subscribeData, unsubscribeAll } from './app/subscriptions.js';
 import { startRouter } from './app/router.js';
 
@@ -83,6 +83,7 @@ async function enterApp() {
   showScreen('app');
   paintIdentity();
   buildNav();
+  buildDock();
   subscribeData();
   if (!routerStarted) { startRouter(); routerStarted = true; }
   /* دخول ثانٍ في نفس التبويب — replace لا دفع: صفحة المستخدم السابق لا

@@ -11,21 +11,38 @@
 import { el, esc, toast, openModal } from '../lib/dom.js';
 import { getMe } from '../lib/state.js';
 import { ymdKsa } from '../lib/dates.js';
-import { tasksForAssignee, moveTask } from '../lib/tasks.js';
-import { boardColumns, dueStateOf, nextStepFor, checklistPct,
-         PRIORITY_AR, STATUS_AR } from '../lib/task-flow.js';
+import { tasksForAssignee, moveTask, startTimer, stopTimer } from '../lib/tasks.js';
+import { boardColumns, dueStateOf, nextStepFor, progressOf, blockInfo,
+         timeSummary, MAX_BLOCK_REASON, PRIORITY_AR, STATUS_AR } from '../lib/task-flow.js';
 import { isStale, go } from '../lib/nav.js';
-import { card, empty, sectionHead, button, loading, callout } from '../lib/ui.js';
+import { card, empty, sectionHead, button, loading, callout, pageHead } from '../lib/ui.js';
+import { taskBoard } from '../components/task-board.js';
+import { ACTIVE_STATUSES } from '../lib/task-flow.js';
+import { icon } from '../lib/icons.js';
 
 export async function render(view, token) {
   const me = getMe();
   const today = ymdKsa();
 
-  const head = card('');
-  head.appendChild(sectionHead({ text: 'مهامي', icon: 'check' }));
-  head.appendChild(el('p', 'desc',
-    'المهام المكلَّف بها. عند الانتهاء أرسلها للاعتماد ويعتمدها مديرك.'));
-  view.appendChild(head);
+  /* ⚠️ نفس مفتاح تفضيل شاشة المدير: من اختار اللوحة اختارها لنظام المهام
+     كلّه لا لشاشة بعينها. مفتاحان يجعلان الشاشتين تتباعدان بلا سبب. */
+  const VIEW_KEY = 'seen-hr:tasks-view';
+  let mode = 'board';
+  try { mode = localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'board'; } catch (e) { /* خصوصية مشدّدة */ }
+
+  const viewBtn = button('', 'btn sm ghost', () => {
+    mode = mode === 'board' ? 'list' : 'board';
+    try { localStorage.setItem(VIEW_KEY, mode); } catch (e) { /* لا شيء يُفقد */ }
+    draw();
+  });
+  const paintViewBtn = () => {
+    viewBtn.innerHTML = icon(mode === 'board' ? 'list' : 'dashboard') +
+      (mode === 'board' ? 'عرض قائمة' : 'عرض لوحة');
+  };
+  paintViewBtn();
+
+  view.appendChild(pageHead('مهامي',
+    'المهام المكلَّف بها. عند الانتهاء أرسلها للاعتماد ويعتمدها مديرك.', viewBtn));
 
   const host = el('div', '');
   view.appendChild(host);
@@ -53,6 +70,37 @@ export async function render(view, token) {
       return;
     }
 
+    paintViewBtn();
+
+    /* ══════════ اللوحة ══════════
+       ⚠️ أعمدة الموظف **النشِطة وحدها** لا BOARD_STATUSES: عمود «منجزة»
+       يحتاج استعلاماً ثانياً لا يحتاجه الموظف — هو يسأل «وش المطلوب مني
+       الحين» لا «ماذا اعتُمد». والمدير يسأل الثانية فيدفع ثمنها.
+
+       ⚠️ ولا زرّ «منجزة» يظهر له بأي حال: dropAllowed ترفضه في كل حالة،
+       وهو الحارس نفسه الذي يحرس الأزرار. */
+    if (mode === 'board') {
+      const bc = card('');
+      bc.appendChild(taskBoard({
+        tasks, who: 'assignee', today, statuses: ACTIVE_STATUSES,
+        onOpen: (t) => go('task', t.id),
+        onMove: async (t, to) => {
+          try { await moveTask(t, to); toast('حُدّثت الحالة', 'ok'); await draw(); }
+          catch (e) { console.error(e); toast('تعذّر تحديث الحالة', 'err'); }
+        },
+        onNeeds: (t, to, needs) => {
+          if (needs === 'reason') openBlock(t, draw);
+          else if (needs === 'feedback') openFeedback(t, draw);
+        },
+        onDeny: (msg) => { if (msg) toast(msg, 'err'); }
+      }));
+      bc.appendChild(el('p', 'help',
+        'اسحب البطاقات بين الأعمدة، أو اضغط بطاقةً للتفاصيل. ' +
+        'على الجوال: افتح المهمة وانقلها من زرّ الإجراء — السحب لا يعمل باللمس.'));
+      host.appendChild(bc);
+      return;
+    }
+
     boardColumns(tasks, today).forEach((col) => {
       if (!col.tasks.length) return;
       const c = card('');
@@ -64,7 +112,11 @@ export async function render(view, token) {
 
   function taskCard(t, after, todayYmd) {
     const due = dueStateOf(t, todayYmd);
-    const chk = checklistPct(t);
+    /* ⚠️ رقم واحد لا رقمان: progressOf تختار البنود متى وُجدت وإلا التقدير
+       اليدوي. كان الشريط والقائمة الفرعية يظهران رقمين متباعدين لنفس المهمة. */
+    const pr = progressOf(t);
+    const bi = blockInfo(t, null, todayYmd);
+    const ts = timeSummary(t);
     const box = el('div', 'task-card' + (due.kind === 'overdue' ? ' task-card--overdue' : ''));
     box.innerHTML = `
       <div class="task-card__top">
@@ -75,7 +127,11 @@ export async function render(view, token) {
       ${t.description ? `<div class="cell-sub">${esc(t.description.slice(0, 140))}</div>` : ''}
       <div class="task-card__meta">
         ${due.text ? `<span class="${due.kind === 'overdue' ? 'text-red' : due.kind === 'today' ? 'text-amber' : 'text-muted'}">${esc(due.text)}</span>` : ''}
-        ${chk !== null ? `<span class="text-muted">القائمة الفرعية ${chk}%</span>` : ''}
+        ${pr.pct !== null && pr.source === 'checklist'
+            ? `<span class="text-muted">${pr.pct}٪ من البنود</span>` : ''}
+        ${bi.manual && bi.reason ? `<span class="text-amber">${esc(bi.reason.slice(0, 60))}</span>` : ''}
+        ${ts.hasOpenEntry ? '<span class="text-green">العدّاد يعمل</span>'
+          : ts.actualHours ? `<span class="text-muted">${ts.actualHours} ساعة</span>` : ''}
         ${t.messageCount ? `<span class="text-muted">${t.messageCount} رسالة</span>` : ''}
       </div>`;
 
@@ -90,15 +146,54 @@ export async function render(view, token) {
         catch (e) { console.error(e); toast('تعذّر تحديث الحالة', 'err'); }
       }));
     }
+    /* ⚠️ التوقّف يطلب سبباً الآن: «متوقفة» بلا سبب يراها المدير فيطمئنّ
+       ولا يسأل، وهي في الحقيقة منسيّة باسم آخر. */
+    /* ⚠️ العدّاد من البطاقة مباشرةً: «ابدأ» و«استئناف» و«إيقاف مؤقّت» نفس
+       العمليتين على البيانات — فتح مدخلة وإغلاقها — ويختلفن في نيّة المستخدم
+       وحدها. فلا تغيير في البيانات ولا في القاعدة، وزرٌّ بدل رحلة صفحتين. */
     if (t.status === 'in_progress') {
-      acts.appendChild(button('أوقفها مؤقتاً', 'btn sm ghost', async () => {
-        try { await moveTask(t, 'blocked'); await after(); }
-        catch (e) { console.error(e); toast('تعذّر', 'err'); }
-      }));
+      if (ts.hasOpenEntry) {
+        acts.appendChild(button('إيقاف العدّاد', 'btn sm ghost', async () => {
+          try { await stopTimer(t); await after(); }
+          catch (e) { console.error(e); toast('تعذّر', 'err'); }
+        }, 'clock'));
+      } else if (!ts.atCap) {
+        acts.appendChild(button(ts.entries ? 'استئناف' : 'ابدأ العدّاد', 'btn sm ghost', async () => {
+          try { await startTimer(t); await after(); }
+          catch (e) { console.error(e); toast(e.message === 'timer-cap' ? 'بلغت حدّ المدخلات' : 'تعذّر', 'err'); }
+        }, 'clock'));
+      }
+      acts.appendChild(button('أوقفها مؤقتاً', 'btn sm ghost', () => openBlock(t, after)));
     }
-    acts.appendChild(button('التفاصيل والمحادثة', 'btn sm ghost', () => go('task', t.id)));
+    acts.appendChild(button('التفاصيل', 'btn sm ghost', () => go('task', t.id)));
     box.appendChild(acts);
     return box;
+  }
+
+  function openBlock(t, after) {
+    const m = openModal(`
+      <h3>إيقاف مؤقّت — ${esc(t.title)}</h3>
+      <div class="field">
+        <label for="bkWhy">ما الذي يمنع التقدّم؟ *</label>
+        <textarea id="bkWhy" rows="3" maxlength="${MAX_BLOCK_REASON}"
+          placeholder="أنتظر ردّ العميل · ينقصني ملف من المحاسبة · الجهاز معطّل"></textarea>
+        <div class="help">يظهر لمديرك بجانب المهمة، فيعرف ما يفكّها بدل أن يسأل.</div>
+      </div>
+      <div class="err" id="bkErr"></div>
+      <div class="row">
+        <button class="btn ghost" id="bkCancel">إلغاء</button>
+        <button class="btn" id="bkOk">أوقفها</button>
+      </div>`);
+    m.$('#bkCancel').onclick = m.close;
+    m.$('#bkOk').onclick = async () => {
+      const why = m.$('#bkWhy').value.trim();
+      if (why.length < 3) { m.$('#bkErr').textContent = 'اكتب السبب — كلمتان تكفيان'; return; }
+      const b = m.$('#bkOk'); b.disabled = true;
+      try {
+        await moveTask(t, 'blocked', { blockReason: why.slice(0, MAX_BLOCK_REASON) });
+        m.close(); toast('أُوقفت مؤقتاً', 'ok'); await after();
+      } catch (e) { console.error(e); m.$('#bkErr').textContent = 'تعذّر الحفظ'; b.disabled = false; }
+    };
   }
 
   function openFeedback(t, after) {
@@ -120,7 +215,9 @@ export async function render(view, token) {
       if (txt.length < 5) { m.$('#fbErr').textContent = 'اكتب ما أُنجز — سطر واحد يكفي'; return; }
       const b = m.$('#fbOk'); b.disabled = true; b.textContent = 'جارٍ الإرسال…';
       try {
-        await moveTask(t, 'review', { employeeFeedback: txt.slice(0, 4000), progress: 100 });
+        /* ⚠️ لا `progress: 100` بعد اليوم: progressOf تشتقّ النسبة من الحالة
+           والبنود. كتابتها هنا كانت تجعل الشريط ١٠٠٪ بينما البنود ٦٠٪. */
+        await moveTask(t, 'review', { employeeFeedback: txt.slice(0, 4000) });
         m.close(); toast('أُرسلت للاعتماد', 'ok'); await after();
       } catch (e) {
         console.error(e);

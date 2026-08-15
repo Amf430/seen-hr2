@@ -29,6 +29,7 @@ import * as myServices     from '../pages/my-services.js';
 import * as myPerformance  from '../pages/my-performance.js';
 import * as teamPerformance from '../pages/team-performance.js';
 import * as myTasks       from '../pages/my-tasks.js';
+import * as myDay         from '../pages/my-day.js';
 import * as teamTasks     from '../pages/team-tasks.js';
 import * as taskPage      from '../pages/task.js';
 import * as tasksAnalytics from '../pages/tasks-analytics.js';
@@ -48,6 +49,7 @@ import * as setOrg         from '../pages/settings/departments.js';
 import * as setShifts      from '../pages/settings/shifts.js';
 import * as setRequests    from '../pages/settings/leave-types.js';
 import * as setPayroll     from '../pages/settings/payroll-config.js';
+import * as settingsHub    from '../pages/settings-hub.js';
 
 const RENDERERS = {
   attend:         attend.render,
@@ -62,6 +64,7 @@ const RENDERERS = {
   performance:    myPerformance.render,
   'team-perf':    teamPerformance.render,
   'my-tasks':     myTasks.render,
+  'my-day':       myDay.render,
   'team-tasks':   teamTasks.render,
   task:           taskPage.render,
   'tasks-analytics': tasksAnalytics.render,
@@ -81,7 +84,8 @@ const RENDERERS = {
   'set-org':      setOrg.render,
   'set-shifts':   setShifts.render,
   'set-requests': setRequests.render,
-  'set-payroll':  setPayroll.render
+  'set-payroll':  setPayroll.render,
+  settings:       settingsHub.render
 };
 
 async function render() {
