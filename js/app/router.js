@@ -27,6 +27,17 @@ import * as orgChart       from '../pages/org-chart.js';
 import * as myProfile      from '../pages/my-profile.js';
 import * as myServices     from '../pages/my-services.js';
 import * as myPerformance  from '../pages/my-performance.js';
+import * as teamPerformance from '../pages/team-performance.js';
+import * as myTasks       from '../pages/my-tasks.js';
+import * as myDay         from '../pages/my-day.js';
+import * as teamTasks     from '../pages/team-tasks.js';
+import * as taskPage      from '../pages/task.js';
+import * as tasksAnalytics from '../pages/tasks-analytics.js';
+import * as tasksArchive  from '../pages/tasks-archive.js';
+import * as teamCalendar from '../pages/team-calendar.js';
+import * as announcementsPage from '../pages/announcements.js';
+import * as leavePolicy   from '../pages/settings/leave-policy.js';
+import * as taskTemplates from '../pages/settings/task-templates.js';
 import * as attendanceLog  from '../pages/attendance-log.js';
 import * as payroll        from '../pages/payroll.js';
 import * as monthly        from '../pages/monthly.js';
@@ -38,6 +49,7 @@ import * as setOrg         from '../pages/settings/departments.js';
 import * as setShifts      from '../pages/settings/shifts.js';
 import * as setRequests    from '../pages/settings/leave-types.js';
 import * as setPayroll     from '../pages/settings/payroll-config.js';
+import * as settingsHub    from '../pages/settings-hub.js';
 
 const RENDERERS = {
   attend:         attend.render,
@@ -50,6 +62,17 @@ const RENDERERS = {
   'profile-me':   myProfile.render,
   services:       myServices.render,
   performance:    myPerformance.render,
+  'team-perf':    teamPerformance.render,
+  'my-tasks':     myTasks.render,
+  'my-day':       myDay.render,
+  'team-tasks':   teamTasks.render,
+  task:           taskPage.render,
+  'tasks-analytics': tasksAnalytics.render,
+  'tasks-archive': tasksArchive.render,
+  'team-calendar': teamCalendar.render,
+  announcements:  announcementsPage.render,
+  'set-leave-policy': leavePolicy.render,
+  'set-task-templates': taskTemplates.render,
   attendance:     (v, t) => attendanceLog.render(v, t, { coll: 'attendance',   isDevice: false }),
   zklog:          (v, t) => attendanceLog.render(v, t, { coll: 'zkAttendance', isDevice: true  }),
   payroll:        payroll.render,
@@ -61,7 +84,8 @@ const RENDERERS = {
   'set-org':      setOrg.render,
   'set-shifts':   setShifts.render,
   'set-requests': setRequests.render,
-  'set-payroll':  setPayroll.render
+  'set-payroll':  setPayroll.render,
+  settings:       settingsHub.render
 };
 
 async function render() {

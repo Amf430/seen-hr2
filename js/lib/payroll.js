@@ -52,7 +52,10 @@ export function computePayroll(cyc, users, requests, recs) {
 
     for (let d = new Date(startsAt); d <= end; d.setDate(d.getDate() + 1)) {
       const dateStr = ymd(d), dow = d.getDay();
-      const sh = resolveShift(dateStr, dow, u.department);
+      /* ⚠️ المعامل الرابع (وثيقة الموظف) يجعل خطة شفته الخاصة تُطبَّق على
+         مسيره هو. موظف بلا shiftPlanId لا يتغيّر عليه شيء إطلاقاً — وهذا
+         حال كل الموظفين حتى يُسند الأدمن أول خطة. */
+      const sh = resolveShift(dateStr, dow, u.department, u);
       if (!sh || sh.type === 'off') continue;
       const need = shiftHours(sh);
       workDays++; reqH += need;

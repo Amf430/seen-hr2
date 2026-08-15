@@ -1,4 +1,5 @@
 import { el, esc, toast } from '../lib/dom.js';
+import { icon } from '../lib/icons.js';
 import { db, doc, getDoc } from '../lib/firebase.js';
 import { getUsers, getRequests } from '../lib/state.js';
 import { refreshUsers } from '../lib/users.js';
@@ -13,28 +14,70 @@ import { photoUsage, purgePhotosBefore } from '../lib/photo.js';
 import { adjustmentsInRange, applyAll } from '../lib/adjustments.js';
 import { openTypedConfirm } from '../components/review-modals.js';
 import { logAction } from '../lib/audit.js';
-import { card, empty, tableWrap, sectionHead, button, callout } from '../lib/ui.js';
+import { card, empty, tableWrap, sectionHead, button, callout, pageHead } from '../lib/ui.js';
+
+/* المصدران — تعريف واحد يُشتقّ منه كل شيء */
+const SOURCES = [
+  { key: 'web',    coll: 'attendance',   isDevice: false, label: 'من الجوال',
+    ico: 'globe',  hint: 'تسجيل ذاتي بالموقع الجغرافي وبصمة الجهاز' },
+  { key: 'device', coll: 'zkAttendance', isDevice: true,  label: 'جهاز البصمة',
+    ico: 'finger', hint: 'سجل قادم من جهاز ZKTeco عبر الجسر — لا يعدّله أحد' }
+];
 
 export async function render(view, token, opt) {
   const cycles = recentCyclesList(12);
 
-  const head = card(
-    opt.isDevice ? 'سجل جهاز البصمة' : 'الحضور من الجوال',
+  /* ⚠️ صفحة واحدة لمصدرين — طلب المالك (٢٠٢٦-٠٨-١٣).
+     كانتا صفحتين منفصلتين في الشريط الجانبي، والأدمن يقارن بينهما باستمرار:
+     من بصم على الجهاز ولم يسجّل من جواله، والعكس. الانتقال بينهما كان يعني
+     مغادرة الصفحة وفقدان الفرز المضبوط.
+
+     ⚠️ المصدران يبقيان **مستقلّين تماماً** في البيانات: مجموعتان مختلفتان،
+     وقاعدة zkAttendance تمنع الكتابة على السيرفر (`allow write: if false`).
+     الدمج في العرض وحده — ولا يُفهم منه أن أحدهما يُغني عن الآخر.
+
+     إعادة العرض كاملةً عند التبديل: الصفحة بلا مؤقّتات ولا اشتراكات
+     (تحقّقتُ)، فلا شيء يتسرّب. والرمز token يبقى صالحاً لأننا لم ننتقل. */
+  let src = SOURCES.find((s) => s.isDevice === !!opt.isDevice) || SOURCES[0];
+  opt = { coll: src.coll, isDevice: src.isDevice };
+
+  view.appendChild(pageHead('سجلات الحضور',
+    'مصدران مستقلّان — الجوال وجهاز البصمة. لا يُغني أحدهما عن الآخر.'));
+
+  const srcBar = el('div', 'viewtoggle viewtoggle--wide');
+  srcBar.setAttribute('role', 'group');
+  srcBar.setAttribute('aria-label', 'مصدر السجلات');
+  for (const s of SOURCES) {
+    const on = s.key === src.key;
+    const b = el('button', 'viewtoggle__btn' + (on ? ' is-on' : ''), icon(s.ico) + esc(s.label));
+    b.type = 'button';
+    b.setAttribute('aria-pressed', String(on));
+    if (!on) b.onclick = () => { view.innerHTML = ''; render(view, token, { isDevice: s.isDevice }); };
+    srcBar.appendChild(b);
+  }
+  view.appendChild(srcBar);
+
+  const head = card(null, src.hint,
     opt.isDevice
       ? 'سجلات قادمة من جهاز ZKTeco عبر الجسر — لا يستطيع الموظف تعديلها. مستقلة تماماً عن تسجيل الجوال.'
       : 'سجلات يسجّلها الموظف بنفسه من جواله (موقع جغرافي + بصمة جهازه). مستقلة تماماً عن جهاز ZKTeco.');
 
-  const controls = el('div', 'filters');
+  /* ⚠️ الشهر باسمه لا بمدى الدورة. كانت القائمة تقول «26 يوليو ← 25 أغسطس
+     2026 (الحالية)» — ٣٠ محرفاً تشرح تعريف الدورة في كل خيار، بينما الأدمن
+     يبحث عن شهر. تعريف الدورة مكتوب مرّةً تحت الاختيار لمن يحتاجه.
+     cycleName يأخذ اسم الشهر الذي **تنتهي** فيه الدورة: دورة ٢٦ يوليو ←
+     ٢٥ أغسطس هي «أغسطس» عند من يديرها، لا «يوليو». */
+  const cycleName = (c) => {
+    const e = new Date(c.end);
+    return e.toLocaleDateString('ar-SA-u-ca-gregory', { month: 'long', year: 'numeric' });
+  };
+
+  const controls = el('div', 'filters filters--tidy');
   controls.innerHTML = `
-    <div class="field"><label for="atCyc">الدورة الشهرية</label>
-      <select id="atCyc">${cycles.map((c, i) => `<option value="${i}">${esc(c.label)}${i === 0 ? ' (الحالية)' : ''}</option>`).join('')}</select></div>
-    <div class="field"><label for="atMode">طريقة العرض</label>
-      <select id="atMode">
-        <option value="daily">التقرير اليومي (حاضر/متأخر/غائب/إجازة)</option>
-        <option value="sessions">سجل الدخول/الخروج التفصيلي</option>
-      </select></div>
+    <div class="field"><label for="atCyc">الشهر</label>
+      <select id="atCyc">${cycles.map((c, i) =>
+        `<option value="${i}">${esc(cycleName(c))}${i === 0 ? ' — الحالي' : ''}</option>`).join('')}</select></div>
     <div class="field"><label for="atEmp">الموظف</label><select id="atEmp"><option value="">كل الموظفين</option></select></div>
-    <div class="field"><label for="atDate">يوم محدّد</label><input id="atDate" type="date"></div>
     <div class="field"><label for="atStatus">الحالة</label>
       <select id="atStatus">
         <option value="">كل الحالات</option>
@@ -42,15 +85,27 @@ export async function render(view, token, opt) {
         <option value="absent">غائب</option><option value="leave">إجازة</option>
         <option value="missing">نسيان بصمة</option>
       </select></div>
-    <div class="field grow"><label for="atSearch">بحث حر</label><input id="atSearch" placeholder="اسم أو رقم وظيفي…"></div>`;
+    <div class="field grow"><label for="atSearch">بحث</label><input id="atSearch" placeholder="اسم أو رقم وظيفي…"></div>`;
   head.appendChild(controls);
 
+  /* الصفّ الثاني: ما يُستعمل أقلّ — طريقة العرض ويوم محدّد والاختصارات */
+  const more = el('div', 'filters filters--tidy filters--sub');
+  more.innerHTML = `
+    <div class="field"><label for="atMode">طريقة العرض</label>
+      <select id="atMode">
+        <option value="daily">التقرير اليومي</option>
+        <option value="sessions">دخول وخروج تفصيلي</option>
+      </select></div>
+    <div class="field"><label for="atDate">يوم محدّد</label><input id="atDate" type="date"></div>`;
   const quick = el('div', 'chipbar');
   const bToday = button('اليوم', 'btn sm ghost', null, 'calendar');
   const bYest  = button('أمس', 'btn sm ghost', null, 'calendar');
   const bClear = button('مسح الفرز', 'btn sm ghost', null, 'x');
   quick.append(bToday, bYest, bClear);
-  head.appendChild(quick);
+  more.appendChild(quick);
+  head.appendChild(more);
+  head.appendChild(el('p', 'help',
+    'الدورة الشهرية من ٢٦ إلى ٢٥ — الشهر المعروض هو الذي تُقفل فيه الدورة.'));
   view.appendChild(head);
 
   if (opt.isDevice) bridgeStatusCard(view);
@@ -59,7 +114,10 @@ export async function render(view, token, opt) {
   const host = el('div', '');
   view.appendChild(host);
 
-  const $c = (s) => controls.querySelector(s);
+  /* ⚠️ الحقول موزّعة على صفّين (controls و more) بعد ترتيب الفرز — البحث في
+     head يشملهما معاً. البحث في controls وحده كان يُرجع null لحقلَي «طريقة
+     العرض» و«يوم محدّد» فتسقط الصفحة عند أول قراءة لقيمتهما. */
+  const $c = (s) => head.querySelector(s);
   const ddCyc = $c('#atCyc'), ddMode = $c('#atMode'), ddEmp = $c('#atEmp'),
         inDate = $c('#atDate'), ddStat = $c('#atStatus'), search = $c('#atSearch');
 

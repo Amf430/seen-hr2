@@ -9,11 +9,45 @@
 import { el, esc } from './dom.js';
 import { contractDaysLeft } from './dates.js';
 import { icon } from './icons.js';
+import { labelKey, labelRules } from './table-labels.js';
+import { sparkline, delta } from './charts.js';
+import { initials, hueOf } from './format.js';
 
 /* بطاقة رقم */
 export function stat(n, label, cls = '') {
   return el('div', 'stat ' + cls,
     `<div class="n">${esc(n)}</div><div class="l">${esc(label)}</div>`);
+}
+
+/* ═══════════════════ بطاقة الإحصاء الغنيّة ═══════════════════
+
+   الرقم وحده يقول «كم»، ولا يقول «إلى أين». هذه تضيف الاتجاه: خطّ صغير
+   للأسبوع، وسطر فرق عن الدورة السابقة. الأدمن كان يفتح لوحته فيرى ٨٧٪ ولا
+   يعرف أهي ارتفاع أم هبوط.
+
+   { label, value, sub, tone, ico, spark:[…], delta:{pct,good,text}, onClick }
+   tone: '' | 'good' | 'bad' | 'warn' | 'info'
+
+   ⚠️ الرقم يأخذ --ls-stat (تتبّع سالب) وهو **للأرقام وحدها**. لا تُمرَّر
+   قيمة عربية هنا: التتبّع السالب يلصق الحروف المتّصلة ويشوّهها.            */
+export function statCard({ label, value, sub, tone = '', ico, spark, delta: dlt, onClick }) {
+  const c = el(onClick ? 'button' : 'div', 'statcard' + (tone ? ' statcard--' + tone : '') +
+    (onClick ? ' statcard--link' : ''));
+  c.innerHTML =
+    `<div class="statcard__top">` +
+      `<span class="statcard__label">${esc(label)}</span>` +
+      (ico ? `<span class="statcard__ic">${icon(ico)}</span>` : '') +
+    `</div>` +
+    `<div class="statcard__mid">` +
+      `<div class="statcard__value num">${esc(value)}</div>` +
+      (sub ? `<div class="statcard__sub">${esc(sub)}</div>` : '') +
+    `</div>` +
+    `<div class="statcard__foot">` +
+      (dlt ? delta(dlt.pct, dlt) : '<span></span>') +
+      (spark?.length > 1 ? sparkline(spark, { color: 'currentColor' }) : '') +
+    `</div>`;
+  if (onClick) { c.type = 'button'; c.onclick = onClick; }
+  return c;
 }
 
 /* صف مفتاح/قيمة */
@@ -33,6 +67,27 @@ export function card(title, desc, ico) {
   if (title) c.appendChild(el('h3', '', (ico ? icon(ico) : '') + esc(title)));
   if (desc)  c.appendChild(el('p', 'desc', esc(desc)));
   return c;
+}
+
+/* ═══ رأس الصفحة ═══
+   عنوان كبير + سطر شارح + أزرار. يوحّد افتتاح كل شاشة بدل أن تبدأ كل صفحة
+   ببطاقة مختلفة الشكل.
+
+   ⚠️ العنوان موجود أصلاً في الترويسة العلوية (setPageHeader)، لكنه هناك
+   ضيّق ومقصوص بثلاث نقاط. هذا هو العنوان الذي يُقرأ. */
+export function pageHead(title, sub, ...actions) {
+  const h = el('header', 'pagehead pagehead--row');
+  const box = el('div', '',
+    `<h1 class="pagehead__title">${esc(title)}</h1>` +
+    (sub ? `<p class="pagehead__sub">${esc(sub)}</p>` : ''));
+  h.appendChild(box);
+  const live = actions.filter(Boolean);
+  if (live.length) {
+    const cluster = el('div', 'pagehead__acts');
+    live.forEach((a) => cluster.appendChild(a));
+    h.appendChild(cluster);
+  }
+  return h;
 }
 
 /* عنوان قسم مع أزرار على اليسار */
@@ -67,10 +122,48 @@ export const callout = (kind, title, help) =>
   el('div', 'callout callout--' + kind,
     `<b class="callout__title">${esc(title)}</b>${help ? `<div class="help">${esc(help)}</div>` : ''}`);
 
+/* ── وسم أعمدة الجدول للعرض على الجوال ──
+   على الشاشة الضيّقة يصير الصفّ بطاقةً، وكل خلية سطرَ «تسمية · قيمة». التسمية
+   تأتي من ترويسة عمودها.
+
+   ⚠️ لماذا حقن قواعد CSS بدل وسم كل خلية بـ data-label:
+   tableWrap تُستدعى و<tbody> **فارغ** — كل المستدعين (٣١ موضعاً) يبنون الجدول
+   بترويسته أولاً، ثم يُلحقون الصفوف بعد رجوعها. فلا خلايا موجودة لتُوسم وقتها،
+   ووسمها لاحقاً يحتاج مراقب تغييرات لكل جدول.
+   الترويسات موجودة في تلك اللحظة، فتكفي قاعدة nth-child لكل عمود.
+
+   ⚠️ المفتاح مشتقّ من نصوص الترويسات لا من عدّاد: نفس التركيبة = نفس المفتاح =
+   تُحقن مرّة واحدة أبداً، فالورقة لا تتضخّم مع كل إعادة عرض. وهو يحلّ أيضاً
+   اختلاف الأدوار مجاناً — ترويسات الأدمن في employees.js تحوي «الراتب» وترويسات
+   المدير لا، فيولّدان مفتاحين ومجموعتَي قواعد منفصلتين بلا شرط في الكود. */
+let twSheet = null;
+const twSeen = new Set();
+
+function labelColumns(wrap) {
+  /* آخر صفّ ترويسة: الجداول ذات الترويسة المزدوجة تحمل التسميات في أدناها */
+  const headRow = wrap.querySelector('thead tr:last-of-type');
+  if (!headRow) return;
+  const heads = [...headRow.children].map((th) => th.textContent);
+  if (!heads.length) return;
+
+  const key = labelKey(heads);
+  wrap.dataset.tw = key;
+  if (twSeen.has(key)) return;
+  twSeen.add(key);
+
+  if (!twSheet) {
+    twSheet = document.createElement('style');
+    twSheet.id = 'tw-labels';
+    document.head.appendChild(twSheet);
+  }
+  twSheet.textContent += labelRules(heads, key) + '\n';
+}
+
 /* حاوية جدول تمرّر أفقياً داخل نفسها — الصفحة نفسها لا تتمرّر أبداً */
 export function tableWrap(html) {
   const w = el('div', 'table-wrap');
   w.innerHTML = html;
+  labelColumns(w);
   return w;
 }
 
@@ -117,6 +210,18 @@ export function pulseBand(cells) {
     box.appendChild(cell);
   }
   return box;
+}
+
+/* ═══ صورة رمزية بالأحرف الأولى ═══
+   تسبق الاسم في صفوف الطلبات فيُتعرَّف على الشخص قبل قراءة اسمه.
+   ⚠️ زخرفية بالكامل: aria-hidden لأن الاسم مكتوب بجوارها، فنطقُ «را» قبل
+   «ريم الأحمد» ضجيج لقارئ الشاشة. واللون مشتقّ من الاسم فيثبت عبر الشاشات. */
+export function avatar(name, size = 34) {
+  const a = el('span', 'avatar', esc(initials(name)));
+  a.setAttribute('aria-hidden', 'true');
+  a.style.inlineSize = a.style.blockSize = size + 'px';
+  a.style.setProperty('--h', hueOf(name));
+  return a;
 }
 
 /* رقاقة حالة بنقطة — النقطة تحمل المعنى مع النص، فلا يُقرأ باللون وحده */

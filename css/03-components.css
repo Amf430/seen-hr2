@@ -9,22 +9,26 @@
   min-height:var(--control-h);padding-inline:var(--sp-5);
   background:var(--btn-bg);color:var(--btn-fg);
   border:1px solid var(--btn-bd);border-radius:var(--r-md);
-  font-size:var(--fs-base);font-weight:var(--fw-bold);line-height:1;
+  font-size:var(--fs-sm);font-weight:var(--fw-medium);line-height:1;
   letter-spacing:var(--ls-flat);white-space:nowrap;text-decoration:none;
   cursor:pointer;user-select:none;
   transition:background var(--dur-1) var(--ease),border-color var(--dur-1) var(--ease),
              box-shadow var(--dur-1) var(--ease),transform var(--dur-1) var(--ease)}
 .btn:hover{background:var(--btn-bg-h)}
-.btn:active{transform:translateY(1px)}
+/* الانكماش عند الضغط يعطي إحساس اللمس — مأخوذ من مرجع التصميم */
+.btn:active{transform:scale(.98)}
+@media (prefers-reduced-motion:reduce){.btn:active{transform:none}}
 .btn:focus-visible{box-shadow:var(--ring)}
 .btn:disabled,.btn[aria-disabled="true"]{opacity:.5;cursor:not-allowed;transform:none}
 .btn__ic{font-size:1.05em;line-height:1;flex:none}
 
 /* ── variants ── */
 .btn--secondary,.btn.secondary{--btn-bg:var(--card);--btn-fg:var(--ink);
-  --btn-bd:var(--line-strong);--btn-bg-h:var(--paper-2)}
-.btn--ghost,.btn.ghost{--btn-bg:transparent;--btn-fg:var(--maroon);
-  --btn-bd:var(--line-strong);--btn-bg-h:var(--maroon-tint)}
+  --btn-bd:var(--border);--btn-bg-h:var(--surface-3)}
+/* ⚠️ الشبح صار محايداً لا عنّابياً: هو الزرّ الأكثر تكراراً في النظام (كل
+   «عرض الكل» و«فتح المسير»)، وتلوينه عنّابياً يجعل الشاشة كلها لهجةً واحدة. */
+.btn--ghost,.btn.ghost{--btn-bg:var(--card);--btn-fg:var(--ink-2);
+  --btn-bd:var(--border);--btn-bg-h:var(--surface-3)}
 .btn--quiet{--btn-bg:transparent;--btn-fg:var(--maroon);--btn-bd:transparent;
   --btn-bg-h:var(--maroon-tint);padding-inline:var(--sp-3)}
 .btn--danger,.btn.danger{--btn-bg:var(--red);--btn-fg:#fff;--btn-bg-h:#8f1d1d}
@@ -62,9 +66,17 @@
 .actions-cell{display:flex;gap:var(--sp-1);flex-wrap:nowrap;align-items:center}
 
 /* ══════════ cards + section header ══════════ */
-.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);
-  box-shadow:var(--e-1);padding:var(--card-pad);margin-block-end:var(--sp-4)}
+/* ⚠️ البطاقة بحدّ بلا ظلّ. الظلّ على كل بطاقة يجعلها كلها تطفو، فلا شيء
+   يبرز لأن كل شيء بارز — والشاشة عندنا فيها ثماني بطاقات أو أكثر. الحدّ
+   الرفيع يرسم البنية ويترك البروز للرقم وحده. */
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);
+  padding:var(--card-pad);margin-block-end:var(--sp-4)}
 .card:last-child{margin-block-end:0}
+/* البطاقة التي تُفتح: ترتفع بكسلاً ويغمق حدّها — بلا ظلّ يقفز */
+.card--link{transition:border-color var(--dur-2) var(--ease),transform var(--dur-1) var(--ease);
+  cursor:pointer}
+.card--link:hover{border-color:var(--border-strong);transform:translateY(-1px)}
+@media (prefers-reduced-motion:reduce){.card--link:hover{transform:none}}
 
 .card__head{display:flex;align-items:center;justify-content:space-between;
   gap:var(--sp-3);flex-wrap:wrap;margin-block-end:var(--sp-4)}
@@ -110,29 +122,31 @@
 .section__meta{font-size:var(--fs-sm);color:var(--muted-strong);margin-inline-start:auto}
 
 /* ══════════ stat tiles / KPI ══════════ */
+/* ⚠️ الشريط العلوي الملوّن حُذف. كان يعلو **كل** بطاقة رقم في النظام،
+   وصفحة فيها سبع بطاقات تصير سبعة أشرطة عنّابية تتنافس على الانتباه. اللون
+   انتقل إلى الرقم نفسه حين يحمل حالة (أخضر/أحمر/كهرماني)، وإلى لا شيء حين
+   لا يحملها — وهذا قرار المالك: الأبيض أصل والعنّابي لمسة. */
 .stat{position:relative;display:grid;grid-template-areas:"label" "value" "meta";
-  gap:var(--sp-1);align-content:start;
-  background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);
-  padding:var(--sp-4) var(--sp-5);box-shadow:var(--e-1);overflow:hidden}
-.stat::before{content:"";position:absolute;inset-block-start:0;inset-inline:0;
-  block-size:3px;background:var(--maroon);opacity:.9}
+  gap:var(--sp-2);align-content:start;
+  background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);
+  padding:var(--sp-5);overflow:hidden}
 
 .stat__label,.stat .l{grid-area:label;font-size:var(--fs-caption);
   font-weight:var(--fw-medium);color:var(--muted-strong);line-height:var(--lh-snug);
   margin:0;display:flex;align-items:center;gap:var(--sp-1)}
-.stat__value,.stat .n{grid-area:value;font-size:var(--fs-3xl);
-  font-weight:var(--fw-black);line-height:var(--lh-tight);color:var(--maroon);
-  font-variant-numeric:tabular-nums lining-nums;letter-spacing:var(--ls-num);
+.stat__value,.stat .n{grid-area:value;font-size:var(--fs-stat);
+  font-weight:var(--fw-bold);line-height:1;color:var(--ink);
+  font-variant-numeric:tabular-nums lining-nums;letter-spacing:var(--ls-stat);
   overflow-wrap:anywhere}
 .stat__meta{grid-area:meta;font-size:var(--fs-caption);color:var(--muted-strong);
   line-height:var(--lh-snug);display:flex;align-items:center;gap:var(--sp-1)}
 
 /* status variants — keep legacy .g/.r/.a from line 97 */
-.stat.g::before,.stat--good::before{background:var(--green)}
+
 .stat.g .n,.stat.g .stat__value,.stat--good .stat__value{color:var(--green)}
-.stat.r::before,.stat--bad::before{background:var(--red)}
+
 .stat.r .n,.stat.r .stat__value,.stat--bad .stat__value{color:var(--red)}
-.stat.a::before,.stat--warn::before{background:var(--amber)}
+
 .stat.a .n,.stat.a .stat__value,.stat--warn .stat__value{color:var(--amber)}
 .stat--info::before{background:var(--info)}
 .stat--info .stat__value{color:var(--info)}
@@ -179,24 +193,105 @@
 table{inline-size:100%;border-collapse:separate;border-spacing:0;
   font-size:var(--fs-sm);min-inline-size:var(--table-min)}
 
+/* ⚠️ ترويسة الجدول كانت عنّابية على أرضية عنّابية فاتحة — وهي تتكرّر في كل
+   جدول من ٣١ جدولاً. صارت محايدة: الترويسة تصف الأعمدة ولا تنافس محتواها. */
 thead th{position:sticky;inset-block-start:0;z-index:2;
-  background:var(--maroon-tint);color:var(--maroon);
+  background:var(--surface-2);color:var(--muted-strong);
   text-align:start;vertical-align:middle;white-space:nowrap;
-  font-size:var(--fs-caption);font-weight:var(--fw-bold);line-height:var(--lh-snug);
+  font-size:var(--fs-caption);font-weight:var(--fw-medium);line-height:var(--lh-snug);
   padding:var(--sp-3) var(--cell-px);
-  box-shadow:inset 0 -1px 0 var(--line)}
+  box-shadow:inset 0 -1px 0 var(--border)}
 
-tbody td{padding:var(--cell-py) var(--cell-px);border-block-start:1px solid var(--line-2);
+tbody td{padding:var(--cell-py) var(--cell-px);border-block-start:1px solid var(--border-soft);
   vertical-align:middle;line-height:var(--lh-snug);block-size:var(--row-h);
   background:var(--card)}
 tbody tr:first-child td{border-block-start:0}
-tbody tr:nth-child(even) td{background:var(--row-alt)}
-tbody tr:hover td{background:var(--row-hover)}
+/* ⚠️ التخطيط المخطّط (zebra) حُذف. الخيط الرفيع يكفي لفصل الصفوف، والتظليل
+   المتناوب يضيف ضجيجاً بصرياً في جدول ١٥ عموداً كجدول المسير. */
+tbody tr:hover td{background:var(--surface-3)}
 
 /* column types */
 td.num,th.num,.money,td.money{text-align:end;
   font-variant-numeric:tabular-nums lining-nums;letter-spacing:var(--ls-num)}
 .money{font-weight:var(--fw-bold)}
+
+/* ══════════ الجدول بطاقاتٍ على الجوال ══════════
+   ⚠️ سبب وجود هذا القسم ليس تجميلياً. الجدول عرضه الأدنى ٧٦٠px فيتمرّر أفقياً
+   داخل حاويته على شاشة ٣٩٠px، فيبقى **جزء** من العمود الأخير ظاهراً: «000.00»
+   من ‎12,000.00‎ و«‎-27» من ‎2026-09-27‎. الرقم المنقوص يُقرأ رقماً صحيحاً — وهذه
+   معلومة كاذبة لا مجرّد قصّ، ومدير القسم يقرأ رواتب فريقه من جواله.
+
+   التسميات نفسها تُحقن من labelColumns() في js/lib/ui.js لأن CSS لا تقدر أن
+   تقرأ نصّ الترويسة. وكل ما هنا داخل نقطة الجوال وحدها: سطح المكتب لا يتغيّر.
+
+   يُطبَّق على الجداول التي وسمتها labelColumns بـ data-tw وحدها — فجدول بلا
+   ترويسة يبقى جدولاً يتمرّر بدل أن يصير بطاقات بلا تسميات.
+
+   ⚠️ النقطة ٨٦٠px تطابق ما تحقنه labelColumns في js/lib/ui.js — تغييرها في
+   أحدهما وحده يترك التسميات بلا تخطيط أو التخطيط بلا تسميات. */
+@media (max-width:860px){
+  /* لا تمرير أفقي ⇒ لا شيء يُقصّ ⇒ لا رقم ناقص */
+  .table-wrap[data-tw]{overflow-x:visible;border:0;background:none;
+    background-image:none}
+  .table-wrap[data-tw] table{display:block;min-inline-size:0;inline-size:100%}
+  .table-wrap[data-tw] tbody{display:block}
+
+  /* الترويسة تبقى لقارئ الشاشة وتغيب عن العين — التسمية انتقلت داخل كل خلية */
+  .table-wrap[data-tw] thead{position:absolute;inline-size:1px;block-size:1px;
+    overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+
+  .table-wrap[data-tw] tbody tr{display:block;margin-block-end:var(--sp-3);
+    border:1px solid var(--line);border-radius:var(--r-lg);
+    background:var(--card);box-shadow:var(--e-1);overflow:hidden}
+  .table-wrap[data-tw] tbody tr:last-child{margin-block-end:0}
+  /* التخطيط المخطّط والتحويم يفقدان معناهما حين يصير الصفّ بطاقة مستقلّة */
+  .table-wrap[data-tw] tbody tr:nth-child(even) td,
+  .table-wrap[data-tw] tbody tr:hover td{background:var(--card)}
+
+  /* ⚠️ التسمية وحدها تُدفع للبداية بـ margin تلقائي، والمحتوى يتجمّع في
+     النهاية. لو استُعملت justify-content:space-between لتباعدت **عقد الخلية
+     الواحدة** على طرفَي السطر — فخلية الاسم تضع الاسم في جهة ومسمّاه الوظيفي
+     في الجهة الأخرى وكأنهما حقلان. */
+  .table-wrap[data-tw] tbody td{display:flex;flex-wrap:wrap;align-items:center;
+    justify-content:flex-end;gap:var(--sp-1) var(--sp-2);
+    padding:var(--sp-2) var(--sp-4);block-size:auto;
+    border-block-start:1px solid var(--line-2);text-align:end}
+  /* ⚠️ السطر الفرعي يأخذ سطراً كاملاً **إن كان معه قيمة أخرى** (الاسم فوق
+     مسمّاه الوظيفي). أما حين يكون هو كلّ محتوى الخلية — عمود «الحضور» قيمته
+     ‏.cell-sub وحدها — فكسرُه يترك التسمية في سطر والقيمة في سطر بلا سبب. */
+  .table-wrap[data-tw] tbody td .cell-sub:not(:only-child){flex-basis:100%;text-align:end}
+  /* الخلية الأولى ترويسة البطاقة: هي التي تحمل الاسم في كل جداول النظام */
+  .table-wrap[data-tw] tbody tr td:first-child{border-block-start:0;
+    background:var(--maroon-tint);padding-block:var(--sp-3);
+    font-weight:var(--fw-bold)}
+
+  /* ⚠️ التسمية بلا content هنا — تُحقن لكل عمود من ui.js. القاعدة تصف شكلها
+     وحده، فالعمود بترويسة فارغة (عمود الأزرار) لا يُنشئ ::before إطلاقاً. */
+  .table-wrap[data-tw] tbody td::before{flex:none;max-inline-size:45%;
+    margin-inline-end:auto;
+    text-align:start;color:var(--muted-strong);
+    font-size:var(--fs-caption);font-weight:var(--fw-bold);
+    line-height:var(--lh-snug)}
+
+  /* ⚠️ خلية colspan (صفّ «الإجمالي» في المسير، و«لا أرصدة» في سياسة الإجازات)
+     تقع في الترتيب الأول فتلتقط تسمية العمود الأول. تُلغى صراحةً — وزن
+     [colspan] أعلى من وزن :nth-child المحقونة فتغلبها. */
+  .table-wrap[data-tw] tbody td[colspan]::before{content:none}
+  /* ⚠️ ولا الخلايا التي **بعده**: nth-child تعدّ العناصر لا الأعمدة، و
+     colspan="11" يبتلع أحد عشر عموداً — فتلتقط الخلية التالية تسمية العمود
+     الثاني بينما هي العمود الثاني عشر. ظهر فعلاً في صفّ «الإجمالي» بالمسير:
+     المستحق ‎18,829.17‎ كان موسوماً «أيام العمل».
+     الشقيق العام ~ لا :has() — مدعوم في كل المتصفحات، والقاعدة تبقى تعمل حيث
+     لا يعمل :has(). وصفّ المجاميع بلا تسميات أصدق من صفّ بتسميات مغلوطة. */
+  .table-wrap[data-tw] tbody td[colspan] ~ td::before{content:none}
+  .table-wrap[data-tw] tbody td[colspan]{justify-content:center;
+    font-weight:var(--fw-bold);background:var(--paper-2)}
+
+  /* حقول الإدخال داخل الخلايا (الورديات والأقسام) لا تبتلع البطاقة */
+  .table-wrap[data-tw] tbody td .inline-input{inline-size:auto;
+    max-inline-size:58%;min-inline-size:0}
+  .table-wrap[data-tw] tbody td .actions-cell{justify-content:flex-end}
+}
 .money.neg{color:var(--red)}
 .money.net{color:var(--green)}
 .money--muted{color:var(--muted-strong);font-weight:var(--fw-medium)}
@@ -1036,3 +1131,337 @@ label.btn{cursor:pointer}
   .lt-row__acts{inline-size:100%}
   .lt-row__acts .btn{flex:1}
 }
+
+/* ═══ مُنتقي الموقع على الخريطة (js/components/map-picker.js) ═══
+   ⚠️ الارتفاع صريح ولا يعتمد على المحتوى: Leaflet يقيس الحاوية عند البناء،
+   وحاوية بلا ارتفاع تعطي خريطة رمادية فارغة بلا أي رسالة خطأ. */
+.map-picker__canvas{
+  block-size:min(55vh,420px);min-block-size:240px;
+  inline-size:100%;margin-block:var(--sp-3);
+  border:1px solid var(--line-strong);border-radius:var(--r-md);
+  background:var(--paper-2);overflow:hidden;
+}
+.map-picker__canvas--failed{
+  display:flex;align-items:center;justify-content:center;text-align:center;
+  padding:var(--sp-4);color:var(--muted-strong);font-size:var(--fs-caption);
+}
+/* ⚠️ أدوات Leaflet (التكبير، الإسناد) مبنية على تخطيط LTR. تركها ترث RTL
+   يقلب مواضعها ويكسر أسهم التكبير. الخريطة نفسها لا اتجاه لها، فالحصر آمن. */
+.map-picker__canvas .leaflet-container{direction:ltr;font-family:var(--font)}
+
+.map-picker__results{
+  display:flex;flex-direction:column;gap:1px;margin-block-start:var(--sp-2);
+  border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;
+  background:var(--line);max-block-size:200px;overflow-y:auto;
+}
+.map-picker__hit{
+  display:block;inline-size:100%;text-align:start;border:0;cursor:pointer;
+  padding:var(--sp-3) var(--sp-4);background:var(--card);color:var(--ink-2);
+  font:inherit;font-size:var(--fs-caption);line-height:1.5;
+}
+.map-picker__hit:hover,.map-picker__hit:focus-visible{background:var(--row-hover);color:var(--ink)}
+.map-picker__none{
+  padding:var(--sp-3) var(--sp-4);background:var(--card);
+  color:var(--muted-strong);font-size:var(--fs-caption);
+}
+
+/* ═══ المهام (المرحلة ٥) ═══ */
+.task-card{border:1px solid var(--line);border-radius:var(--r-md);background:var(--card);
+  padding:var(--sp-3) var(--sp-4);margin-block-end:var(--sp-3);
+  display:flex;flex-direction:column;gap:var(--sp-2)}
+/* ⚠️ الحدّ الأحمر على المتأخرة لا لونُ خلفية: الخلفية الملوّنة على الجوال
+   تبتلع النص، والحدّ يُقرأ في الوضعين. */
+.task-card--overdue{border-inline-start:3px solid var(--red)}
+.task-card__top{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-3)}
+.task-card__meta{display:flex;flex-wrap:wrap;gap:var(--sp-3);font-size:var(--fs-micro)}
+
+/* خيط المحادثة — نفس شكل خيط hrTickets */
+.thread{display:flex;flex-direction:column;gap:var(--sp-3);
+  max-block-size:420px;overflow-y:auto;overscroll-behavior:contain;
+  padding:var(--sp-3);background:var(--paper);border-radius:var(--r-md);
+  margin-block-end:var(--sp-3)}
+.msg{background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);
+  padding:var(--sp-2) var(--sp-3);max-inline-size:85%;align-self:flex-start}
+.msg--mine{align-self:flex-end;background:var(--maroon-tint);border-color:var(--a-maroon-16)}
+.msg__head{display:flex;gap:var(--sp-2);align-items:baseline;
+  font-size:var(--fs-micro);margin-block-end:var(--sp-2)}
+.msg__body{white-space:pre-wrap;word-break:break-word;font-size:var(--fs-caption);line-height:1.6}
+
+/* ═══ تقويم الفريق (المرحلة ٩) ═══ */
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;
+  background:var(--line);border:1px solid var(--line);border-radius:var(--r-md);
+  overflow:hidden;margin-block:var(--sp-3)}
+.cal-head{background:var(--paper-2);padding:var(--sp-2);text-align:center;
+  font-size:var(--fs-micro);font-weight:var(--fw-bold);color:var(--muted-strong)}
+.cal-pad{background:var(--paper)}
+.cal-day{background:var(--card);min-block-size:92px;padding:var(--sp-2);
+  display:flex;flex-direction:column;gap:2px}
+.cal-day--off{background:var(--paper)}
+.cal-day--today{outline:2px solid var(--maroon-2);outline-offset:-2px}
+.cal-num{font-size:var(--fs-micro);color:var(--muted-strong)}
+.cal-tag{font-size:var(--fs-micro);border-radius:var(--r-sm);padding:1px var(--sp-2);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cal-tag--leave{background:var(--info-bg);color:var(--info)}
+.cal-tag--holiday{background:var(--teal-bg);color:var(--teal)}
+.cal-tag--evening{background:var(--violet-bg);color:var(--violet)}
+.cal-tag--task{background:var(--amber-bg);color:var(--amber)}
+
+/* ⚠️ الشبكة الشهرية لا تُقرأ على شاشة صغيرة — سبع خانات في ٣٦٠px تعني
+   خانة ٥٠px لا يظهر فيها اسم. تنقلب قائمة رأسية، وأيام الراحة الفارغة
+   تُخفى فلا تملأ القائمة بلا معلومة. */
+@media (max-width:640px){
+  .cal-grid{grid-template-columns:1fr;gap:1px}
+  .cal-head,.cal-pad{display:none}
+  .cal-day{min-block-size:0;flex-direction:row;flex-wrap:wrap;align-items:center;
+    gap:var(--sp-2);padding:var(--sp-2) var(--sp-3)}
+  .cal-day--off:not(:has(.cal-tag)){display:none}
+  .cal-num{min-inline-size:2ch;font-weight:var(--fw-bold);color:var(--ink)}
+}
+/* حدث التقويم — يضيفه الأدمن للشركة أو مدير القسم لقسمه */
+.cal-tag--event{background:var(--maroon-tint);color:var(--maroon-2);font-weight:var(--fw-medium)}
+
+/* ══════════ بطاقة الإحصاء الغنيّة ══════════
+   الرقم يقول «كم»، والخطّ الصغير يقول «إلى أين»، وسطر الفرق يقول «مقارنةً
+   بماذا». كانت لوحة الأدمن تعرض ٨٧٪ بلا أي منهما. */
+.statgrid{display:grid;gap:var(--sp-3);
+  grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+
+/* ⚠️ ستّ بطاقات على شبكة auto-fit تتوزّع خمساً وواحدة يتيمة في سطر تحتها،
+   فتبدو السادسة خطأً لا معلومة. ثلاثٌ في سطرين متوازنان. */
+.statgrid--3{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (max-width:900px){ .statgrid--3{grid-template-columns:repeat(2,minmax(0,1fr))} }
+@media (max-width:520px){ .statgrid--3{grid-template-columns:minmax(0,1fr)} }
+
+.statcard{display:flex;flex-direction:column;gap:var(--sp-4);
+  min-block-size:126px;padding:var(--sp-5);
+  background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);
+  text-align:start;font-family:inherit;color:var(--maroon-2)}
+.statcard--link{cursor:pointer;
+  transition:border-color var(--dur-2) var(--ease),transform var(--dur-1) var(--ease)}
+.statcard--link:hover{border-color:var(--border-strong);transform:translateY(-1px)}
+.statcard--link:focus-visible{outline:var(--focus-w) solid var(--focus);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){.statcard--link:hover{transform:none}}
+
+.statcard__top{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--sp-3)}
+.statcard__label{font-size:var(--fs-caption);font-weight:var(--fw-medium);
+  color:var(--muted-strong);line-height:var(--lh-snug)}
+
+/* الأيقونة مربّع ملوّن فاتح — اللمسة اللونية الوحيدة في البطاقة */
+.statcard__ic{flex:none;inline-size:32px;block-size:32px;border-radius:var(--r-md);
+  display:grid;place-items:center;font-size:var(--fs-base);
+  background:var(--maroon-tint);color:var(--maroon-2)}
+.statcard--good .statcard__ic{background:var(--green-bg);color:var(--green)}
+.statcard--bad  .statcard__ic{background:var(--red-bg);color:var(--red)}
+.statcard--warn .statcard__ic{background:var(--amber-bg);color:var(--amber)}
+.statcard--info .statcard__ic{background:var(--info-bg);color:var(--info)}
+
+.statcard--good{color:var(--green)}
+.statcard--bad{color:var(--red)}
+.statcard--warn{color:var(--amber)}
+.statcard--info{color:var(--info)}
+
+/* ⚠️ --ls-stat تتبّع سالب للأرقام وحدها — لا يُستعمل على نصّ عربي */
+.statcard__value{font-size:var(--fs-stat);font-weight:var(--fw-bold);
+  letter-spacing:var(--ls-stat);line-height:1;color:var(--ink)}
+.statcard__sub{font-size:var(--fs-caption);color:var(--muted-strong);
+  margin-block-start:6px;line-height:var(--lh-snug)}
+.statcard__foot{display:flex;align-items:flex-end;justify-content:space-between;
+  gap:var(--sp-3);margin-block-start:auto}
+.statcard__foot svg{flex:none;opacity:.85}
+
+/* ══════════ سطر الفرق ══════════ */
+.delta{display:inline-flex;align-items:center;gap:4px;
+  font-size:var(--fs-micro);font-weight:var(--fw-medium);line-height:var(--lh-snug)}
+.delta--good{color:var(--green)}
+.delta--bad{color:var(--red)}
+.delta--flat{color:var(--muted-strong)}
+
+/* ══════════ أشرطة أفقية مسمّاة ══════════
+   HTML لا SVG: النصّ العربي داخل SVG لا يرث اتجاه الصفحة ولا يلتفّ. */
+.barlist{display:flex;flex-direction:column;gap:var(--sp-3)}
+.barlist__row{display:grid;grid-template-columns:minmax(72px,26%) 1fr auto;
+  align-items:center;gap:var(--sp-3)}
+.barlist__label{font-size:var(--fs-sm);color:var(--ink-2);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.barlist__track{block-size:8px;border-radius:var(--r-pill);
+  background:var(--surface-3);overflow:hidden}
+.barlist__track i{display:block;block-size:100%;border-radius:var(--r-pill)}
+.barlist__value{font-size:var(--fs-sm);font-weight:var(--fw-bold);color:var(--ink);
+  min-inline-size:2.5ch;text-align:end}
+
+/* ══════════ وسيلة إيضاح الحلقة ══════════ */
+.legend{display:flex;flex-direction:column;gap:var(--sp-2)}
+.legend__row{display:flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-sm)}
+.legend__dot{inline-size:9px;block-size:9px;border-radius:var(--r-pill);flex:none}
+.legend__label{color:var(--ink-2);flex:1}
+.legend__value{font-weight:var(--fw-bold);color:var(--ink)}
+
+/* لوح الحلقة: الرسم يميناً والإيضاح يساراً، ويتكدّسان على الضيّق */
+.ringbox{display:flex;align-items:center;gap:var(--sp-5);flex-wrap:wrap}
+.ringbox>svg{flex:none}
+.ringbox .legend{flex:1;min-inline-size:120px}
+
+/* ══════════ الشبكة غير المتماثلة ══════════
+   بطاقة عريضة بجوار ضيّقة تصنع إيقاعاً بصرياً — العمود الواحد المكدّس يجعل
+   كل الأقسام متساوية الوزن فيبدو كلٌّ منها بأهمية الآخر. */
+.split{display:grid;gap:var(--sp-4);grid-template-columns:minmax(0,1.7fr) minmax(0,1fr)}
+.split--even{grid-template-columns:minmax(0,1fr) minmax(0,1.5fr)}
+.split>.card{margin-block-end:0}
+@media (max-width:920px){.split,.split--even{grid-template-columns:1fr}}
+
+/* ══════════ الصورة الرمزية ══════════
+   --h درجة لون مشتقّة من الاسم في format.js — ثابتة عبر الشاشات والجلسات. */
+.avatar{flex:none;display:grid;place-items:center;border-radius:var(--r-pill);
+  background:hsl(var(--h,300) 46% 92%);color:hsl(var(--h,300) 44% 32%);
+  font-size:var(--fs-caption);font-weight:var(--fw-bold);line-height:1;
+  user-select:none}
+
+/* ══════════ صفّ الاعتماد ══════════ */
+.approw{display:flex;align-items:center;gap:var(--sp-3);
+  padding:var(--sp-3);border-radius:var(--r-md);background:var(--surface-3);
+  margin-block-start:var(--sp-2)}
+.approw__body{flex:1;min-inline-size:0}
+.approw__name{display:block;font-size:var(--fs-sm);font-weight:var(--fw-medium);
+  color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.approw__meta{display:block;font-size:var(--fs-caption);color:var(--muted-strong);
+  margin-block-start:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.approw__acts{display:flex;gap:var(--sp-1);flex:none}
+
+/* زرّ أيقونة — شفّاف حتى التمرير، فلا يزدحم الصفّ بلونين */
+.iconbtn{inline-size:32px;block-size:32px;border-radius:var(--r-md);
+  background:transparent;border:1px solid transparent;color:var(--muted-strong);
+  display:inline-grid;place-items:center;cursor:pointer;
+  transition:background var(--dur-1) var(--ease),color var(--dur-1) var(--ease)}
+.iconbtn:hover{background:var(--card);color:var(--ink)}
+.iconbtn--ok:hover{background:var(--green-bg);color:var(--green)}
+.iconbtn--no:hover{background:var(--red-bg);color:var(--red)}
+.iconbtn:disabled{opacity:.45;cursor:default}
+.iconbtn:focus-visible{outline:var(--focus-w) solid var(--focus);outline-offset:1px}
+
+/* ══════════ تقدّم الدورة ══════════ */
+.cycleprog{margin-block-start:var(--sp-5);padding-block-start:var(--sp-4);
+  border-block-start:1px solid var(--border-soft)}
+.cycleprog__head{display:flex;justify-content:space-between;gap:var(--sp-3);
+  font-size:var(--fs-caption);color:var(--muted-strong);margin-block-end:var(--sp-2)}
+.cycleprog__track{display:block;block-size:6px;border-radius:var(--r-pill);
+  background:var(--surface-3);overflow:hidden}
+.cycleprog__track i{display:block;block-size:100%;background:var(--maroon-2);
+  border-radius:var(--r-pill)}
+
+/* ══════════ تحديثات اليوم ══════════ */
+.updates{display:grid;gap:var(--sp-4);
+  grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+.update{display:flex;gap:var(--sp-3);align-items:flex-start}
+.update__ic{flex:none;inline-size:34px;block-size:34px;border-radius:var(--r-md);
+  display:grid;place-items:center;font-size:var(--fs-base);
+  background:var(--maroon-tint);color:var(--maroon-2)}
+.update__ic--good{background:var(--green-bg);color:var(--green)}
+.update__ic--bad{background:var(--red-bg);color:var(--red)}
+.update__ic--info{background:var(--info-bg);color:var(--info)}
+.update__body{min-inline-size:0}
+.update__title{display:block;font-size:var(--fs-sm);font-weight:var(--fw-bold);color:var(--ink)}
+.update__text{font-size:var(--fs-caption);color:var(--muted-strong);
+  line-height:var(--lh-base);margin:4px 0 0}
+
+/* ⚠️ صفّ الأرقام يتنفّس مع عرض الشاشة بدل عدد أعمدة ثابت.
+   ‏:has() هنا آمنة: لو لم يدعمها متصفح بقيت الشبكة بأعمدتها الثابتة كما كانت
+   — تدهور لطيف لا خطأ. (بخلاف قاعدة colspan في الجداول حيث الفشل يعني تسمية
+   خاطئة، فاستُعمل الشقيق العام هناك.) */
+.grid:has(> .stat){grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+
+/* ══════════ شريط التصفية: رقاقات + مبدّل العرض ══════════ */
+.filterbar{display:flex;align-items:center;justify-content:space-between;
+  gap:var(--sp-4);flex-wrap:wrap;margin-block-end:var(--sp-4)}
+.chipset{display:flex;gap:var(--sp-1);flex-wrap:wrap;
+  background:var(--surface-3);padding:3px;border-radius:var(--r-md)}
+.chipbtn{padding:6px 12px;border:0;border-radius:7px;background:transparent;
+  color:var(--muted-strong);font-family:inherit;font-size:var(--fs-caption);
+  font-weight:var(--fw-medium);cursor:pointer;white-space:nowrap;
+  transition:background var(--dur-1) var(--ease),color var(--dur-1) var(--ease)}
+.chipbtn:hover{color:var(--ink)}
+.chipbtn.is-on{background:var(--card);color:var(--ink);box-shadow:var(--e-1)}
+.chipbtn:focus-visible{outline:var(--focus-w) solid var(--focus);outline-offset:1px}
+
+.viewtoggle{display:flex;gap:var(--sp-1);background:var(--surface-3);
+  padding:3px;border-radius:var(--r-md);flex:none}
+.viewtoggle__btn{display:inline-flex;align-items:center;gap:6px;
+  padding:6px 12px;border:0;border-radius:7px;background:transparent;
+  color:var(--muted-strong);font-family:inherit;font-size:var(--fs-caption);
+  font-weight:var(--fw-medium);cursor:pointer;white-space:nowrap}
+.viewtoggle__btn.is-on{background:var(--card);color:var(--ink);box-shadow:var(--e-1)}
+.viewtoggle__btn:focus-visible{outline:var(--focus-w) solid var(--focus);outline-offset:1px}
+
+/* ══════════ شبكة بطاقات الموظفين ══════════ */
+.peoplegrid{display:grid;gap:var(--sp-3);
+  grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
+.personcard{display:flex;flex-direction:column;gap:var(--sp-3);
+  padding:var(--sp-4);margin-block-end:0;text-align:start;font-family:inherit}
+.personcard__top{display:flex;align-items:center;gap:var(--sp-3)}
+.personcard__id{min-inline-size:0}
+.personcard__name{display:block;font-size:var(--fs-base);font-weight:var(--fw-bold);
+  color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.personcard__role{display:block;font-size:var(--fs-caption);color:var(--muted-strong);
+  margin-block-start:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.personcard__mid{display:flex;align-items:center;justify-content:space-between;
+  gap:var(--sp-2);padding-block-start:var(--sp-3);
+  border-block-start:1px solid var(--border-soft)}
+.personcard__where{display:inline-flex;align-items:center;gap:4px;min-inline-size:0;
+  font-size:var(--fs-caption);color:var(--muted-strong);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.personcard__where .ic{flex:none;font-size:.95em}
+.personcard__foot{display:flex;align-items:center;justify-content:space-between;
+  gap:var(--sp-2);font-size:var(--fs-caption);color:var(--ink-2)}
+.personcard__pay{font-weight:var(--fw-bold);color:var(--ink)}
+.personcard__flag{margin-block-start:var(--sp-1)}
+
+/* اسم مع صورته الرمزية داخل خلية جدول */
+.cellwho{display:inline-flex;align-items:center;gap:var(--sp-2);min-inline-size:0}
+.cellwho b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* المصدر داخل صفحة الحضور — أعرض من مبدّل العرض لأنه اختيار رئيسي */
+.viewtoggle--wide{margin-block-end:var(--sp-4);align-self:flex-start}
+.viewtoggle--wide .viewtoggle__btn{padding:8px 18px;font-size:var(--fs-sm)}
+
+/* ══════════ لوح بيانات الموظف ══════════
+   يفتح من بطاقة الموظف. لوح جانبي لا صفحة: الأدمن يمسح القائمة بحثاً عن
+   معلومة واحدة، والانتقال ثم الرجوع يفقده موضعه وفرزه في كل مرّة. */
+.pdrawer__scrim{position:fixed;inset:0;z-index:var(--z-scrim);
+  background:var(--scrim);animation:fade var(--dur-2) var(--ease)}
+.pdrawer{position:fixed;inset-block:0;inset-inline-start:0;z-index:var(--z-modal);
+  inline-size:min(420px,92vw);background:var(--card);
+  border-inline-end:1px solid var(--border);box-shadow:var(--e-3);
+  padding:var(--sp-6) var(--sp-5);overflow-y:auto;
+  display:flex;flex-direction:column;gap:var(--sp-5);
+  animation:drawerIn var(--dur-3) var(--ease)}
+/* ⚠️ الاتجاه: الصفحة rtl، فـ inset-inline-start هو الحافة **اليمنى**.
+   واللوح يجب أن يدخل من اليسار كمرجع التصميم — فيُستعمل left فيزيائياً. */
+@keyframes drawerIn{from{transform:translateX(-100%)}to{transform:translateX(0)}}
+@media (prefers-reduced-motion:reduce){
+  .pdrawer{animation:fade var(--dur-1) var(--ease)}
+}
+.pdrawer__x{position:absolute;inset-block-start:var(--sp-4);inset-inline-end:var(--sp-4)}
+.pdrawer__head{display:flex;flex-direction:column;align-items:center;
+  gap:var(--sp-2);text-align:center;padding-block-start:var(--sp-4)}
+.pdrawer__head .avatar{font-size:var(--fs-xl)}
+.pdrawer__name{font-size:var(--fs-xl);font-weight:var(--fw-bold);color:var(--ink);
+  margin:var(--sp-2) 0 0;line-height:var(--lh-heading)}
+.pdrawer__role{font-size:var(--fs-sm);color:var(--muted-strong);margin:0}
+.pdrawer__body{display:flex;flex-direction:column}
+.pdrawer__row{display:flex;align-items:center;justify-content:space-between;
+  gap:var(--sp-4);padding-block:var(--sp-3);
+  border-block-start:1px solid var(--border-soft)}
+.pdrawer__row:first-child{border-block-start:0}
+.pdrawer__k{display:inline-flex;align-items:center;gap:var(--sp-2);flex:none;
+  font-size:var(--fs-sm);color:var(--muted-strong)}
+.pdrawer__k .ic{font-size:1em;color:var(--muted)}
+.pdrawer__v{font-size:var(--fs-sm);color:var(--ink);text-align:end;min-inline-size:0;
+  overflow-wrap:anywhere}
+.pdrawer__acts{display:flex;gap:var(--sp-2);margin-block-start:auto;
+  padding-block-start:var(--sp-4);border-block-start:1px solid var(--border)}
+.pdrawer__acts .btn{flex:1}
+
+/* إجراءات داخل صفّ جدول — تظهر كما هي، والمحسوم يعرض «—» لا زرّاً معطّلاً */
+.rowacts{display:inline-flex;gap:2px}
+/* الفرز الثانوي في صفحة الحضور — أخفت من الصفّ الأول */
+.filters--tidy{display:flex;flex-wrap:wrap;gap:var(--sp-3);align-items:flex-end}
+.filters--sub{margin-block-start:var(--sp-3);padding-block-start:var(--sp-3);
+  border-block-start:1px solid var(--border-soft)}

@@ -19,7 +19,7 @@ import { getMe, getUsers } from '../lib/state.js';
 import { refreshUsers } from '../lib/users.js';
 import { orgTree, flattenTree, directReports, allReports, managerOf } from '../lib/org.js';
 import { go, isStale } from '../lib/nav.js';
-import { card, tableWrap, empty, button, callout, stat, grid, sectionHead } from '../lib/ui.js';
+import { card, tableWrap, empty, button, callout, sectionHead , statCard } from '../lib/ui.js';
 import { roleLabel } from '../lib/perms.js';
 
 export async function render(view, token) {
@@ -55,12 +55,16 @@ export async function render(view, token) {
        وعرضها بلا تفسير يبدو خللاً. */
     const linked = users.filter((u) => u.managerUid).length;
     const sc = card('');
-    const sg = grid(4);
+    const sg = el('div', 'statgrid');
     sg.append(
-      stat(users.length, 'موظف'),
-      stat(linked, 'مرتبط بمدير', linked === 0 ? 'r' : linked < users.length / 2 ? 'a' : ''),
-      stat(tree.length, 'بلا مدير مباشر'),
-      stat(maxDepth(tree), 'أعمق مستوى')
+      statCard({ label: 'موظف', value: users.length, ico: 'people', sub: 'في الشركة كلها' }),
+      statCard({ label: 'مرتبط بمدير', value: linked, ico: 'network',
+        tone: linked === 0 ? 'bad' : linked < users.length / 2 ? 'warn' : 'good',
+        sub: linked === users.length ? 'الشجرة مكتملة' : `${users.length - linked} بلا ارتباط` }),
+      statCard({ label: 'بلا مدير مباشر', value: tree.length, ico: 'alert',
+        sub: 'رؤوس الشجرة' }),
+      statCard({ label: 'أعمق مستوى', value: maxDepth(tree), ico: 'building',
+        sub: 'طبقات الإدارة' })
     );
     sc.appendChild(sg);
     if (linked < users.length) {
@@ -96,12 +100,16 @@ function drawTeam(host, me, users, q) {
   const boss = managerOf(me, users);
 
   const sc = card('');
-  const sg = grid(3);
+  const suspended = all.filter((u) => u.status !== 'active').length;
+  const sg = el('div', 'statgrid');
   sg.append(
-    stat(direct.length, 'يتبعني مباشرةً'),
-    stat(all.length, 'في فريقي كاملاً'),
-    stat(all.filter((u) => u.status !== 'active').length, 'حساب معلّق',
-      all.some((u) => u.status !== 'active') ? 'a' : '')
+    statCard({ label: 'يتبعني مباشرةً', value: direct.length, ico: 'people',
+      sub: 'المستوى الأول تحتك' }),
+    statCard({ label: 'في فريقي كاملاً', value: all.length, ico: 'network',
+      sub: 'بكل المستويات' }),
+    statCard({ label: 'حساب معلّق', value: suspended, ico: 'alert',
+      tone: suspended ? 'warn' : 'good',
+      sub: suspended ? 'لا يستطيع الدخول' : 'كل الحسابات نشِطة' })
   );
   sc.appendChild(sg);
   if (boss) sc.appendChild(el('p', 'help', `مديرك المباشر: ${esc(boss.name || '—')}`));

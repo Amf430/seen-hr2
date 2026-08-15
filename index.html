@@ -104,9 +104,16 @@ if (window.top !== window.self) {
 
 <!-- ============ الدخول ============ -->
 <div id="loginScreen" class="hidden">
+  <!-- كتلتان ضبابيّتان تنجرفان ببطء — تعطيان العمق الحيّ بلا حلقة رسم.
+       مرجع التصميم يستعمل metaballs بمرشّح SVG و requestAnimationFrame دائمة؛
+       وهذه شاشة تُفتح قبل الدخول على جوال قد يكون ضعيفاً، فحلقة رسم لا تتوقّف
+       ثمنها بطارية بلا مقابل. الانجراف هنا CSS خالص على المُركِّب. -->
+  <div class="login-orbs" aria-hidden="true"><i></i><i></i></div>
+
   <main class="login-card">
     <img class="brand-logo" src="img/logo.png" alt="سين العقارية" width="1814" height="1833">
     <h1>إدارة الموارد البشرية</h1>
+    <p class="sub">أهلاً بك — سجّل دخولك للمتابعة</p>
     <div class="field">
       <label for="loginEmail">رقم الجوال</label>
       <input id="loginEmail" type="text" inputmode="numeric" placeholder="05xxxxxxxx" autocomplete="username" />
@@ -147,7 +154,9 @@ if (window.top !== window.self) {
 
   <aside class="sidebar" id="sidebar">
     <div class="logo">
-      <img class="brand-mark brand-mark--img" src="img/mark-white-192.png" alt="" aria-hidden="true"
+      <!-- ⚠️ mark.png الملوّنة لا mark-white: البيضاء صُنعت للشريط العنّابي
+           الداكن، وبعد أن صار أبيض اختفت عليه تماماً. -->
+      <img class="brand-mark brand-mark--img" src="img/mark.png" alt="" aria-hidden="true"
            width="192" height="192">
       <div><b>إدارة الموارد البشرية</b><span>سين العقارية</span></div>
     </div>
@@ -190,6 +199,12 @@ if (window.top !== window.self) {
       </button>
     </header>
     <main class="content" id="view" tabindex="-1"></main>
+
+    <!-- شريط الوجهات السفلي — يظهر على الجوال وحده (≤860px).
+         يُملأ من buildDock() في js/app/shell.js حسب دور المستخدم.
+         السبب: الوصول الوحيد قبله كان درجاً فيه ١٨ رابطاً خلف زرّ همبرغر،
+         والنظام يُستعمل من الجوال أكثر من سطح المكتب. -->
+    <nav class="dock" id="dock" aria-label="الوجهات السريعة" hidden></nav>
   </div>
 </div>
 

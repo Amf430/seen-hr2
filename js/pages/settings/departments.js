@@ -4,7 +4,46 @@ import { saveSettings } from '../../lib/settings.js';
 import { refreshUsers } from '../../lib/users.js';
 import { AR_DAYS } from '../../lib/dates.js';
 import { isStale } from '../../lib/nav.js';
+import { shiftPlansOf, planById } from '../../lib/shifts.js';
 import { card, empty, tableWrap, sectionHead, button } from '../../lib/ui.js';
+
+/* ما الذي يحكم دوام هذا القسم فعلاً — بنفس ترتيب أولوية resolveShift.
+   ⚠️ خطة الشفت تتقدّم على الورديات القديمة، فلو كان للقسم الاثنان معاً
+   فالخطة هي العاملة. إظهار «ورديات خاصة» حينها يكذب على الأدمن. */
+function deptShiftLabel(d) {
+  const p = d.shiftPlanId ? planById(d.shiftPlanId) : null;
+  if (p) return `<span class="tag">${esc(p.name)}</span>${
+    d.shifts ? ' <span class="cell-sub">(ورديات قديمة مُتجاهَلة)</span>' : ''}`;
+  if (d.shifts) return '<span class="tag">ورديات خاصة</span>';
+  return '<span class="text-muted">الخطة الافتراضية</span>';
+}
+
+/* إسناد خطة شفت للقسم كله */
+function openDeptPlan(d, after) {
+  const plans = shiftPlansOf().filter((p) => p.active !== false && !p.synthetic);
+  const m = openModal(`
+    <h3>خطة شفت قسم ${esc(d.name)}</h3>
+    ${plans.length ? '' : '<div class="help">لا خطط محفوظة بعد — عرّف خطة من «الشفتات» أولاً.</div>'}
+    <div class="field">
+      <label for="dpSel">الخطة</label>
+      <select id="dpSel">
+        <option value="">حسب الخطة الافتراضية للشركة</option>
+        ${plans.map((p) => `<option value="${esc(p.id)}"${
+          d.shiftPlanId === p.id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}
+      </select>
+      <div class="help">تنطبق على كل موظفي القسم، ما لم يكن للموظف خطة خاصة في ملفه — خطة الموظف تتقدّم على خطة قسمه.</div>
+    </div>
+    <div class="row">
+      <button class="btn ghost" id="dpCancel">إلغاء</button>
+      <button class="btn" id="dpOk">حفظ</button>
+    </div>`);
+  m.$('#dpCancel').onclick = m.close;
+  m.$('#dpOk').onclick = async () => {
+    d.shiftPlanId = m.$('#dpSel').value || '';
+    await saveSettings(['departments']);
+    m.close(); after(); toast('حُفظت خطة القسم', 'ok');
+  };
+}
 
 export async function render(view, token) {
   const S = getSettings();
@@ -48,12 +87,13 @@ export async function render(view, token) {
           ? esc(mgr.name) + (mgr.role !== 'manager' && mgr.role !== 'admin'
               ? ' <span class="pill pill--dot pending">صلاحيته ليست «مدير قسم»</span>' : '')
           : '<span class="text-muted">—</span>'}</td>
-        <td>${d.shifts ? '<span class="tag">ورديات خاصة</span>' : '<span class="text-muted">ورديات الشركة</span>'}</td>
+        <td>${deptShiftLabel(d)}</td>
         <td class="num">${cnt}</td>`;
       const td = el('td', '');
       const cell = el('div', 'actions-cell');
       cell.append(
         button('المدير', 'btn sm ghost', () => openDeptManager(d, draw)),
+        button('خطة الشفت', 'btn sm ghost', () => openDeptPlan(d, draw)),
         button('الورديات', 'btn sm ghost', () => openDeptShifts(d, draw)),
         button('تعديل الاسم', 'btn sm ghost', () => openDept(d, draw)),
         button('حذف', 'btn sm danger', async () => {

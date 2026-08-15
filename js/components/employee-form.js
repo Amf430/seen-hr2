@@ -8,11 +8,13 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import { openModal, toast, esc, uid } from '../lib/dom.js';
-import { getSettings } from '../lib/state.js';
+import { getSettings, getMe } from '../lib/state.js';
 import { activeBranches, branchesOf as allBranches } from '../lib/geo.js';
 import { normPhone, isValidSaudiMobile } from '../lib/phone.js';
 import { createEmployee, updateEmployee, generateTempPassword } from '../lib/users.js';
 import { managerCandidates } from '../lib/org.js';
+import { isAdmin, isManager } from '../lib/perms.js';
+import { shiftPlansOf } from '../lib/shifts.js';
 
 const ROLE_OPTS = [
   ['employee', 'موظف'],
@@ -33,8 +35,18 @@ export function openEmpForm(u = null, after) {
     const extra = allBranches().filter((b) => picked0.includes(b.id) && !ids.has(b.id));
     return [...act, ...extra.map((b) => ({ ...b, suspended: true }))];
   })();
+  /* ═══ مدير القسم يضيف موظفاً لقسمه ═══
+     ⚠️ كل قفل هنا مرآةٌ لشرط في `allow create` داخل firestore.rules، لا بديل
+     عنه. لو حُذف سطر من هنا سقطت الكتابة على السيرفر برسالة صلاحيات — وهذا
+     هو الترتيب الصحيح: الواجهة تمنع الإحراج، والقاعدة تمنع الاختراق. */
+  const mgrMode = !isAdmin() && isManager();
+  const myDept = getMe() ? (getMe().department || '') : '';
+
   /* المرشّحون لأن يكونوا مديراً — بلا نفسه، وبلا من يخلق حلقة تسلسل */
   const bosses = managerCandidates(u ? u.id : '__new__');
+  /* الخطط المحفوظة وحدها — الخطة المُركَّبة في الذاكرة لا تُسنَد لأحد لأن
+     معرّفها غير موجود في Firestore، وإسنادها يكتب معرّفاً ميتاً في وثيقة. */
+  const namedPlans = shiftPlansOf().filter((p) => !p.synthetic && p.active !== false);
   const mode = (u && u.workMode === 'remote') ? 'remote' : 'onsite';
   const picked = Array.isArray(u && u.branchIds) ? u.branchIds : [];
 
@@ -52,11 +64,23 @@ export function openEmpForm(u = null, after) {
       </div>
       <div class="form-row">
         <div class="field"><label for="eDept">القسم / الإدارة</label>
-          <input id="eDept" list="deptOptions" value="${esc(u?.department || '')}" placeholder="اكتب أو اختر">
+          <input id="eDept" list="deptOptions" value="${esc(mgrMode ? myDept : (u?.department || ''))}"
+                 placeholder="اكتب أو اختر" ${mgrMode ? 'disabled' : ''}>
           <datalist id="deptOptions">${(S.departments || []).map((d) => `<option value="${esc(d.name)}"></option>`).join('')}</datalist>
-          <div class="help">القسم يحدّد الوردية ومدير الموافقات.</div></div>
+          <div class="help">${mgrMode
+            ? 'تقدر تضيف موظفين لقسمك وحده.'
+            : 'القسم يحدّد الوردية ومدير الموافقات.'}</div></div>
         <div class="field"><label for="eTitle">المسمى الوظيفي</label>
           <input id="eTitle" value="${esc(u?.jobTitle || '')}"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label for="eShiftPlan">خطة الشفت</label>
+          <select id="eShiftPlan">
+            <option value="">حسب القسم</option>
+            ${namedPlans.map((p) => `<option value="${esc(p.id)}"${
+              (u?.shiftPlanId || '') === p.id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}
+          </select>
+          <div class="help">للاستثناءات وحدها — موظف دوامه يبدأ ٣ العصر مثلاً. «حسب القسم» هو الصحيح لأغلب الناس، وهو ما يجعل تغيير خطة القسم يشملهم تلقائياً.</div></div>
       </div>
       <div class="form-row">
         <div class="field"><label for="ePhone">الجوال (يُستخدم للدخول) *</label>
@@ -76,6 +100,19 @@ export function openEmpForm(u = null, after) {
       </div>
     </div>
 
+    ${mgrMode ? `
+    <div class="form-section">
+      <div class="form-section__title">التعاقد</div>
+      <div class="form-row">
+        <div class="field"><label for="eHire">تاريخ المباشرة</label>
+          <input id="eHire" type="date" value="${esc(u?.hireDate || '')}"></div>
+        <div class="field"></div>
+      </div>
+      <div class="callout callout--info">
+        <b>الراتب والصلاحيات والنطاق الجغرافي يضبطها الأدمن لاحقاً.</b>
+        <div class="help">الموظف يُنشأ بصلاحية «موظف» وبلا راتب. راجع الموارد البشرية لاستكمال ملفه.</div>
+      </div>
+    </div>` : `
     <div class="form-section">
       <div class="form-section__title">التعاقد والراتب</div>
       <div class="form-row">
@@ -91,9 +128,9 @@ export function openEmpForm(u = null, after) {
           <select id="eRole">${ROLE_OPTS.map(([v, l]) =>
             `<option value="${v}"${(u?.role || 'employee') === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
       </div>
-    </div>
+    </div>`}
 
-    <div class="form-section">
+    <div class="form-section ${mgrMode ? 'hidden' : ''}">
       <div class="form-section__title">الحضور والنطاق</div>
       <div class="field">
         <label for="eMode">من أين يسجّل حضوره؟</label>
@@ -167,7 +204,12 @@ export function openEmpForm(u = null, after) {
     const base = {
       name,
       empId:       m.$('#eEmpId').value.trim(),
-      department:  m.$('#eDept').value.trim(),
+      /* ⚠️ حقل القسم مُعطَّل في وضع المدير، والحقل المعطَّل يُقرأ فارغاً في
+         بعض المسارات — فنأخذ قسمه من ملفه لا من الحقل. القاعدة تشترط
+         d().department == myDept()، وإرسال '' يعني رفضاً على السيرفر. */
+      department:  mgrMode ? myDept : m.$('#eDept').value.trim(),
+      /* '' = حسب القسم — الغياب يطابق سلوك اليوم بالحرف */
+      shiftPlanId: m.$('#eShiftPlan').value || '',
       jobTitle:    m.$('#eTitle').value.trim(),
       /* ⚠️ الحقل النصّي القديم يبقى كما هو ولا يُحذف: هو ما يُعرض في بطاقة
          الموظف اليوم، ولا يوجد ترحيل آلي موثوق من نصّ إلى معرّف (اسمان
@@ -175,14 +217,21 @@ export function openEmpForm(u = null, after) {
       manager:     u?.manager || '',
       managerUid:  m.$('#eMgrUid').value || '',
       hireDate:    m.$('#eHire').value,
-      salary:      Number(m.$('#eSalary').value) || 0,
-      contractEnd: m.$('#eContractEnd').value || '',
-      role:        m.$('#eRole').value,
-      workMode,
-      /* null صراحةً بدل حذف الحقل: التحديث الجزئي لا يمسح حقلاً غائباً،
-         فلو أراد الأدمن إلغاء النطاق الخاص لازم نكتب null فوقه. */
-      geoRadius:   (workMode === 'onsite' && radiusRaw >= 50) ? Math.round(radiusRaw) : null,
-      branchIds:   workMode === 'onsite' ? branchIds : []
+      /* ⚠️ في وضع المدير يُحذف `salary` من الحمولة حذفاً — لا يُرسل صفراً.
+         القاعدة تشترط `!('salary' in d())`، و`salary: 0` حقلٌ موجود قيمته
+         صفر فتُرفض الكتابة كاملةً. الفرق بين «غائب» و«صفر» هو الفرق بين
+         نجاح العملية وفشلها برسالة صلاحيات غامضة. */
+      ...(mgrMode ? {} : { salary: Number(m.$('#eSalary').value) || 0 }),
+      ...(mgrMode ? {} : { contractEnd: m.$('#eContractEnd').value || '' }),
+      /* المدير لا ينشئ إلا موظفاً — مرآةٌ لشرط d().role == 'employee' */
+      role:        mgrMode ? 'employee' : m.$('#eRole').value,
+      ...(mgrMode ? {} : {
+        workMode,
+        /* null صراحةً بدل حذف الحقل: التحديث الجزئي لا يمسح حقلاً غائباً،
+           فلو أراد الأدمن إلغاء النطاق الخاص لازم نكتب null فوقه. */
+        geoRadius: (workMode === 'onsite' && radiusRaw >= 50) ? Math.round(radiusRaw) : null,
+        branchIds: workMode === 'onsite' ? branchIds : []
+      })
     };
 
     const btn = m.$('#eSave');

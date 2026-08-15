@@ -1,0 +1,202 @@
+{
+  "//": "فهارس Firestore المركّبة. أي استعلام يجمع where على حقل مع مدى أو ترتيب على حقل آخر يحتاج فهرساً هنا، ويُنشر قبل فتح الشاشة لا بعدها — الاستعلام بلا فهرس يُرفض كاملاً في الإنتاج فتظهر الشاشة فارغة مع خطأ صلاحيات. ⚠️ إنشاء الفهرس من لوحة Firebase بالضغط على رابط الخطأ يبنيه على السيرفر بلا أن يدخل هذا الملف: يعمل عندك ويسقط عند أول نشر نظيف. الفهرس يعيش هنا أو لا يعيش.",
+  "indexes": [
+    {
+      "//": "المرحلة ٤ — شاشة أداء القسم. مدير القسم يستعلم عن حضور قسمه ضمن مدى تاريخ. بدون هذا الفهرس تُرفض الشاشة كاملةً له.",
+      "collectionGroup": "attendance",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "department",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "//": "نفس الاستعلام على سجل جهاز البصمة — وهو المصدر الذي تُحسب عليه أرقام الانضباط في المرحلة ٤ لأنه ما يُحسب عليه المسير.",
+      "collectionGroup": "zkAttendance",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "department",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "//": "«كشف حضوري» — الموظف يقرأ سجلّ نفسه ضمن دورة. ⚠️ كان الاستعلام مقيَّداً بالتاريخ وحده فيطلب حضور الشركة كلها، والقاعدة تردّه كاملاً — فيقرأ صفر سجلات ويظهر الموظف الحاضر غائباً كل أيامه. القيد `employeeUid in [...]` (لا ==) لأن استعادة الوصول تُنشئ uid جديداً و isMine() تقبل القديم أيضاً.",
+      "collectionGroup": "attendance",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "employeeUid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "//": "نفس الاستعلام على سجل جهاز البصمة — المصدران يُدمجان بـ mergeEarliestIn، وسقوط أحدهما وحده يحوّل أياماً حاضرة إلى غياب.",
+      "collectionGroup": "zkAttendance",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "employeeUid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "//": "المرحلة ٥ — لوحة مدير القسم. مقيّد بالمصفوفة مطابقةً لـ taskDept() في القاعدة، والحالات قائمة صريحة لا != على archived (أرخص ولا يحتاج فهرساً زائداً).",
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "departments",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "dueDate",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "//": "المرحلة ٥ — لوحة الموظف: مهامه هو بحالاتها النشطة.",
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "assigneeUid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "dueDate",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "//": "المرحلة ٧-ح — أرشيف المهام. صفحة مستقلة، واللوحة اليومية لا تقرؤه إطلاقاً.",
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "departments",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "archivedAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "//": "المرحلة ١١ — إعلانات «الجميع». ⚠️ ثلاثة فهارس لثلاثة مستمعين منفصلين: القاعدة تسمح بالقراءة إن تحقّق أحد ثلاثة شروط، واستعلام OR واحد لا يُحقّق شرط القاعدة لكل نتيجة محتملة فيُرفض كاملاً.",
+      "collectionGroup": "announcements",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "audienceAll",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "publishAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "//": "المرحلة ١١ — إعلانات موجّهة لأقسام.",
+      "collectionGroup": "announcements",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "audienceDepts",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "publishAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "//": "المرحلة ١١ — إعلانات موجّهة لأشخاص.",
+      "collectionGroup": "announcements",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "audienceUids",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "publishAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "//": "المرحلة ٩ — تقويم الفريق. إجازات القسم المعتمَدة ضمن الشهر المعروض. ⚠️ المدى على startDate وحده لأن Firestore لا يقبل مدَيين على حقلين مختلفين؛ الترشيح على endDate محلي.",
+      "collectionGroup": "requests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "department",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "startDate",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "//": "المرحلة ٩ — أحداث التقويم. استعلامان منفصلان (الشركة، والقسم) لأن OR واحد لا يُثبت للقاعدة كل نتيجة محتملة.",
+      "collectionGroup": "calendarEvents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "department",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

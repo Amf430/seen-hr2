@@ -25,7 +25,7 @@ import { contractDaysLeft } from '../lib/dates.js';
 import { describeRule } from '../lib/geo.js';
 import { managerOf } from '../lib/org.js';
 import { getUsers } from '../lib/state.js';
-import { card, grid, stat, sectionHead, button, contractCell, callout } from '../lib/ui.js';
+import { card, sectionHead, button, contractCell, callout, statCard } from '../lib/ui.js';
 import { saveMyContact, CONTACT_LIMITS } from '../lib/users.js';
 import { docsOf, docStatus } from '../lib/documents.js';
 import { docsList } from '../components/documents-modal.js';
@@ -56,16 +56,21 @@ export function render(view) {
   /* ── نظرة سريعة ── */
   const dl = contractDaysLeft(me.contractEnd);
   const bad = docsOf(me).map(docStatus).filter((s) => s.state === 'expired' || s.state === 'soon');
-  const sc = card('');
-  const sg = grid(3);
+  /* ⚠️ بطاقات لا أرقام عارية (الهوية الجديدة): «٢٠٢٦-١٠-٠١» وحده لا يقول
+     شيئاً، و«باقي ٤٥ يوماً» تحته هو ما يجعله معلومة. */
+  const sg = el('div', 'statgrid');
   sg.append(
-    stat(me.hireDate || '—', 'تاريخ المباشرة'),
-    stat(me.contractEnd || '—', 'انتهاء العقد' + (dl !== null ? ` · ${dl < 0 ? 'منتهٍ' : dl + ' يوم'}` : ''),
-      dl !== null && dl < 0 ? 'r' : (dl !== null && dl <= 60 ? 'a' : '')),
-    stat(docsOf(me).length, 'مستنداتي', bad.length ? 'a' : '')
+    statCard({ label: 'تاريخ المباشرة', value: me.hireDate || '—', ico: 'calendar',
+      sub: me.hireDate ? 'بداية خدمتك' : 'غير مسجَّل' }),
+    statCard({ label: 'انتهاء العقد', value: me.contractEnd || '—', ico: 'doc',
+      tone: dl !== null && dl < 0 ? 'bad' : (dl !== null && dl <= 60 ? 'warn' : ''),
+      sub: dl === null ? 'غير مسجَّل'
+         : dl < 0 ? `منتهٍ منذ ${Math.abs(dl)} يوم` : `باقي ${dl} يوماً` }),
+    statCard({ label: 'مستنداتي', value: docsOf(me).length, ico: 'doc',
+      tone: bad.length ? 'warn' : '',
+      sub: bad.length ? `${bad.length} منها يحتاج تجديداً` : 'كلها سارية' })
   );
-  sc.appendChild(sg);
-  view.appendChild(sc);
+  view.appendChild(sg);
 
   /* ── بيانات التعاقد ──
      ⚠️ لا راتب هنا. الموظف يرى راتبه في «تعريف بالراتب» من صفحة الخدمات،

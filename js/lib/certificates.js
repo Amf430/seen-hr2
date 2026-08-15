@@ -21,6 +21,7 @@
    حين تُضاف شهادة رابعة. */
 
 import { esc } from './dom.js';
+import { leaveBalanceOf } from './leave-balance.js';
 import { money, fmtDate } from './format.js';
 import { getSettings } from './state.js';
 import { payrollConfig } from './payroll.js';
@@ -156,20 +157,34 @@ export function bankLetter(u, bankName) {
     </div>`);
 }
 
-/* ═══ كشف أرصدة الإجازات ═══ */
-export function leaveStatement(u) {
+/* ═══ كشف أرصدة الإجازات ═══
+
+   ⚠️ الحسبة القديمة كانت: المستهلك = t.balance − bal، أي الرصيد السنوي
+   **العام لنوع الإجازة** ناقص المتبقّي. وهي تنكسر في حالتين:
+
+     • موظف له مستحقّ سنوي مختلف عن العام (٢٥ بدل ٢١) → رقم مستهلك خاطئ
+     • لحظة تشغيل الاستحقاق التدريجي → «المستهلك» يصير الفرق بين المستحقّ
+       الكامل وما استُحقّ حتى اليوم، فيظهر موظف لم يأخذ يوماً واحداً وقد
+       «استهلك» تسعة أيام.
+
+   وهذه شهادة **تُطبع وتُسلَّم لجهة خارجية** — بنك أو سفارة أو جهة حكومية.
+   فالرقم فيها يجب أن يكون مشتقّاً من نفس المصدر الذي تعرضه الشاشة، لا
+   محسوباً هنا بطريقة ثانية. */
+export function leaveStatement(u, pendingRequests = []) {
   const types = (getSettings().leaveTypes || []).filter((t) => t.deduct);
   if (!types.length) return present('كشف الإجازات',
     '<h1>كشف أرصدة الإجازات</h1><p>لا توجد أنواع إجازات معرَّفة في النظام.</p>');
 
+  const now = new Date();
   const rows = types.map((t) => {
-    const bal  = (u.balances && u.balances[t.id] != null) ? u.balances[t.id] : t.balance;
-    const used = Math.max(0, (t.balance || 0) - bal);
+    const b = leaveBalanceOf(u, t, now, pendingRequests);
     return `<tr>
       <td>${esc(t.label)}</td>
-      <td class="num">${esc(t.balance)}</td>
-      <td class="num">${esc(used)}</td>
-      <td class="num"><b>${esc(bal)}</b></td></tr>`;
+      <td class="num">${esc(b.annualDays || t.balance)}</td>
+      <td class="num">${esc(b.opening)}</td>
+      <td class="num">${esc(b.accrued)}</td>
+      <td class="num">${esc(b.used)}</td>
+      <td class="num"><b>${esc(b.remaining)}</b></td></tr>`;
   }).join('');
 
   return present('كشف الإجازات', `
@@ -177,7 +192,8 @@ export function leaveStatement(u) {
     <div class="meta">${esc(u.name || '')} · الرقم الوظيفي ${esc(u.empId || '—')} ·
       ${esc(u.department || '—')}</div>
     <table>
-      <thead><tr><th>نوع الإجازة</th><th class="num">الرصيد السنوي</th>
+      <thead><tr><th>نوع الإجازة</th><th class="num">المستحقّ السنوي</th>
+        <th class="num">رصيد مرحَّل</th><th class="num">مستحقّ حتى اليوم</th>
         <th class="num">المستهلك</th><th class="num">المتبقّي</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>

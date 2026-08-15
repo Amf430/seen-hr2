@@ -97,7 +97,36 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if isAdmin() || (sIn() && request.auth.uid == uid) || sameDept();
 
-      allow create: if isAdmin();
+      /* ── who may create an employee ──
+         The admin, always. A department manager, but only into their own
+         department and only as a plain employee.
+
+         Every clause below closes a specific escalation, not a hypothetical:
+
+           department == myDept()   a manager filing someone into another
+                                    department would gain sameDept() read over
+                                    a person they were never given.
+           role == 'employee'       without it a manager mints a second manager,
+                                    or an admin, and the role check is over.
+           !('salary' in d())       reading salaries is the owner's call and is
+                                    allowed (see the decision of 2026-08-12).
+                                    SETTING one is not — that is payroll.
+           status == 'active'       no pre-suspended accounts.
+           createdBy == uid         the record says who did it. An account that
+                                    appears in a department with no author is
+                                    the one thing nobody can investigate later.
+
+         ⚠️ Auth-side account creation is a separate act the rules cannot see —
+         js/lib/firebase.js opens a secondary app so the creator's own session
+         is not swapped out. That path must not assume the creator is an admin. */
+      allow create: if isAdmin()
+        || (isMgr()
+            && d().get('department','') == myDept()
+            && myDept() != ''
+            && d().get('role','employee') == 'employee'
+            && !('salary' in d())
+            && d().get('status','active') == 'active'
+            && d().get('createdBy','') == request.auth.uid);
 
       /* Self-update is pinned to a short allowlist. Role, salary, status,
          balances, department, managerUid and every other field stay admin-only.
@@ -165,7 +194,34 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    /* ═════════════════════════ settings ═════════════════════════ */
+    /* ═════════════════════ personal to-do list ═════════════════════
+
+       An employee's own list, deliberately NOT a task. Tasks are assigned,
+       reviewed and counted; this is a person organising their own day.
+
+       ⚠️ isMine(uid) ONLY — no isAdmin(), no sameDept(), and that is the whole
+       point. The owner asked that a manager never see it, and an admin who can
+       read it breaks the same promise a manager would: a private list somebody
+       else can read stops being private, and people stop using it. There is
+       nothing here worth an audit trail — no balance, no approval, no money.
+
+       ⚠️ Firestore rules do NOT descend into subcollections, so the sameDept()
+       read that /users/{uid} grants a manager does not reach this document.
+       That is why the list lives here rather than as a field on the user.
+
+       ⚠️ One document holding an array, not a collection: it is read on every
+       home page load, and one read beats fifteen on the free plan. The caps
+       below matter more than usual for the same reason — an uncapped array is
+       free storage billed to the owner, and this one is written by the least
+       supervised path in the system.                                          */
+    match /users/{uid}/private/todos {
+      allow read: if isMine(uid);
+      allow write: if isMine(uid)
+        && d().keys().hasOnly(['items','updatedAt'])
+        && d().items is list
+        && d().items.size() <= 100
+        && d().updatedAt == request.time;
+    }
     /* ═════════════════════ hrTickets ═════════════════════
        An employee asking HR a question — insurance, a date, a payslip line.
        NOT an approval: nothing here touches a balance or the payroll, which is
@@ -393,6 +449,43 @@ service cloud.firestore {
           && d().category in ['تأخير عن الدوام', 'خروج مبكر'];
     }
 
+    /* ───────────── attendanceFix: employee-raised punch correction ─────────
+       Someone forgot to clock out. Until now the only fix was an admin
+       editing the record by hand, which meant every forgotten punch had to
+       travel to HR by word of mouth.
+
+       ⚠️ This request only ASKS. The correction itself still lands in
+       attendanceAdjustments, which stays admin-create-only and forbids
+       update and delete outright. Nothing here lets an employee write into
+       their own attendance history.
+
+       Three bounds are enforced on the server, not in the form:
+
+         seven days   a correction to last month means recomputing a payroll
+                      run that has already been paid out.
+         reason ≥ 10  "نسيت" explains nothing to whoever approves it. A
+                      correction without a stated reason is indistinguishable
+                      from a fabricated one.
+         claimedTime  HH:MM shape, so the admin step has something it can
+                      actually parse into a timestamp.
+
+       ⚠️ The monthly cap (3 per cycle) is NOT enforced here: counting an
+       employee's other requests needs a query inside a rule, which Firestore
+       cannot do. It lives in the UI and is stated as such in requests.js —
+       do not read the cap as a server guarantee.                            */
+    function fixOk() {
+      return isYmd(d().date)
+          && d().date >= ymd(ksa() - duration.value(7, 'd'))
+          && d().date <= todayKsa()
+          && d().fixKind in ['missingOut','missingIn','wrongTime']
+          && d().field in ['in','out']
+          && d().sessionIdx is int && d().sessionIdx >= 0 && d().sessionIdx < 12
+          && d().claimedTime is string
+          && d().claimedTime.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+          && d().reason is string
+          && d().reason.size() >= 10 && d().reason.size() <= 300;
+    }
+
     match /requests/{id} {
       allow read: if isAdmin()
         || (sIn() && p().employeeUid == request.auth.uid)
@@ -405,11 +498,13 @@ service cloud.firestore {
         && d().employeeName  == me().name
         && d().get('department','')     == myDept()
         && d().get('employeeEmpId','')  == me().get('empId','')
-        && d().type in ['permission','leave']
+        && d().type in ['permission','leave','attendanceFix']
         && d().status == 'pending'
         && d().reviewedBy == '' && d().reviewedAt == null && d().rejectReason == ''
         && d().createdAt == request.time
-        && (d().type == 'permission' ? permOk() : leaveOk())
+        && (d().type == 'permission' ? permOk()
+            : d().type == 'attendanceFix' ? fixOk()
+            : leaveOk())
         /* السلسلة إن وُجدت تبدأ من الصفر وبلا اعتمادات مسبقة — لا يقدر الموظف
            يُنشئ طلباً «مرّ على مديره» أصلاً. */
         && (!('chain' in d()) || (
@@ -466,8 +561,29 @@ service cloud.firestore {
         && d().source == 'web'
         && d().sessions is list
         && newN() == 1
-        && fresh(d().sessions[0].in)
-        && isOpen(d().sessions[0]);
+        && (
+          /* ── normal: an open session that starts now ── */
+          (fresh(d().sessions[0].in) && isOpen(d().sessions[0]))
+          ||
+          /* ── missed the check-in window (owner's decision, 2026-08-13) ──
+             The window closes four hours after the shift starts and there is
+             no late check-in any more. Someone who worked the day but never
+             punched in records the departure alone: a session with no `in`,
+             and the document says so.
+
+             ⚠️ `missedCheckIn` is required rather than inferred from a null
+             `in`. A rule that accepts any session whose `in` is missing
+             accepts a malformed session too, and a malformed session is read
+             later as attendance. The flag makes the intent explicit and makes
+             this branch impossible to reach by accident.
+
+             ⚠️ Closed on arrival — `out` is set and `in` never will be. The
+             update branch below refuses to touch a session whose `in` is
+             null, so this cannot be reopened into a fake attendance later. */
+          (d().get('missedCheckIn', false) == true
+            && d().sessions[0].in == null
+            && fresh(d().sessions[0].out))
+        );
 
       allow update: if isActive()
         && id == request.auth.uid + '_' + p().date
@@ -635,6 +751,239 @@ service cloud.firestore {
         && d().detail is string && d().detail.size() <= 500;
 
       allow update, delete: if false;
+    }
+
+    /* ═════════════════════════ tasks ═════════════════════════
+
+       Same shape as hrTickets above — a document plus a create-only message
+       thread — because that pattern is already written, tested and in
+       production. Do not invent a second one.
+
+       ⚠️ The department field is an ARRAY from day one, even though the UI
+       only lets you pick one. Widening a single string to an array later
+       means migrating live documents while rewriting the security rules that
+       guard them. Today it costs nothing.
+
+       Because of that, sameDept() does NOT work here: it compares a single
+       `department` string on the resource. These two helpers replace it, and
+       sameDept() is left alone since users, attendance and requests all
+       depend on it.                                                          */
+    function taskDept()    { return isMgr() && myDept() != '' && myDept() in p().departments; }
+    function taskDeptNew() { return isMgr() && myDept() != '' && myDept() in d().departments; }
+
+    /* ── delegation (phase 7-و) ──
+       Delegation ADDS a reader and editor, it never replaces one. The original
+       assignee keeps their access and stays on the record, so "who actually
+       did this" survives in the analytics.
+
+       ⚠️ delegatedUntil is NOT enforced here. Rules have no clock of their
+       own beyond request.time and no scheduler, so an expired delegation is
+       ignored by the UI and cleared by the manager. Someone who kept a stale
+       delegatedToUid could still write to the task — which is why only the
+       manager can set the field in the first place. */
+    function taskAssignee(){ return isActive() && resource != null
+                                    && (p().assigneeUid == request.auth.uid
+                                        || p().get('delegatedToUid','') == request.auth.uid); }
+    function taskAt(tid)   { return /databases/$(database)/documents/tasks/$(tid); }
+    function taskMineAt(tid) {
+      return sIn() && exists(taskAt(tid))
+             && (get(taskAt(tid)).data.assigneeUid == request.auth.uid
+                 || get(taskAt(tid)).data.get('delegatedToUid','') == request.auth.uid);
+    }
+    function taskInMyDeptAt(tid) {
+      return isMgr() && myDept() != '' && exists(taskAt(tid))
+             && myDept() in get(taskAt(tid)).data.departments;
+    }
+
+    match /tasks/{tid} {
+      allow read: if isAdmin() || taskAssignee() || taskDept();
+
+      allow create: if (isAdmin() || taskDeptNew())
+        && d().createdBy == request.auth.uid
+        && d().createdByName == me().name
+        && d().status == 'new'
+        && d().createdAt == request.time
+        && d().departments is list
+        && d().departments.size() >= 1 && d().departments.size() <= 3
+        && d().department == d().departments[0]
+        && d().title is string && d().title.size() > 0 && d().title.size() <= 120
+        && d().get('description','') is string && d().get('description','').size() <= 4000
+        && d().get('tags', []).size() <= 5
+        && d().get('checklist', []).size() <= 20
+        && d().get('progress', 0) == 0
+        && d().get('blockedByTaskIds', []).size() <= 5
+        && d().priority in ['low','normal','high','urgent'];
+
+      /* ⚠️ deptUnchanged() is enforced on the manager AND the admin branch,
+         not left to a comment. A manager who can rewrite `departments` moves
+         the task into another department and drags read access with it —
+         which is the one escalation this whole block exists to prevent. */
+      allow update: if (isAdmin() && deptUnchanged())
+        || (taskDept() && deptUnchanged())
+        || (taskAssignee()
+            && only(['status','progress','startedAt','employeeFeedback','checklist',
+                     'lastMessageAt','messageCount','timeEntries','actualSecs',
+                     'blockReason','blockedAt','reviewAt'])
+            /* ⚠️ طابعا سجل النشاط: مسموحان للمكلَّف لأنه هو من يوقف ويرسل
+               للاعتماد، ومقيَّدان بـfresh() فلا يُؤرَّخ حدثٌ في الماضي. سجلٌّ
+               يقبل تاريخاً يختاره كاتبه ليس سجلاً. غيابهما مقبول — السجل
+               مشتقّ ويتدرّج إلى ما قبلهما. */
+            /* ⚠️ الفحص على **ما تغيّر** لا على ما هو موجود: d() تحمل الوثيقة
+               بعد الكتابة كاملةً، فطابعٌ قديم لم يُلمس يفشل fresh() ويُسقط
+               كل كتابة تالية على المهمة. */
+            && (!changedAny(['blockedAt']) || fresh(d().blockedAt))
+            && (!changedAny(['reviewAt'])  || fresh(d().reviewAt))
+            && d().status in ['in_progress','blocked','review']
+            /* ⚠️ 'cancelled' غائبة عمداً: الإلغاء قرار إداري. لو مُنح
+               للمكلَّف لصار مخرجاً من أي مهمة ثقيلة بضغطة واحدة. */
+            && !(p().status in ['done','cancelled','archived'])
+            /* ⚠️ سبب التوقّف: 'blocked' بلا سبب مكتوب مهمةٌ منسيّة باسم
+               آخر — يراها المدير «متوقفة» فيطمئنّ ولا يسأل. السقف هنا لأن
+               كل حقل يكتبه المستخدم بلا سقف تخزينٌ مجاني على حساب المالك. */
+            && d().get('blockReason','') is string
+            && d().get('blockReason','').size() <= 300
+            /* ⚠️ without the three lines below the employee writes
+               progress: 900 and every completion chart is meaningless */
+            && d().get('progress',0) is int
+            && d().get('progress',0) >= 0 && d().get('progress',0) <= 100
+            && d().get('checklist', []).size() <= 20
+            && d().get('timeEntries', []).size() <= 50
+            && d().get('employeeFeedback','') is string
+            && d().get('employeeFeedback','').size() <= 4000);
+
+      function deptUnchanged() {
+        return d().departments == p().departments && d().department == p().department;
+      }
+      function changedAny(keys) {
+        return d().diff(p()).affectedKeys().hasAny(keys);
+      }
+
+      allow delete: if isAdmin();
+
+      /* ── the thread ──
+         Create-only, exactly as in hrTickets: a conversation that can be
+         edited afterwards is not a record of anything. A manager could
+         rewrite what they asked for, or an employee what they promised.  */
+      match /messages/{mid} {
+        allow read: if isAdmin() || taskMineAt(tid) || taskInMyDeptAt(tid);
+        allow create: if isActive()
+          && (isAdmin() || taskMineAt(tid) || taskInMyDeptAt(tid))
+          && d().authorUid  == request.auth.uid
+          && d().authorName == me().name
+          && d().createdAt == request.time
+          && d().kind == 'msg'
+          && d().text is string && d().text.size() > 0 && d().text.size() <= 2000;
+        allow update, delete: if false;
+      }
+    }
+
+    /* ═════════════════════════ announcements ═════════════════════════
+
+       ⚠️ Read the long comment above js/lib/notifications.js before deciding
+       this contradicts it. A `notifications` collection was refused because
+       any rule letting an employee write a document aimed at someone else
+       lets them flood that person with thousands of documents, and closing
+       that needs Cloud Functions.
+
+       Announcements are the opposite shape: the admin alone writes, everyone
+       reads, and it is ONE document read by a hundred employees rather than a
+       hundred documents. There is no flood vector to close.                 */
+    match /announcements/{aid} {
+      /* ⚠️ The admin branch is not a convenience — without it the admin
+         screen cannot exist at all. The audience clauses below are per-
+         document, and Firestore only allows a list query when it can prove
+         EVERY possible result satisfies the rule. An admin listing all
+         announcements to manage them cannot prove that, so the query is
+         rejected outright — the screen showed "تعذّر التحميل" and the
+         announcement it had just published was invisible to its own author.
+
+         Caught by publishing one in the browser, not by the rules tests:
+         those checked an admin reading a single document by id, which the
+         audience clauses already allowed. get() and list() are different
+         questions and a passing get() says nothing about list(). */
+      allow read: if isAdmin()
+        || (isActive()
+            && (p().get('audienceAll', false) == true
+                || myDept() in p().get('audienceDepts', [])
+                || request.auth.uid in p().get('audienceUids', [])));
+
+      allow create, update: if isAdmin()
+        && d().createdBy == request.auth.uid
+        && d().title is string && d().title.size() > 0 && d().title.size() <= 120
+        && d().body is string && d().body.size() <= 5000
+        && d().get('audienceDepts', []).size() <= 30
+        && d().get('audienceUids', []).size() <= 50
+        && d().priority in ['normal','important','urgent'];
+
+      allow delete: if isAdmin();
+
+      match /acks/{uid} {
+        allow read:   if isAdmin() || request.auth.uid == uid;
+        allow create: if isActive() && request.auth.uid == uid
+                      && d().uid == request.auth.uid
+                      && d().at == request.time
+                      && d().get('name','') == me().name;
+        /* ⚠️ an acknowledgement is not withdrawable — that is the whole point */
+        allow update, delete: if false;
+      }
+    }
+
+    /* ═════════════════════════ calendarEvents ═════════════════════════
+
+       Owner's decision, 2026-08-12: employees do NOT see who is on leave.
+       Leave stays with the department manager, who can already read requests.
+       What an employee sees on the calendar is holidays, their own shift, and
+       EVENTS — a weekly meeting their manager added, or something company-wide
+       from the admin.
+
+       That removed the privacy problem rather than managing it. The earlier
+       version published a derived document with names but no leave types; now
+       nothing is published at all, and the existing requests rule — which
+       already blocks employees — is the only boundary needed.
+
+       ⚠️ Scope is ONE field, not two: an empty `department` means the whole
+       company. Two fields (forAll plus department) would allow a contradictory
+       state — "everyone, and also sales" — and the rule would have to grow to
+       forbid it.
+
+       ⚠️ A manager may only write events carrying their own department. An
+       empty department here would mean company-wide, which is the admin's
+       call, so the manager branch requires a non-empty match.                */
+    match /calendarEvents/{eid} {
+      /* ⚠️⚠️ `p().department` مباشرةً لا `p().get('department','')`.
+         الفرق ليس أسلوبياً — كان ثغرة:
+
+         عند تقييم استعلام سرد، لا تكون بيانات الوثيقة متاحة للقاعدة، فترجع
+         `get()` **قيمتها الافتراضية**. ومع الافتراضي `''` يتحقّق الفرع
+         `== ''` فراغاً، فتُقبل أي قائمة — وسرد المجموعة كلها بلا تقييد كان
+         يُرجع للموظف أحداث الأقسام الأخرى. كُشف بتشغيل السرد على المحاكي؛
+         `getDoc` على وثيقة بعينها كان يُرفض صحيحاً، فمرّ الخلل بين
+         الاثنين.
+
+         الوصول المباشر يُخطئ حين لا تكون البيانات متاحة، والقاعدة التي
+         تُخطئ **ترفض** — وهو الاتجاه الآمن. والنتيجة أن السرد غير المقيَّد
+         يُرفض، والعميل يستعلم باستعلامين مقيَّدين كما في fetchEvents.
+
+         ⚠️ ولا تُعِد `.get()` هنا «تفادياً لخطأ على وثيقة قديمة»: كل حدث
+         يُكتب بـ department (القاعدة تشترط hasOnly ذلك الحقل ضمنها)، فلا
+         وثيقة بلا الحقل أصلاً. */
+      allow read: if isActive()
+        && (p().department == '' || p().department == myDept());
+
+      allow create, update: if (isAdmin()
+            || (isMgr() && myDept() != '' && d().get('department','') == myDept()))
+        && d().createdBy == request.auth.uid
+        && d().createdByName == me().name
+        && d().createdAt == request.time
+        && isYmd(d().date)
+        && d().title is string && d().title.size() > 0 && d().title.size() <= 120
+        && d().get('note','') is string && d().get('note','').size() <= 500
+        && d().keys().hasOnly(['title','note','date','department',
+                               'createdBy','createdByName','createdAt']);
+
+      /* ⚠️ الحذف بنفس حدّ الكتابة: مدير قسم لا يحذف حدث الشركة ولا حدث غيره */
+      allow delete: if isAdmin()
+        || (isMgr() && myDept() != '' && p().get('department','') == myDept());
     }
 
     /* anything not matched above is denied */

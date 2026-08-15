@@ -2,9 +2,11 @@ import { el, esc } from '../lib/dom.js';
 import { fmtDT } from '../lib/format.js';
 import { fetchAuditLog } from '../lib/audit.js';
 import { isStale } from '../lib/nav.js';
-import { card, tableWrap, empty } from '../lib/ui.js';
+import { card, tableWrap, empty, pageHead } from '../lib/ui.js';
 
 export async function render(view, token) {
+  view.appendChild(pageHead('سجل الحركات', 'من قام بماذا ومتى'));
+
   const c = card('آخر الحركات', 'السجل «إضافة فقط» — لا يُعدَّل ولا يُحذف، حتى من مدير النظام.', 'archive');
   const host = el('div', '', '<div class="empty"><span class="spinner"></span> جارٍ التحميل…</div>');
   c.appendChild(host);

@@ -7,7 +7,7 @@ import { fmtDur, hm } from '../lib/format.js';
 import { sessionsOf, workedSecs, fetchMyAttendance, uidsOf } from '../lib/attendance.js';
 import { resolveShift, shiftWindowFor } from '../lib/shifts.js';
 import { isStale } from '../lib/nav.js';
-import { card, tableWrap, empty, grid, stat } from '../lib/ui.js';
+import { tableWrap, empty, pageHead, statCard } from '../lib/ui.js';
 
 /* ⚠️ ساعات يوم واحد، مع قصّ الجلسة المفتوحة عند نهاية ورديتها.
    بلا `until` كانت الجلسة التي نسي صاحبها بصمة الانصراف تعدّ حتى اللحظة —
@@ -15,10 +15,10 @@ import { card, tableWrap, empty, grid, stat } from '../lib/ui.js';
    buildDailyStatus، وكان ما زال قائماً في هذه الصفحة وحدها.
    الوردية تُحلّ بنفس ترتيب الأولوية المعتمد: استثناء التاريخ ← وردية القسم
    ← الوردية العامة. */
-function daySecs(rec, deptName) {
+function daySecs(rec, deptName, emp) {
   const d  = new Date(rec.date + 'T00:00:00');
   if (isNaN(d)) return workedSecs(sessionsOf(rec)).secs;
-  const sh = resolveShift(rec.date, d.getDay(), deptName);
+  const sh = resolveShift(rec.date, d.getDay(), deptName, emp);
   const w  = shiftWindowFor(d, sh);
   return workedSecs(sessionsOf(rec), w ? w.end.getTime() : null).secs;
 }
@@ -29,10 +29,11 @@ export async function render(view, token) {
   const me = getMe();
   const cyc = cycleOf(new Date());
 
-  const c = card('سجلّي في هذه الدورة', cyc.label, 'calendar');
+  /* ⚠️ رأس صفحة لا بطاقة عنوان (الهوية الجديدة): البطاقة كانت تشغل عرض
+     الشاشة كاملاً لتقول اسم الصفحة، والصفحة تُفتح لقراءة الجدول. */
+  view.appendChild(pageHead('سجلّي في هذه الدورة', cyc.label));
   const host = el('div', '', '<div class="empty"><span class="spinner"></span> جارٍ التحميل…</div>');
-  c.appendChild(host);
-  view.appendChild(c);
+  view.appendChild(host);
 
   /* الموظف يقرأ سجلاته هو فقط — القاعدة ترفض استعلاماً غير مقيّد به،
      فنفلتر محلياً بعد الجلب المقيّد بالتاريخ ونتعامل مع الرفض بهدوء. */
@@ -51,14 +52,17 @@ export async function render(view, token) {
   host.innerHTML = '';
   if (!mine.length) { host.appendChild(empty('ما سجّلت حضوراً في هذه الدورة بعد', 'calendar')); return; }
 
-  const totalSecs = mine.reduce((s, r) => s + daySecs(r, me.department), 0);
-  const g = grid(3);
-  g.append(
-    stat(mine.length, 'أيام حضور'),
-    stat(fmtDur(totalSecs), 'مجموع ساعات الدورة'),
-    stat(fmtDur(totalSecs / mine.length), 'متوسط اليوم')
+  const totalSecs = mine.reduce((s, r) => s + daySecs(r, me.department, me), 0);
+  const sg = el('div', 'statgrid');
+  sg.append(
+    statCard({ label: 'أيام حضور', value: mine.length, ico: 'calendar',
+      sub: 'سجّلت فيها من جوالك' }),
+    statCard({ label: 'مجموع ساعات الدورة', value: fmtDur(totalSecs), ico: 'clock',
+      sub: 'من أول بصمة لآخرها' }),
+    statCard({ label: 'متوسّط اليوم', value: fmtDur(totalSecs / mine.length), ico: 'chart',
+      sub: 'على أيام حضورك وحدها' })
   );
-  host.appendChild(g);
+  host.appendChild(sg);
 
   host.appendChild(tableWrap(`
     <table class="tight">
@@ -66,7 +70,7 @@ export async function render(view, token) {
       <tbody>${mine.map((r) => {
         const ss = sessionsOf(r);
         const last = ss[ss.length - 1];
-        const secs = daySecs(r, me.department);
+        const secs = daySecs(r, me.department, me);
         const d = new Date(r.date + 'T00:00:00');
         return `<tr>
           <td class="num">${esc(r.date)}</td>
