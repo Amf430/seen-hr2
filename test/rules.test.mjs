@@ -83,7 +83,7 @@ const dRel = (n) => ymdKsa(new Date(ksaNow().getTime() + n * 86400000));
 const validRequest = (over = {}) => ({
   employeeUid: 'empU', employeeName: 'سالم', employeeEmpId: '101', department: 'المبيعات',
   type: 'permission', category: 'تأخير عن الدوام', categoryLabel: 'تأخير عن الدوام',
-  date: dRel(0), time: '09:30', status: 'pending',
+  date: dRel(0), time: '09:30', note: 'مراجعة موعد طبي', status: 'pending',
   reviewedBy: '', reviewedAt: null, rejectReason: '', createdAt: serverTimestamp(), ...over
 });
 
@@ -472,6 +472,25 @@ console.log('\n\x1b[1m═══ 7. LEGITIMATE WRITES — these MUST all succeed 
 await check('employee reads own profile',             true,  () => getDoc(doc(emp, 'users/empU')));
 await check('employee reads settings',                true,  () => getDoc(doc(emp, 'settings/config')));
 await check('employee submits a permission',          true,  () => addDoc(collection(emp, 'requests'), validRequest()));
+await check('permission with a normal note',          true,  () => addDoc(collection(emp, 'requests'), validRequest({ note: 'موعد طبي صباحاً' })));
+await check('permission with an empty note',          false, () => addDoc(collection(emp, 'requests'), validRequest({ note: '' })));
+await check('permission with whitespace-only note',   false, () => addDoc(collection(emp, 'requests'), validRequest({ note: '   ' })));
+await check('permission with no note',                false, () => {
+  const r = validRequest(); delete r.note;
+  return addDoc(collection(emp, 'requests'), r);
+});
+/* ⚠️ رفض ٥٠١ لا يثبت وحده تطابق maxlength مع سقف القاعدة؛ قبول الحد نفسه
+   هو الذي يكشف إن كانت size تعدّ محارف العربية متعددة البايتات أم بايتاتها. */
+await check('permission note of exactly 500 Arabic chars', true,
+  () => addDoc(collection(emp, 'requests'), validRequest({ note: 'أ'.repeat(500) })));
+await check('permission note exceeds 500 chars',      false, () => addDoc(collection(emp, 'requests'), validRequest({ note: 'أ'.repeat(501) })));
+await check('leave with no note',                     true,  () => {
+  const r = validLeave(); delete r.note;
+  return addDoc(collection(emp, 'requests'), r);
+});
+await check('leave note of exactly 500 Arabic chars', true,
+  () => addDoc(collection(emp, 'requests'), validLeave({ note: 'أ'.repeat(500) })));
+await check('leave note exceeds 500 chars',           false, () => addDoc(collection(emp, 'requests'), validLeave({ note: 'أ'.repeat(501) })));
 await check('permission for an early-out',            true,  () => addDoc(collection(emp, 'requests'), validRequest({ category: 'خروج مبكر' })));
 /* حافّة النافذة من الداخل — آخر يوم مقبول. لو ضاقت النافذة يوماً سقط هذا. */
 await check('permission filed 3 days late (edge)',    true,  () => addDoc(collection(emp, 'requests'), validRequest({ date: dRel(-3) })));
