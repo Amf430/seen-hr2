@@ -69,8 +69,8 @@ function permForm() {
         <select id="pfApprover">${approverOptions()}</select></div>
     </div>
     <div class="form-row one">
-      <div class="field"><label for="pfNote">ملاحظات (اختياري)</label>
-        <textarea id="pfNote" placeholder="تفاصيل إضافية…"></textarea></div>
+      <div class="field"><label for="pfNote">تفاصيل الطلب (إلزامي)</label>
+        <textarea id="pfNote" maxlength="500" placeholder="اكتب تفاصيل الطلب…"></textarea></div>
     </div>
     <button class="btn w-auto" id="pfSubmit" type="button">تقديم طلب الاستئذان</button>`;
 
@@ -91,6 +91,7 @@ function permForm() {
     }
     if (!rId) { toast('اختر السبب', 'err'); return; }
     if (!aId) { toast('اختر جهة الاعتماد', 'err'); return; }
+    if (!note) { toast('أدخل تفاصيل الطلب', 'err'); return; }
 
     const reason = (S.permissionReasons || []).find((x) => x.id === rId);
     const appr = (S.approvers || []).find((x) => x.id === aId);

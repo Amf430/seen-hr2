@@ -53,6 +53,11 @@ export async function submitRequest(data) {
     toast(`أُغلقت نافذة الاستئذان عن ${data.date} — تُقبل حتى ${PERM_BACKDATE_DAYS} أيام من تاريخه`, 'err');
     return false;
   }
+  if (data.type === 'permission' &&
+      (typeof data.note !== 'string' || !data.note.trim())) {
+    toast('أدخل تفاصيل الطلب', 'err');
+    return false;
+  }
   /* الرابط يُنظَّف قبل الحفظ. القاعدة ترفض أي بروتوكول غير http/https أصلاً،
      لكن التنظيف هنا يعطي الموظف رسالة مفهومة بدل رفض غامض من Firestore. */
   if (data.attachmentLink) {

@@ -361,6 +361,7 @@ service cloud.firestore {
           && d().endDate >= d().startDate
           && d().days is int && d().days > 0 && d().days <= 365
           && d().leaveTypeId is string && d().leaveTypeId != ''
+          && d().get('note', '') is string && d().get('note', '').size() <= 500
           && ymdTs(d().startDate) + duration.value(d().days - 1, 'd') <= ymdTs(d().endDate)
           && ymdTs(d().endDate) <= ymdTs(d().startDate) + duration.value(d().days * 2 + 7, 'd');
     }
@@ -444,9 +445,14 @@ service cloud.firestore {
     }
 
     function permOk() {
+      /* التفاصيل تحفظ سياق قرار الإعفاء من الخصم، والسقف يمنع تحويل الطلب
+         إلى مساحة تخزين غير محدودة على حساب مالك النظام. */
       return isYmd(d().date)
           && d().date >= ymd(ksa() - duration.value(3, 'd'))
-          && d().category in ['تأخير عن الدوام', 'خروج مبكر'];
+          && d().category in ['تأخير عن الدوام', 'خروج مبكر']
+          && d().note is string
+          && d().note.trim().size() > 0
+          && d().note.size() <= 500;
     }
 
     /* ───────────── attendanceFix: employee-raised punch correction ─────────
