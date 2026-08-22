@@ -2,26 +2,32 @@ import { el, esc, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { getUsers, getRequests, getMe } from '../lib/state.js';
 import { refreshUsers } from '../lib/users.js';
-import { recentCyclesList, ymd } from '../lib/dates.js';
+import { recentCyclesList, ymdKsa } from '../lib/dates.js';
 import { money, hhmm, fmtDT } from '../lib/format.js';
 import { fetchAttendance } from '../lib/attendance.js';
 import { computePayroll, payrollConfig } from '../lib/payroll.js';
 import { payrollExport } from '../lib/excel.js';
 import { approveRun, getRun, diffAgainstRun } from '../lib/payroll-runs.js';
-import { adjustmentsInRange, applyAll } from '../lib/adjustments.js';
+import { adjustmentsInRange, adjustedPayrollAttendance } from '../lib/adjustments.js';
 import { openTypedConfirm } from '../components/review-modals.js';
 import { go, isStale, rerender } from '../lib/nav.js';
 import { card, empty, tableWrap, grid, stat, sectionHead, button, callout, pageHead } from '../lib/ui.js';
+import {
+  PAYROLL_ATTENDANCE_SOURCE, payrollAttendanceSource, payrollSourceLabel,
+  payrollConfigForRun, loadRequiredAttendanceSources
+} from '../lib/attendance-sources.js';
+import { payrollRowsForView, payrollTotals } from '../lib/payroll-view.js';
 
 export async function render(view, token) {
   const cycles = recentCyclesList(12);
   const cfg = payrollConfig();
 
-  view.appendChild(pageHead('مسير الرواتب', 'الدورة من ٢٦ إلى ٢٥ — المستحق لكل موظف حسب بصمة الجهاز'));
+  view.appendChild(pageHead('مسير الرواتب',
+    `الدورة من ٢٦ إلى ٢٥ — مصدر الحضور الحالي: ${payrollSourceLabel(cfg)}`));
 
   const head = card(null, null, 'money',
     `قيمة اليوم = الراتب ÷ ${cfg.daysPerMonth} · قيمة الساعة = قيمة اليوم ÷ ${cfg.hoursPerDay}. ` +
-    'الخصم بالساعات للتأخير والخروج المبكر، والغياب بخصم يوم كامل. المصدر: بصمات جهاز ZKTeco فقط.');
+    `الخصم بالساعات للتأخير والخروج المبكر، والغياب بخصم يوم كامل. المصدر: ${payrollSourceLabel(cfg)}.`);
   const dd = el('select', 'select-lg');
   dd.innerHTML = cycles.map((c, i) =>
     `<option value="${i}">${esc(c.label)}${i === 0 ? ' (الحالية — غير مكتملة)' : ''}</option>`).join('');
@@ -34,30 +40,53 @@ export async function render(view, token) {
   async function draw() {
     const cyc = cycles[+dd.value];
     host.innerHTML = '<div class="card"><div class="empty"><span class="spinner"></span> جارٍ حساب المسير…</div></div>';
-    let recs = [];
-    try { await refreshUsers(); recs = await fetchAttendance(cyc, 'zkAttendance'); }
-    catch (e) { console.error(e); host.innerHTML = '<div class="card"><div class="empty">تعذّر التحميل — تأكد من نشر قواعد الأمان</div></div>'; return; }
-    if (isStale(token)) return;
-
-    /* التصحيحات اليدوية تُطبَّق فوق سجلات الجهاز قبل الحساب — الأصل في
-       zkAttendance لا يُمسّ، والقيد يُقرأ فوقه. */
-    let adjs = [];
-    try { adjs = await adjustmentsInRange(ymd(cyc.start), ymd(cyc.end)); }
-    catch (e) { console.error('adjustments', e); }
-    if (isStale(token)) return;
-    recs = applyAll(recs, adjs);
-
     let run = null;
-    try { run = await getRun(cyc.key); } catch (e) { console.error('run', e); }
+    try { run = await getRun(cyc.key); }
+    catch (e) {
+      console.error('run', e);
+      host.innerHTML = '<div class="card"><div class="empty">تعذّرت قراءة حالة اعتماد المسير — لن يُعرض حساب حي مكان Snapshot محتمل</div></div>';
+      return;
+    }
     if (isStale(token)) return;
 
-    const rowsPay = computePayroll(cyc, getUsers(), getRequests(), recs);
+    /* المسير المعتمد يقارن بمصدره المحفوظ، لا بإعداد اليوم. تغيير المصدر
+       لا يصنع drift تاريخياً وهمياً ولا يغيّر اللقطة المجمدة. */
+    const effectiveCfg = payrollConfigForRun(cfg, run);
+    const source = payrollAttendanceSource(effectiveCfg);
+    let physical = [], mobile = [], adjs = [], freshRows = [];
+    try {
+        await refreshUsers();
+        const loaded = await Promise.all([
+          loadRequiredAttendanceSources({
+            ...(source !== PAYROLL_ATTENDANCE_SOURCE.MOBILE
+              ? { physical: () => fetchAttendance(cyc, 'zkAttendance') } : {}),
+            ...(source !== PAYROLL_ATTENDANCE_SOURCE.PHYSICAL
+              ? { mobile: () => fetchAttendance(cyc, 'attendance') } : {})
+          }),
+          adjustmentsInRange(ymdKsa(cyc.start), ymdKsa(cyc.end))
+        ]);
+        physical = loaded[0].physical || [];
+        mobile = loaded[0].mobile || [];
+        adjs = loaded[1];
+        const recs = adjustedPayrollAttendance(
+          getUsers(), effectiveCfg, physical, mobile, adjs);
+        freshRows = computePayroll(cyc, getUsers(), getRequests(), recs, { config: effectiveCfg });
+    } catch (e) {
+      console.error(e);
+      if (!run) {
+        host.innerHTML = '<div class="card"><div class="empty">تعذّر تحميل مصدر الحضور المختار أو تصحيحاته — لا يمكن حساب مسير موثوق</div></div>';
+        return;
+      }
+      /* اللقطة نفسها مكتفية بذاتها. فشل المقارنة الحية لا يحوّلها إلى
+         حساب جديد ولا يمنع عرض الأرقام التي اعتُمدت فعلاً. */
+      freshRows = [];
+    }
+    if (isStale(token)) return;
+    /* اللقطة المجمدة هي المعروضة والمصدّرة. الحساب الحديث يبقى للمقارنة فقط
+       كي لا يعيد تغيير الإعداد الحالي تفسير راتب صُرف فعلاً. */
+    const rowsPay = payrollRowsForView(run, freshRows, getUsers());
     const noSalary = rowsPay.filter((r) => !r.salary).length;
-    const tot = rowsPay.reduce((a, r) => ({
-      salary: a.salary + r.salary, dedHours: a.dedHours + r.dedHours, dedAbsent: a.dedAbsent + r.dedAbsent,
-      dedUnpaid: a.dedUnpaid + r.dedUnpaid, total: a.total + r.total, net: a.net + r.net,
-      lateMin: a.lateMin + r.lateMin, earlyMin: a.earlyMin + r.earlyMin, missingOut: a.missingOut + r.missingOut
-    }), { salary: 0, dedHours: 0, dedAbsent: 0, dedUnpaid: 0, total: 0, net: 0, lateMin: 0, earlyMin: 0, missingOut: 0 });
+    const tot = payrollTotals(rowsPay);
 
     host.innerHTML = '';
 
@@ -66,14 +95,19 @@ export async function render(view, token) {
        الدورة تغيّرت بعد الصرف — وردية عُدِّلت، عطلة أُضيفت، بصمة صُحِّحت.
        الفرق يُعرض صراحةً بدل أن يبتلعه الرقم بصمت، وهذا هو أصل الميزة. */
     if (run) {
-      const drift = diffAgainstRun(run, rowsPay);
+      const drift = freshRows.length ? diffAgainstRun(run, freshRows) : [];
       const bn = el('div', 'run-banner' + (drift.length ? ' run-banner--drift' : ''));
       bn.innerHTML = icon(drift.length ? 'alert' : 'shield') +
         `<div><b>${drift.length ? 'مسير معتمَد — لكن البيانات تغيّرت بعده' : 'مسير معتمَد ومجمَّد'}</b>
          <div class="help">اعتمده ${esc(run.approvedBy)} · ${fmtDT(run.approvedAt)} ·
          المستحق وقت الاعتماد <b class="num">${money(run.totals.net)}</b></div></div>`;
       host.appendChild(bn);
-      if (drift.length) {
+      host.appendChild(callout('info', 'مصدر هذه اللقطة: ' + payrollSourceLabel(effectiveCfg),
+        'يُستخدم المصدر المحفوظ مع المسير المعتمد، حتى لو تغيّر إعداد الشركة لاحقاً.'));
+      if (!freshRows.length) {
+        host.appendChild(callout('info', 'المقارنة الحية غير متاحة',
+          'الأرقام المعروضة من اللقطة المجمدة نفسها؛ لم يُعد تفسيرها من بيانات اليوم.'));
+      } else if (drift.length) {
         const dc = card('فروق ظهرت بعد الاعتماد', 'الأرقام أدناه محسوبة الآن — المعتمَد هو ما في اللقطة.', 'alert');
         dc.appendChild(tableWrap(`
           <table class="tight">
@@ -122,7 +156,8 @@ export async function render(view, token) {
       /* الاعتماد يُخفى للدورة الجارية: تجميد أرقام ما زالت تتغيّر حتى ٢٥
          يُنتج لقطة لا تطابق ما سيُصرف فعلاً. */
       (run || +dd.value === 0) ? null
-        : button('اعتماد المسير وتجميده', 'btn sm', () => confirmApprove(cyc, rowsPay), 'shield')));
+        : button('اعتماد المسير وتجميده', 'btn sm',
+          () => confirmApprove(cyc, rowsPay, effectiveCfg), 'shield')));
 
     if (!rowsPay.length) { c.appendChild(empty('لا يوجد موظفون')); host.appendChild(c); return; }
 
@@ -185,7 +220,7 @@ export async function render(view, token) {
    تمنع التعديل والحذف حتى على الأدمن. مسير مصروف لا يُمحى، والخطأ فيه يُصحَّح
    بقيد تسوية في الدورة التالية.
    ═══════════════════════════════════════════════════════════════════════════ */
-function confirmApprove(cyc, rowsPay) {
+function confirmApprove(cyc, rowsPay, config) {
   const net = rowsPay.reduce((a, r) => a + r.net, 0);
   const noSalary = rowsPay.filter((r) => !r.salary).length;
   const missing = rowsPay.reduce((a, r) => a + r.missingOut, 0);
@@ -200,7 +235,7 @@ function confirmApprove(cyc, rowsPay) {
     phrase: 'اعتماد',
     confirmLabel: 'اعتماد وتجميد',
     run: async () => {
-      await approveRun(cyc, rowsPay);
+      await approveRun(cyc, rowsPay, config);
       toast('اعتُمد المسير وجُمِّد', 'ok');
       rerender();
     }

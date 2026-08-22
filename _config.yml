@@ -13,12 +13,22 @@
 # ⚠️ هذا الملف يخصّ Jekyll — أي GitHub Pages وحده. Firebase Hosting لا يقرؤه
 # إطلاقاً، ولها قائمتها المستقلّة في `firebase.json` تحت `hosting.ignore`.
 # أي ملف يُراد إخفاؤه عن الاثنين يُضاف في **الموضعين معاً**.
+#
+# ⚠️ TEMPORARY SECURITY WAIVER — RC 2026-08-22:
+# GitHub Pages لا يتيح ترويسات HTTP المخصّصة، لذلك ترويسات CSP وHSTS و
+# X-Frame-Options المعرّفة في firebase.json لا تصل مستخدمي Pages. المالك قبل
+# هذه المخاطرة مؤقتاً لهذا الـRC فقط؛ هي ليست ادعاءً بأن الترويسات تعمل.
+# الإغلاق النهائي عمل مستقل لاحق: نقل الواجهة إلى Firebase Hosting ثم التحقق
+# من الترويسات الفعلية قبل إزالة هذا الـWaiver. لا يغيّر هذا التعليق الاستضافة.
 exclude:
   - firestore.rules
   - firestore.indexes.json
   - firebase.json
   - eslint.config.mjs
   - CLAUDE.md
+  - AGENTS.md
+  - ATTENDANCE_IMPROVEMENTS.md
+  - RESUME.md
   - PROMPT-new-features.md
   - test
   - bridge

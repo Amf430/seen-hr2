@@ -3,7 +3,7 @@ import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, addDoc, getDocs,
          query, where, orderBy, limit, serverTimestamp, Timestamp } from 'firebase/firestore';
 import fs from 'fs';
 
-const PROJECT = 'seen-hr2-test';
+const PROJECT = process.env.FIREBASE_RULES_TEST_PROJECT_ID || 'demo-seen-hr2-rc';
 let pass = 0, fail = 0;
 const failures = [];
 
@@ -34,9 +34,10 @@ await env.clearFirestore();
 await env.withSecurityRulesDisabled(async (ctx) => {
   const db = ctx.firestore();
   await setDoc(doc(db, 'users/adminU'), { name: 'المدير', role: 'admin', status: 'active', department: 'الموارد البشرية', empId: 'ADMIN' });
-  await setDoc(doc(db, 'users/empU'),   { name: 'سالم', role: 'employee', status: 'active', department: 'المبيعات', empId: '101', salary: 6000, balances: { annual: 21 }, previousUids: ['oldEmpU'] });
-  await setDoc(doc(db, 'users/emp2U'),  { name: 'خالد', role: 'employee', status: 'active', department: 'المبيعات', empId: '102', salary: 5000 });
-  await setDoc(doc(db, 'users/mgrU'),   { name: 'فهد', role: 'manager', status: 'active', department: 'المبيعات', empId: '103' });
+  await setDoc(doc(db, 'users/empU'),   { name: 'سالم', role: 'employee', status: 'active', department: 'المبيعات', empId: '101', salary: 6000, balances: { annual: 21 }, previousUids: ['oldEmpU', 'olderEmpU'] });
+  await setDoc(doc(db, 'users/emp2U'),  { name: 'خالد', role: 'employee', status: 'active', department: 'المبيعات', empId: '102', salary: 5000, previousUids: ['oldEmp2U'] });
+  await setDoc(doc(db, 'users/mgrU'),   { name: 'فهد', role: 'manager', status: 'active', department: 'المبيعات', empId: '103', previousUids: ['oldMgrU'] });
+  await setDoc(doc(db, 'users/finU'),   { name: 'ناصر', role: 'employee', status: 'active', department: 'المالية', empId: '105' });
   await setDoc(doc(db, 'users/suspU'),  { name: 'معلّق', role: 'employee', status: 'suspended', department: 'المبيعات', empId: '104' });
   await setDoc(doc(db, 'settings/config'), { branches: [], leaveTypes: [], company: { lat: 21.5, lng: 39.1, radius: 500 } });
   await setDoc(doc(db, 'zkAttendance/empU_2026-07-01'), { employeeUid: 'empU', date: '2026-07-01', sessions: [] });
@@ -44,9 +45,19 @@ await env.withSecurityRulesDisabled(async (ctx) => {
      empU carries oldEmpU in previousUids; emp2U carries nothing. Both try to
      read the same record — only the one who owns that past identity may. */
   await setDoc(doc(db, 'zkAttendance/oldEmpU_2026-06-01'),
-    { employeeUid: 'oldEmpU', employeeEmpId: '101', employeeName: 'سالم', date: '2026-06-01', sessions: [] });
+    { employeeUid: 'oldEmpU', employeeEmpId: '101', employeeName: 'سالم', department: 'المبيعات', date: '2026-06-01', sessions: [] });
   await setDoc(doc(db, 'attendance/oldEmpU_2026-06-01'),
-    { employeeUid: 'oldEmpU', employeeEmpId: '101', employeeName: 'سالم', date: '2026-06-01', sessions: [] });
+    { employeeUid: 'oldEmpU', employeeEmpId: '101', employeeName: 'سالم', department: 'المبيعات', date: '2026-06-01', sessions: [] });
+  await setDoc(doc(db, 'zkAttendance/olderEmpU_2026-06-02'),
+    { employeeUid: 'olderEmpU', employeeEmpId: '101', employeeName: 'سالم', department: 'المبيعات', date: '2026-06-02', sessions: [] });
+  await setDoc(doc(db, 'attendance/olderEmpU_2026-06-02'),
+    { employeeUid: 'olderEmpU', employeeEmpId: '101', employeeName: 'سالم', department: 'المبيعات', date: '2026-06-02', sessions: [] });
+  await setDoc(doc(db, 'zkAttendance/oldEmp2U_2026-06-01'),
+    { employeeUid: 'oldEmp2U', employeeEmpId: '102', employeeName: 'خالد', department: 'المبيعات', date: '2026-06-01', sessions: [] });
+  await setDoc(doc(db, 'zkAttendance/finU_2026-06-01'),
+    { employeeUid: 'finU', employeeEmpId: '105', employeeName: 'ناصر', department: 'المالية', date: '2026-06-01', sessions: [] });
+  await setDoc(doc(db, 'attendance/finU_2026-06-01'),
+    { employeeUid: 'finU', employeeEmpId: '105', employeeName: 'ناصر', department: 'المالية', date: '2026-06-01', sessions: [] });
   /* تذكرة موارد بشرية يملكها empU، ورسالة واحدة تحتها */
   await setDoc(doc(db, 'hrTickets/tkt1'), {
     employeeUid: 'empU', employeeName: 'سالم', employeeEmpId: '101', department: 'المبيعات',
@@ -64,6 +75,14 @@ await env.withSecurityRulesDisabled(async (ctx) => {
     employeeUid: 'empU', employeeName: 'سالم', department: 'المبيعات', type: 'leave',
     status: 'pending', days: 3, leaveTypeId: 'annual', deduct: true,
     startDate: '2026-08-10', endDate: '2026-08-12', reviewedBy: '', reviewedAt: null, rejectReason: ''
+  });
+  await setDoc(doc(db, 'requests/oldMgrPermission'), {
+    employeeUid: 'oldMgrU', employeeName: 'فهد', department: 'المبيعات', type: 'permission',
+    status: 'pending', date: '2026-08-01', time: '09:00', reviewedBy: '', reviewedAt: null, rejectReason: ''
+  });
+  await setDoc(doc(db, 'requests/oldEmpPermission'), {
+    employeeUid: 'oldEmpU', employeeName: 'سالم', department: 'المبيعات', type: 'permission',
+    status: 'pending', date: '2026-08-01', time: '09:00', reviewedBy: '', reviewedAt: null, rejectReason: ''
   });
 });
 
@@ -357,6 +376,16 @@ await check('admin sets previousUids',                true,
 await check('employee writes a past-uid zk record',   false,
   () => setDoc(doc(emp, 'zkAttendance/oldEmpU_2026-06-02'), { employeeUid: 'oldEmpU', date: '2026-06-02', sessions: [] }));
 
+await check('manager cannot approve own historical request', false,
+  () => updateDoc(doc(mgr, 'requests/oldMgrPermission'), {
+    status: 'approved', reviewedBy: 'فهد', reviewedAt: serverTimestamp(), rejectReason: ''
+  }));
+await check('employee queries requests across current and previous uids', true,
+  () => getDocs(query(collection(emp, 'requests'),
+    where('employeeUid', 'in', ['empU', 'oldEmpU', 'olderEmpU']))));
+await check('employee request query cannot include a foreign uid', false,
+  () => getDocs(query(collection(emp, 'requests'),
+    where('employeeUid', 'in', ['empU', 'finU']))));
 await check('employee writes zkAttendance (payroll)', false, () => setDoc(doc(emp, 'zkAttendance/empU_' + ymdKsa()), { employeeUid: 'empU', date: ymdKsa(), sessions: [] }));
 await check('admin writes zkAttendance',              false, () => setDoc(doc(admin, 'zkAttendance/x_' + ymdKsa()), { employeeUid: 'empU', date: ymdKsa(), sessions: [] }));
 await check('employee writes bridge/status',          false, () => setDoc(doc(emp, 'bridge/status'), { deviceOk: true }));
@@ -430,6 +459,26 @@ await check('admin records an adjustment',           true,  () => setDoc(doc(adm
 await check('admin EDITS an adjustment',             false, () => updateDoc(doc(admin, 'attendanceAdjustments/a8'), { reason: 'سبب آخر' }));
 await check('admin DELETES an adjustment',           false, () => deleteDoc(doc(admin, 'attendanceAdjustments/a8')));
 
+await env.withSecurityRulesDisabled(async (ctx) => {
+  const d = ctx.firestore();
+  await setDoc(doc(d, 'attendanceAdjustments/own-current'), adj({ employeeUid: 'empU', date: '2026-06-01' }));
+  await setDoc(doc(d, 'attendanceAdjustments/old-own'), adj({ employeeUid: 'oldEmpU', date: '2026-06-01' }));
+  await setDoc(doc(d, 'attendanceAdjustments/old-own-mobile'), adj({ employeeUid: 'oldEmpU', date: '2026-06-01', coll: 'attendance' }));
+  await setDoc(doc(d, 'attendanceAdjustments/older-own'), adj({ employeeUid: 'olderEmpU', date: '2026-06-02' }));
+  await setDoc(doc(d, 'attendanceAdjustments/other-employee'), adj({ employeeUid: 'oldEmp2U', date: '2026-06-01', employeeName: 'خالد' }));
+  await setDoc(doc(d, 'attendanceAdjustments/other-dept'), adj({ employeeUid: 'finU', date: '2026-06-01', employeeName: 'ناصر' }));
+});
+await check('employee reads own adjustment',          true,  () => getDocs(query(collection(emp, 'attendanceAdjustments'), where('employeeUid', '==', 'empU'))));
+await check('employee reads previous-uid adjustment', true,  () => getDocs(query(collection(emp, 'attendanceAdjustments'), where('employeeUid', '==', 'oldEmpU'))));
+await check('employee reads second previous uid adjustment', true, () => getDocs(query(collection(emp, 'attendanceAdjustments'), where('employeeUid', '==', 'olderEmpU'))));
+await check('employee cannot read another historical uid', false, () => getDocs(query(collection(emp, 'attendanceAdjustments'), where('employeeUid', '==', 'oldEmp2U'))));
+await check('manager reads same-dept adjustment',     true,  () => getDocs(query(collection(mgr, 'attendanceAdjustments'), where('employeeUid', '==', 'empU'))));
+await check('manager reads historical same-dept adjustment', true, () => getDocs(query(collection(mgr, 'attendanceAdjustments'), where('coll', '==', 'zkAttendance'), where('employeeUid', '==', 'oldEmpU'), where('date', '==', '2026-06-01'))));
+await check('manager reads historical mobile adjustment', true, () => getDocs(query(collection(mgr, 'attendanceAdjustments'), where('coll', '==', 'attendance'), where('employeeUid', '==', 'oldEmpU'), where('date', '==', '2026-06-01'))));
+await check('manager reads other-dept adjustment',    false, () => getDocs(query(collection(mgr, 'attendanceAdjustments'), where('coll', '==', 'zkAttendance'), where('employeeUid', '==', 'finU'), where('date', '==', '2026-06-01'))));
+await check('manager lists all adjustments',          false, () => getDocs(collection(mgr, 'attendanceAdjustments')));
+await check('admin lists all adjustments',            true,  () => getDocs(collection(admin, 'attendanceAdjustments')));
+
 console.log('\n\x1b[1m═══ 5د. سلسلة الموافقات ═══\x1b[0m');
 await env.withSecurityRulesDisabled(async (ctx) => {
   const d = ctx.firestore();
@@ -468,11 +517,25 @@ await check('employee reads auditLog',                false, () => getDocs(colle
 await check('admin forges byName',                    false, () => addDoc(collection(admin, 'auditLog'), { action: 'a', detail: 'b', byName: 'شخص آخر', byUid: 'adminU', at: serverTimestamp() }));
 await check('admin edits an audit entry',             false, () => setDoc(doc(admin, 'auditLog/x'), { action: 'a' }));
 
+await check('admin selects physical payroll source',  true,  () => updateDoc(doc(admin, 'settings/config'), { 'payroll.attendanceSource': 'physical' }));
+await check('admin selects mobile payroll source',    true,  () => updateDoc(doc(admin, 'settings/config'), { 'payroll.attendanceSource': 'mobile' }));
+await check('admin selects both payroll sources',     true,  () => updateDoc(doc(admin, 'settings/config'), { 'payroll.attendanceSource': 'both' }));
+await check('admin selects unknown payroll source',   false, () => updateDoc(doc(admin, 'settings/config'), { 'payroll.attendanceSource': 'unknown' }));
+await check('employee changes payroll source',        false, () => updateDoc(doc(emp, 'settings/config'), { 'payroll.attendanceSource': 'mobile' }));
+await check('admin creates disposable settings',      true,  () => setDoc(doc(admin, 'settings/delete-policy'), { legacy: true }));
+await check('employee cannot delete settings',        false, () => deleteDoc(doc(emp, 'settings/delete-policy')));
+await check('admin delete semantics stay unchanged',  true,  () => deleteDoc(doc(admin, 'settings/delete-policy')));
+
 console.log('\n\x1b[1m═══ 7. LEGITIMATE WRITES — these MUST all succeed ═══\x1b[0m');
 await check('employee reads own profile',             true,  () => getDoc(doc(emp, 'users/empU')));
 await check('employee reads settings',                true,  () => getDoc(doc(emp, 'settings/config')));
 await check('employee submits a permission',          true,  () => addDoc(collection(emp, 'requests'), validRequest()));
 await check('permission with a normal note',          true,  () => addDoc(collection(emp, 'requests'), validRequest({ note: 'موعد طبي صباحاً' })));
+await check('permission with semantic late kind',     true,  () => addDoc(collection(emp, 'requests'), validRequest({ permissionKind: 'late' })));
+await check('permission with semantic early kind',    true,  () => addDoc(collection(emp, 'requests'), validRequest({ category: 'خروج مبكر', permissionKind: 'early' })));
+await check('permission with invalid semantic kind',  false, () => addDoc(collection(emp, 'requests'), validRequest({ permissionKind: 'anything' })));
+await check('permission kind cannot contradict category', false,
+  () => addDoc(collection(emp, 'requests'), validRequest({ permissionKind: 'early' })));
 await check('permission with an empty note',          false, () => addDoc(collection(emp, 'requests'), validRequest({ note: '' })));
 await check('permission with whitespace-only note',   false, () => addDoc(collection(emp, 'requests'), validRequest({ note: '   ' })));
 await check('permission with no note',                false, () => {
@@ -704,6 +767,18 @@ await check('manager queries zkAttendance by date ONLY',      false,
 await check('manager queries zkAttendance WITH department',   true,
   () => getDocs(query(collection(mgr, 'zkAttendance'),
     where('department', '==', 'المبيعات'), where('date', '>=', '2026-01-01'))));
+
+const profileQuery = (ctx, coll, dept, uids) => query(collection(ctx, coll),
+  where('department', '==', dept), where('employeeUid', 'in', uids),
+  where('date', '>=', '2026-01-01'), where('date', '<=', '2026-12-31'));
+await check('manager queries web profile with current and previous uids', true,
+  () => getDocs(profileQuery(mgr, 'attendance', 'المبيعات', ['empU', 'oldEmpU', 'olderEmpU'])));
+await check('manager queries physical profile with current and previous uids', true,
+  () => getDocs(profileQuery(mgr, 'zkAttendance', 'المبيعات', ['empU', 'oldEmpU', 'olderEmpU'])));
+await check('manager profile query cannot cross department', false,
+  () => getDocs(profileQuery(mgr, 'zkAttendance', 'المالية', ['finU'])));
+await check('manager web profile query cannot cross department', false,
+  () => getDocs(profileQuery(mgr, 'attendance', 'المالية', ['finU'])));
 
 /* ⚠️ التقييد بقسم غيره لا يُنجّيه — sameDept() تقارن بقسمه هو لا بما كتبه */
 await check('manager queries ANOTHER department',             false,
@@ -1072,6 +1147,18 @@ const fixReq = (over = {}) => ({
 
 await check('employee files a fix for themselves',    true,
   () => addDoc(collection(emp, 'requests'), fixReq()));
+await check('employee fix may target current attendance uid', true,
+  () => addDoc(collection(emp, 'requests'), fixReq({ attendanceUid: 'empU' })));
+await check('employee fix may target first previous attendance uid', true,
+  () => addDoc(collection(emp, 'requests'), fixReq({ attendanceUid: 'oldEmpU' })));
+await check('employee fix may target second previous attendance uid', true,
+  () => addDoc(collection(emp, 'requests'), fixReq({ attendanceUid: 'olderEmpU' })));
+await check('employee fix cannot target another current uid', false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ attendanceUid: 'emp2U' })));
+await check('employee fix cannot target another historical uid', false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ attendanceUid: 'oldEmp2U' })));
+await check('attendanceUid is rejected on permission requests', false,
+  () => addDoc(collection(emp, 'requests'), validRequest({ attendanceUid: 'oldEmpU' })));
 await check('⚠️ employee files a fix for SOMEONE ELSE', false,
   () => addDoc(collection(emp, 'requests'), fixReq({ employeeUid: 'emp2U', employeeName: 'خالد' })));
 

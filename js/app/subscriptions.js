@@ -9,6 +9,7 @@
 import { db, doc, collection, query, where, onSnapshot } from '../lib/firebase.js';
 import { getMe, setMe, setRequests, getRequests } from '../lib/state.js';
 import { sortByCreated } from '../lib/dates.js';
+import { employeeUidsOf, requestBelongsToEmployee } from '../lib/permission-link.js';
 import { rerenderIf } from '../lib/nav.js';
 import { refreshUsers } from '../lib/users.js';
 import { updateBadges, paintIdentity } from './shell.js';
@@ -60,7 +61,7 @@ export function subscribeData() {
     unsubReqs = onSnapshot(q1, (snap) => {
       /* الطلبات الملغاة تبقى خاصة بصاحبها — المدير يرى ملغاته هو فقط */
       setRequests(sortByCreated(snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-        .filter((r) => r.status !== 'cancelled' || r.employeeUid === me.id)));
+        .filter((r) => r.status !== 'cancelled' || requestBelongsToEmployee(r, me))));
       updateBadges();
       rerenderIf(MANAGER_PAGES);
     }, (err) => console.error('reqs', err));
@@ -91,7 +92,7 @@ export function subscribeData() {
       .catch((e) => console.error(e));
 
   } else {
-    const q1 = query(collection(db, 'requests'), where('employeeUid', '==', me.id));
+    const q1 = query(collection(db, 'requests'), where('employeeUid', 'in', employeeUidsOf(me)));
     unsubReqs = onSnapshot(q1, (snap) => {
       setRequests(sortByCreated(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
       updateBadges();
