@@ -16,7 +16,8 @@ import { ymd, ymdKsa } from './dates.js';
    يُستورد في node، وإبقاؤها هنا كان يفرض نسخة ثانية داخل ملف الاختبار. */
 import { PERM_BACKDATE_DAYS, permOldestDate, permWindowOpen,
          FIX_WINDOW_DAYS, FIX_MAX_PER_CYCLE, fixOldestDate, fixWindowOpen,
-         fixCountInCycle } from './request-windows.js';
+         fixCountInCycle, fixableAttendanceRows } from './request-windows.js';
+import { attendanceUidOf } from './permission-link.js';
 
 /* ═══════════════════════════════════════════════════════════════════════════
    نافذة الاستئذان — ثلاثة أيام ثم تُغلق
@@ -265,8 +266,11 @@ function fixAdjustmentPayload(r, me) {
   if (isNaN(when)) return null;
   const field = r.field === 'in' || r.field === 'out' ? r.field
               : r.fixKind === 'missingIn' ? 'in' : 'out';
+  const targetUid = attendanceUidOf(r);
   const data = {
-    employeeUid:  r.employeeUid,
+    /* وثيقة الطلب تبقى مملوكة بـemployeeUid الحالي. قيد التصحيح وحده يتبع
+       مفتاح سجل الحضور المستهدف، وقد يكون UID تاريخياً. */
+    employeeUid:  targetUid,
     employeeName: r.employeeName || '',
     date:         r.date,
     /* ⚠️ zkAttendance لا attendance: المسير يُحسب على سجل الجهاز، وتصحيحٌ
@@ -280,7 +284,7 @@ function fixAdjustmentPayload(r, me) {
     byName:       me.name,
     at:           serverTimestamp()
   };
-  return { id: `${r.employeeUid}_${r.date}_zkAttendance_${data.sessionIdx}_${field}_${r.id}`, data };
+  return { id: `${targetUid}_${r.date}_zkAttendance_${data.sessionIdx}_${field}_${r.id}`, data };
 }
 
 export async function approve(r) {
@@ -356,4 +360,4 @@ export { hasChain, chainStep, isLastStep, ownsCurrentStep, CHAIN_ROLE_AR, chainR
 /* تُعاد التصدير فلا يتغيّر أي مستورد قائم */
 export { PERM_BACKDATE_DAYS, permOldestDate, permWindowOpen,
          FIX_WINDOW_DAYS, FIX_MAX_PER_CYCLE, fixOldestDate, fixWindowOpen,
-         fixCountInCycle };
+         fixCountInCycle, fixableAttendanceRows };

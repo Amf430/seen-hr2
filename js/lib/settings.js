@@ -24,7 +24,7 @@ const DEFAULTS = {
   departments: [],
   dateExceptions: [],
   branches: [],
-  payroll: { hoursPerDay: 8, daysPerMonth: 30, graceMinutes: 0 },
+  payroll: { hoursPerDay: 8, daysPerMonth: 30, graceMinutes: 0, attendanceSource: 'physical' },
   company: { lat: null, lng: null, radius: 500 },
   shifts: {},
   /* ⚠️ فارغة عمداً: shiftPlansOf() في shifts.js تُركّب خطة واحدة في الذاكرة
@@ -118,7 +118,7 @@ export async function seedSettings() {
     departments: [],
     dateExceptions: [],
     branches: [],
-    payroll: { hoursPerDay: 8, daysPerMonth: 30, graceMinutes: 0 },
+    payroll: { hoursPerDay: 8, daysPerMonth: 30, graceMinutes: 0, attendanceSource: 'physical' },
     company: { lat: null, lng: null, radius: 500 },
     shifts: {
       0: { type: 'morning', start: '08:00', end: '16:00' }, /* الأحد */

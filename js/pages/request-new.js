@@ -5,6 +5,7 @@ import { submitRequest, permOldestDate, permWindowOpen, PERM_BACKDATE_DAYS } fro
 import { ymdKsa } from '../lib/dates.js';
 import { go } from '../lib/nav.js';
 import { card, empty } from '../lib/ui.js';
+import { PERMISSION_KIND } from '../lib/permission-link.js';
 
 const approverOptions = () =>
   (getSettings().approvers || []).map((a) => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('');
@@ -77,6 +78,7 @@ function permForm() {
   f.querySelector('#pfSubmit').onclick = async (e) => {
     const btn = e.currentTarget;
     const cat = f.querySelector('#pfCat').value;
+    const permissionKind = cat === 'تأخير عن الدوام' ? PERMISSION_KIND.LATE : PERMISSION_KIND.EARLY;
     const date = f.querySelector('#pfDate').value;
     const time = f.querySelector('#pfTime').value;
     const rId = f.querySelector('#pfReason').value;
@@ -97,7 +99,7 @@ function permForm() {
     const appr = (S.approvers || []).find((x) => x.id === aId);
     btn.disabled = true; btn.textContent = 'جارٍ التقديم…';
     const ok = await submitRequest({
-      type: 'permission', category: cat, categoryLabel: cat, date, time,
+      type: 'permission', permissionKind, category: cat, categoryLabel: cat, date, time,
       reasonId: rId, reasonLabel: reason?.label || '',
       approverId: aId, approverName: appr?.name || '', note
     });

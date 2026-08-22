@@ -11,10 +11,13 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import { ymd, contractDaysLeft, requestsInCycle } from './dates.js';
-import { sessionsOf, workedSecs, lastOutOf, buildDailyStatus } from './attendance.js';
+import { sessionsOf, buildDailyStatus } from './attendance.js';
 import { resolveShift } from './shifts.js';
 import { computePayroll } from './payroll.js';
-import { tsToDate } from './format.js';
+import { liveAttendanceInfo } from './attendance-sources.js';
+import { attendanceMetrics } from './attendance-metrics.js';
+import { requestBelongsToEmployee } from './permission-link.js';
+import { payrollRowsForView, payrollTotals } from './payroll-view.js';
 
 /* الموظفون الفعليون — الأدمن مستثنى من كل إحصاءات القوى العاملة، تماماً كما
    يستثنيه computePayroll و buildDailyStatus. */
@@ -47,32 +50,43 @@ export function todayAttendance(users, todayRecs, requests) {
   const dateStr = ymd(new Date());
   const dow = new Date().getDay();
   const recMap = {};
-  todayRecs.forEach((r) => { recMap[r.employeeUid] = r; });
+  /* حارس نطاق: Overlay يستطيع اشتقاق سجل بلا raw. لو مرّر منادٍ قائمة أوسع
+     من اليوم فلا يجوز لسجل تاريخي أن يستبدل سجل اليوم تحت UID نفسه. */
+  todayRecs.filter((r) => r.date === dateStr)
+    .forEach((r) => { recMap[r.employeeUid] = r; });
 
-  let expected = 0, inNow = 0, checkedIn = 0, onLeave = 0, absent = 0;
+  let inNow = 0, onLeave = 0;
   const insideNow = [];
 
   for (const u of staff) {
     const leave = requests.find((r) => r.type === 'leave' && r.status === 'approved' &&
-      r.employeeUid === u.id && r.startDate <= dateStr && r.endDate >= dateStr);
+      requestBelongsToEmployee(r, u) && r.startDate <= dateStr && r.endDate >= dateStr);
     if (leave) { onLeave++; continue; }
 
     /* ⚠️ نفس المعامل الرابع المستعمل في attendance.js و payroll.js —
        حسبة واحدة في مكان واحد، وإلا تباعدت أرقام التقرير عن أرقام المسير. */
     const sh = resolveShift(dateStr, dow, u.department, u);
     if (!sh || sh.type === 'off') continue;   /* راحة أو عطلة → خارج الحساب */
-    expected++;
-
     const ss = sessionsOf(recMap[u.id]);
-    if (!ss.length) { absent++; continue; }
-    checkedIn++;
-    const { open } = workedSecs(ss);
-    if (open) { inNow++; insideNow.push({ u, since: tsToDate(ss[ss.length - 1].in) }); }
+    if (!ss.length) continue;
+    const live = liveAttendanceInfo(recMap[u.id]);
+    if (live.open) {
+      inNow++;
+      insideNow.push({ u, since: live.since, sourceKind: live.sourceKind,
+                       sourceLabel: live.sourceLabel });
+    }
   }
+
+  const dayStart = new Date(dateStr + 'T00:00:00');
+  const metrics = attendanceMetrics(buildDailyStatus(
+    { start: dayStart, end: new Date(), key: dateStr }, staff, requests, todayRecs));
+  const expected = metrics.eligibleDays;
+  const checkedIn = metrics.attendanceDays;
+  const absent = expected - checkedIn;
 
   return {
     expected, checkedIn, inNow, onLeave, absent, insideNow,
-    rate: expected ? Math.round((checkedIn / expected) * 100) : null
+    rate: metrics.attendanceRate, commitmentRate: metrics.commitmentRate
   };
 }
 
@@ -93,30 +107,20 @@ export function contracts(users, withinDays = 60) {
 /* ═══ تكلفة الرواتب للدورة ═══
    نفس دالة المسير المعتمدة — لا حساب مستقل، حتى لا يختلف رقم اللوحة عن رقم
    المسير أبداً. */
-export function payrollSummary(cyc, users, requests, zkRecs) {
-  const rows = computePayroll(cyc, users, requests, zkRecs);
-  const t = rows.reduce((a, r) => ({
-    salary: a.salary + r.salary, total: a.total + r.total, net: a.net + r.net,
-    lateMin: a.lateMin + r.lateMin, earlyMin: a.earlyMin + r.earlyMin,
-    absentDays: a.absentDays + r.absentDays, missingOut: a.missingOut + r.missingOut
-  }), { salary: 0, total: 0, net: 0, lateMin: 0, earlyMin: 0, absentDays: 0, missingOut: 0 });
-  return { rows, ...t };
+export function payrollSummary(cyc, users, requests, recs, opts = {}) {
+  if (opts.run) {
+    const rows = payrollRowsForView(opts.run, [], users);
+    return { rows, freshRows: [], ...payrollTotals(rows) };
+  }
+  const freshRows = computePayroll(cyc, users, requests, recs, { config: opts.config });
+  const rows = payrollRowsForView(null, freshRows, users);
+  return { rows, freshRows, ...payrollTotals(rows) };
 }
 
 /* ═══ الالتزام خلال الدورة ═══ */
-export function complianceRate(cyc, users, requests, zkRecs) {
-  const rows = buildDailyStatus(cyc, users, requests, zkRecs);
-  if (!rows.length) return null;
-  const n = rows.length;
-  const c = (k) => rows.filter((r) => r.cls === k).length;
-  const present = c('present'), late = c('late'), leave = c('leave');
-  return {
-    days: n,
-    present, late, leave, absent: c('absent'), missing: c('missing'),
-    missingIn: c('missingIn'),
-    onTime:  Math.round((present / n) * 100),
-    overall: Math.round(((present + late + leave) / n) * 100)
-  };
+export function complianceRate(cyc, users, requests, attendanceRecs) {
+  const rows = buildDailyStatus(cyc, users, requests, attendanceRecs);
+  return rows.length ? attendanceMetrics(rows) : null;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -143,23 +147,6 @@ export function complianceRate(cyc, users, requests, zkRecs) {
    داوم خمسة أيام وتأخّر مرة — وهو عكس ما تكافئه اللوحة. */
 export const MIN_DAYS_FOR_BOARD = 3;
 
-/* لكل موظف ويوم: السجل صاحب الدخول الأبكر بين المصدرين */
-export function mergeEarliestIn(...lists) {
-  const best = new Map();
-  for (const list of lists) {
-    for (const r of (list || [])) {
-      const key = r.employeeUid + '_' + r.date;
-      const first = sessionsOf(r)[0];
-      const t = first ? tsToDate(first.in) : null;
-      const cur = best.get(key);
-      /* سجل بلا دخول لا يهزم سجلاً بدخول، لكنه أفضل من لا شيء */
-      if (!cur) { best.set(key, { rec: r, t }); continue; }
-      if (t && (!cur.t || t < cur.t)) best.set(key, { rec: r, t });
-    }
-  }
-  return [...best.values()].map((x) => x.rec);
-}
-
 /* نافذة الأيام السبعة المنتهية اليوم — على شكل دورة تفهمها buildDailyStatus */
 export function weekWindow(now = new Date()) {
   const end = new Date(now);
@@ -171,27 +158,24 @@ export function weekWindow(now = new Date()) {
 }
 
 
-export function weeklyPunctuality(users, zkRecs, webRecs, requests, now = new Date()) {
+export function weeklyPunctuality(users, attendanceRecs, requests, now = new Date()) {
   const win = weekWindow(now);
-  const rows = buildDailyStatus(win, users, requests, mergeEarliestIn(zkRecs, webRecs));
+  const rows = buildDailyStatus(win, users, requests, attendanceRecs);
 
   const byUid = new Map();
   for (const r of rows) {
     const cur = byUid.get(r.u.id) ||
-      { uid: r.u.id, name: r.u.name || '', department: r.u.department || '', counted: 0, onTime: 0, late: 0, absent: 0 };
-    if (r.cls === 'leave') { byUid.set(r.u.id, cur); continue; }   /* خارج المقام */
-    cur.counted++;
-    if (r.cls === 'present') cur.onTime++;
-    else if (r.cls === 'late') cur.late++;
-    else if (r.cls === 'absent') cur.absent++;
-    byUid.set(r.u.id, cur);
+      { uid: r.u.id, name: r.u.name || '', department: r.u.department || '', rows: [] };
+    cur.rows.push(r); byUid.set(r.u.id, cur);
   }
 
   const board = [...byUid.values()]
-    .filter((x) => x.counted >= MIN_DAYS_FOR_BOARD)
-    .map((x) => ({ ...x, rate: Math.round((x.onTime / x.counted) * 100) }))
-    /* الأعلى نسبةً، ثم من داوم أياماً أكثر، ثم بالاسم ليكون الترتيب ثابتاً */
-    .sort((a, b) => b.rate - a.rate || b.counted - a.counted || a.name.localeCompare(b.name));
+    .map((x) => ({ ...x, ...attendanceMetrics(x.rows) }))
+    .filter((x) => x.eligibleDays >= MIN_DAYS_FOR_BOARD)
+    .map(({ rows: _rows, ...x }) => ({ ...x, counted: x.eligibleDays, rate: x.commitmentRate }))
+    .sort((a, b) => (b.commitmentRate ?? -1) - (a.commitmentRate ?? -1)
+                  || (b.attendanceRate ?? -1) - (a.attendanceRate ?? -1)
+                  || a.name.localeCompare(b.name));
 
   return { window: win, board, qualified: board.length, minDays: MIN_DAYS_FOR_BOARD };
 }
