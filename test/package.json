@@ -4,11 +4,12 @@
   "type": "module",
   "scripts": {
     "test": "npm run test:pure && npm run test:rules",
-    "test:pure": "node org.test.mjs && node documents.test.mjs && node nav.test.mjs && node notifications.test.mjs && node biometric.test.mjs && node permission-window.test.mjs && node config.test.mjs && node tasks.test.mjs && node leave-balance.test.mjs && node calendar.test.mjs && node charts.test.mjs && node pulse.test.mjs && node format.test.mjs && node timesheet.test.mjs && node table-labels.test.mjs && node todo.test.mjs && node nav-groups.test.mjs && node core.test.mjs",
+    "lint": "cd .. && eslint js --config eslint.config.mjs",
+    "test:pure": "node org.test.mjs && node documents.test.mjs && node nav.test.mjs && node notifications.test.mjs && node biometric.test.mjs && node permission-window.test.mjs && node permission-link.test.mjs && node attendance-sources.test.mjs && node attendance-metrics.test.mjs && node config.test.mjs && node tasks.test.mjs && node leave-balance.test.mjs && node calendar.test.mjs && node charts.test.mjs && node pulse.test.mjs && node format.test.mjs && node timesheet.test.mjs && node table-labels.test.mjs && node todo.test.mjs && node nav-groups.test.mjs && node core.test.mjs",
     "test:org": "node org.test.mjs",
     "test:docs": "node documents.test.mjs",
     "test:nav": "node nav.test.mjs",
-    "test:rules": "firebase emulators:exec --only firestore --project seen-hr2-test \"node rules.test.mjs\"",
+    "test:rules": "FIREBASE_RULES_TEST_PROJECT_ID=demo-seen-hr2-rc firebase emulators:exec --only firestore --project demo-seen-hr2-rc \"node rules.test.mjs\"",
     "test:notif": "node notifications.test.mjs",
     "test:bio": "node biometric.test.mjs",
     "test:perm": "node permission-window.test.mjs",
@@ -23,6 +24,7 @@
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.0",
+    "eslint": "^10.8.1",
     "firebase": "^12.0.0",
     "firebase-tools": "^14.0.0"
   }

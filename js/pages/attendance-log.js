@@ -1,4 +1,4 @@
-import { el, esc, toast } from '../lib/dom.js';
+import { el, esc, toast, openModal } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { db, doc, getDoc } from '../lib/firebase.js';
 import { getUsers, getRequests } from '../lib/state.js';
@@ -15,6 +15,9 @@ import { adjustmentsInRange, applyAll } from '../lib/adjustments.js';
 import { openTypedConfirm } from '../components/review-modals.js';
 import { logAction } from '../lib/audit.js';
 import { card, empty, tableWrap, sectionHead, button, callout, pageHead } from '../lib/ui.js';
+import { requestCard } from '../components/request-card.js';
+import { readBridgeStatus } from '../lib/bridge-status.js';
+import { attendanceDerivedSourcesReady, attendanceExportAvailable } from '../lib/attendance-export-state.js';
 
 /* المصدران — تعريف واحد يُشتقّ منه كل شيء */
 const SOURCES = [
@@ -121,7 +124,7 @@ export async function render(view, token, opt) {
   const ddCyc = $c('#atCyc'), ddMode = $c('#atMode'), ddEmp = $c('#atEmp'),
         inDate = $c('#atDate'), ddStat = $c('#atStatus'), search = $c('#atSearch');
 
-  let recs = [], loadedKey = '';
+  let recs = [], loadedKey = '', adjustmentsUnavailable = false;
 
   function fillEmps() {
     const cur = ddEmp.value;
@@ -160,6 +163,7 @@ export async function render(view, token, opt) {
       try {
         await refreshUsers();
         recs = await fetchAttendance(cyc, opt.coll);
+        adjustmentsUnavailable = false;
         /* ── التصحيحات تُقرأ فوق الأصل ──
            ⚠️ بدون هذا كان السجل يعرض الوقت الخاطئ بعد تصحيحه: القيد يُحفظ
            فعلاً ويُطبَّق في المسير، لكن الشاشة التي صحّح منها الأدمن تبقى على
@@ -168,8 +172,16 @@ export async function render(view, token, opt) {
         try {
           const adjs = await adjustmentsInRange(ymd(cyc.start), ymd(cyc.end));
           recs = applyAll(recs, adjs.filter((a) => a.coll === opt.coll));
-        } catch (e) { console.error('adjustments', e); }
-        loadedKey = key;
+        } catch (e) {
+          console.error('adjustments', e);
+          adjustmentsUnavailable = true;
+        }
+        /* لا نثبت دورة ناقصة في الكاش: تغيير العرض أو الفلتر بعد خطأ مؤقت
+           يجب أن يعيد محاولة التصحيحات، لا أن يعيد رسم الأوقات الخام للأبد. */
+        loadedKey = attendanceDerivedSourcesReady({
+          requestsReady: true,
+          adjustmentsReady: !adjustmentsUnavailable
+        }) ? key : '';
         fillEmps();
       } catch (e) {
         console.error(e);
@@ -180,15 +192,24 @@ export async function render(view, token, opt) {
     if (isStale(token)) return;
 
     host.innerHTML = '';
+    if (adjustmentsUnavailable) {
+      host.appendChild(callout('warn', 'الأوقات المعروضة خام وغير مصحّحة',
+        'تعذّرت قراءة تصحيحات الحضور لهذه الدورة؛ لا تعتمد هذا العرض كحقيقة نهائية قبل إعادة المحاولة.'));
+    }
     const isDaily = ddMode.value === 'daily';
     ddStat.disabled = !isDaily;
     const rows = isDaily ? dailyRows(cyc) : sessRows();
 
     const c = card('');
+    const canExport = attendanceExportAvailable({
+      mode: isDaily ? 'daily' : 'sessions',
+      requestsReady: true,
+      adjustmentsReady: !adjustmentsUnavailable
+    });
     c.appendChild(sectionHead(
       `${isDaily ? 'التقرير اليومي' : 'سجل الدخول/الخروج'} — ${cyc.label}`,
-      button('تصدير المعروض (Excel)', 'btn sm',
-        () => attendanceExport(cyc, opt, isDaily ? rows : null, isDaily ? null : rows))));
+      canExport ? button('تصدير المعروض (Excel)', 'btn sm',
+        () => attendanceExport(cyc, opt, isDaily ? rows : null, isDaily ? null : rows)) : null));
 
     const bits = [];
     if (ddEmp.value) { const u = getUsers().find((x) => x.id === ddEmp.value); bits.push('الموظف: ' + (u ? u.name : '—')); }
@@ -222,9 +243,20 @@ export async function render(view, token, opt) {
             <td class="num text-green">${r.firstIn ? hm(r.firstIn) : '—'}</td>
             <td class="num text-red">${r.lastOut ? hm(r.lastOut) : '—'}</td>
             <td class="num">${r.secs > 0 ? fmtDur(r.secs) : '—'}</td>
-            <td class="cell-sub">${esc(r.note || '')}</td></tr>`;
+            <td class="cell-sub">${esc(r.note || '')}${r.permissions?.length
+              ? `<div><button class="btn ghost sm" type="button" data-permission="${i}">تفاصيل الاستئذان</button></div>`
+              : ''}</td></tr>`;
           }).join('')}</tbody>
         </table>`);
+      wrap.querySelectorAll('button[data-permission]').forEach((b) => {
+        b.onclick = (e) => {
+          e.stopPropagation();
+          const r = rows[+b.dataset.permission];
+          const m = openModal('<h3>الاستئذان المرتبط بسجل الحضور</h3>');
+          const body = m.modal.querySelector('.modal__body');
+          r.permissions.forEach((p) => body.appendChild(requestCard(p, false)));
+        };
+      });
       wrap.querySelectorAll('tr[data-daily]').forEach((tr) => {
         tr.onclick = () => {
           const r = rows[+tr.dataset.daily];
@@ -304,16 +336,27 @@ async function bridgeStatusCard(host) {
   c.innerHTML = '<div class="empty"><span class="spinner"></span> جارٍ قراءة حالة الجسر…</div>';
   host.appendChild(c);
 
-  let d = null;
-  try { const snap = await getDoc(doc(db, 'bridge', 'status')); d = snap.exists() ? snap.data() : null; }
-  catch (e) { d = null; }
+  const state = await readBridgeStatus(async () => {
+    const snap = await getDoc(doc(db, 'bridge', 'status'));
+    return snap.exists() ? snap.data() : null;
+  });
 
-  if (!d) {
+  if (state.status === 'error') {
+    console.error('bridge-status', state.error);
+    c.innerHTML = `<h3>حالة جسر البصمة</h3>
+      <div class="callout callout--danger"><b class="callout__title">تعذّرت قراءة حالة الجسر</b>
+      <div class="help">لا يمكن استنتاج أن الجسر متوقّف. تحقّق من الاتصال ثم أعد المحاولة.</div></div>`;
+    return;
+  }
+
+  if (state.status === 'missing') {
     c.innerHTML = `<h3>حالة جسر البصمة</h3>
       <div class="callout callout--warn"><b class="callout__title">لم يُسجّل الجسر أي نبض بعد</b>
       <div class="help">شغّل <b>zk_bridge.py</b> على الكمبيوتر المتصل بشبكة الجهاز.</div></div>`;
     return;
   }
+
+  const d = state.data;
 
   const last = d.lastRun && d.lastRun.toDate ? d.lastRun.toDate() : null;
   const mins = last ? Math.round((Date.now() - last.getTime()) / 60000) : 9999;
