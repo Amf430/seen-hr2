@@ -17,9 +17,6 @@ import { resolveShift, shiftWindowFor, compensableMin,
 import { permWindowOpen } from './requests.js';
 import { hmToDate } from './dates.js';
 import { hm } from './format.js';
-import { employeeUidsOf, requestBelongsToEmployee,
-         approvedPermissionsForDay, permissionDisplayLabel } from './permission-link.js';
-import { dayBounds } from './attendance-metrics.js';
 
 /* ═══ كل معرّفات الموظف — الحالي وما سبقه ═══
 
@@ -32,7 +29,8 @@ import { dayBounds } from './attendance-metrics.js';
    استيراد المسير بلا داعٍ.
 
    ⚠️ الحالي أولاً — السجل الحالي أولى عند التطابق. */
-export const uidsOf = employeeUidsOf;
+export const uidsOf = (u) =>
+  u ? [u.id, ...((u.previousUids || []).filter((x) => x && x !== u.id))] : [];
 
 /* أول سجل يوجد لهذا الموظف في هذا اليوم، تحت أيٍّ من معرّفاته */
 export const recFor = (recMap, u, dateStr) => {
@@ -103,7 +101,23 @@ export function lastOutOf(sessions) {
 
    ⚠️ بصمة واحدة في اليوم كلّه تبقى دخولاً بلا خروج، فنسيان الانصراف
    الحقيقي ما زال يُكتشف. */
-export { dayBounds };
+export function dayBounds(sessions) {
+  let first = null, last = null;
+  for (const s of sessions) {
+    for (const key of ['in', 'out']) {
+      const t = tsToDate(s[key]);
+      if (!t) continue;
+      if (!first || t < first) first = t;
+      if (!last  || t > last)  last  = t;
+    }
+  }
+  return {
+    firstIn: first,
+    lastOut: (first && last && last > first) ? last : null,
+    /* المدى بالثواني — صفر ما لم يوجد حدّان */
+    spanSecs: (first && last && last > first) ? (last - first) / 1000 : 0
+  };
+}
 
 /* ── سجلات الموظف نفسه ──
    ⚠️ لا تستعمل fetchAttendance هنا. هي تستعلم بالتاريخ فقط، وقاعدة القراءة
@@ -124,19 +138,15 @@ export { dayBounds };
    مفهرسة بالقديم. القاعدة `isMine()` تقبل الاثنين فيقبلهما الاستعلام — وإلا
    يتيتّم تاريخ الموظف كله عند أول استعادة ويظهر غياباً لم يقع.
 
-   ⚠️ الموظف يحتاج (employeeUid,date). المدير يضيف department، ويستفيد من
-   دمج الفهرسين الموجودين (department,date) و(employeeUid,date) لكل مجموعة.
-   الإنتاج لا يبنيهما من الملف تلقائياً، فيجب التحقق أنهما READY قبل الواجهة. */
-export async function fetchMyAttendance(cycle, uid, coll = 'attendance', department = '') {
+   ⚠️ يحتاج فهرساً مركّباً (employeeUid, date) في المجموعتين. موجود في
+   `firestore.indexes.json` — والمحاكي يبنيه تلقائياً بينما الإنتاج لا،
+   فالنشر قبل وصول الواجهة للموظفين لا بعده. */
+export async function fetchMyAttendance(cycle, uid, coll = 'attendance') {
   const uids = (Array.isArray(uid) ? uid : [uid]).filter(Boolean).slice(0, 30);
   if (!uids.length) return [];
-  const parts = [collection(db, coll)];
-  /* ⚠️ مدير القسم يحتاج القيود الثلاثة داخل Query نفسها. فلترة القسم بعد
-     القراءة لا تثبت sameDept()، وقراءة القسم كله توسّع البيانات بلا حاجة. */
-  if (department) parts.push(where('department', '==', department));
-  parts.push(where('employeeUid', 'in', uids),
-    where('date', '>=', ymd(cycle.start)), where('date', '<=', ymd(cycle.end)));
-  const snap = await getDocs(query(...parts));
+  const snap = await getDocs(query(collection(db, coll),
+    where('employeeUid', 'in', uids),
+    where('date', '>=', ymd(cycle.start)), where('date', '<=', ymd(cycle.end))));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
@@ -202,15 +212,15 @@ export function buildDailyStatus(cyc, users, requests, recs, opts = {}) {
       const shift = resolveShift(dateStr, dow, u.department, u);
       if (!shift || shift.type === 'off') continue;   /* راحة أو عطلة رسمية → لا يُحاسب عليها */
       const leave = requests.find((r) => r.type === 'leave' && r.status === 'approved' &&
-        requestBelongsToEmployee(r, u) && r.startDate <= dateStr && r.endDate >= dateStr);
-      const linkedPerms = approvedPermissionsForDay(requests, u, dateStr);
-      const { late: latePerm, early: earlyPerm } = linkedPerms;
+        r.employeeUid === u.id && r.startDate <= dateStr && r.endDate >= dateStr);
+      const perms = requests.filter((r) => r.type === 'permission' && r.status === 'approved' &&
+        r.employeeUid === u.id && r.date === dateStr);
+      const latePerm = perms.find((p) => (p.category || '').includes('تأخير'));
+      const earlyPerm = perms.find((p) => (p.category || '').includes('خروج'));
       const rec = recFor(recMap, u, dateStr);
       const sessions = sessionsOf(rec);
       /* اليوم بحدّيه لا بمزاوجة الجلسات — انظر dayBounds */
-      const { firstIn, lastOut, spanSecs, hasAttendanceEvidence } = dayBounds(sessions, {
-        missedCheckIn: rec?.missedCheckIn === true
-      });
+      const { firstIn, lastOut, spanSecs } = dayBounds(sessions);
       const openSess = !!firstIn && !lastOut;
       const win = shiftWindowFor(d, shift);
       /* المدى من أول بصمة لآخرها. وبلا بصمة خروج تُقصّ الجلسة المفتوحة عند
@@ -218,7 +228,6 @@ export function buildDailyStatus(cyc, users, requests, recs, opts = {}) {
       const secs = lastOut ? spanSecs
                            : workedSecs(sessions, win ? win.end.getTime() : null).secs;
       let status, cls, note = '', lateMin = 0, compMin = 0, excusable = false;
-      let punctualityLateMin = 0, punctualityEarlyMin = 0;
       if (leave) { status = 'إجازة: ' + (leave.categoryLabel || ''); cls = 'leave'; }
       else if (firstIn) {
         /* نسيان بصمة الخروج: جلسة مفتوحة ومضى أكثر من ساعتين على نهاية الوردية */
@@ -232,9 +241,6 @@ export function buildDailyStatus(cyc, users, requests, recs, opts = {}) {
             const grace = new Date(allowedBase.getTime() + LATE_GRACE_MIN * 60000);
             if (firstIn > grace) {
               const rawLate = Math.round((firstIn - allowedBase) / 60000);
-              /* البقاء بعد الدوام قد يعوّض مالياً، لكنه لا يمحو أن بداية اليوم
-                 كانت متأخرة في مؤشر الانضباط. */
-              punctualityLateMin = rawLate;
               compMin = compensate ? compensableMin(rawLate, lastOut, win) : 0;
               lateMin = rawLate - compMin;
               if (lateMin > 0) {
@@ -248,17 +254,8 @@ export function buildDailyStatus(cyc, users, requests, recs, opts = {}) {
             } else { status = 'حاضر'; cls = 'present'; }
           } else { status = 'حاضر'; cls = 'present'; }
         }
-        if (latePerm)  note = (note ? note + ' · ' : '') + `${permissionDisplayLabel(latePerm)} — تأخير حتى ${latePerm.time || ''}`;
-        if (earlyPerm) note = (note ? note + ' · ' : '') + `${permissionDisplayLabel(earlyPerm)} — خروج مبكر ${earlyPerm.time || ''}`;
-        if (lastOut && win && lastOut < win.end) {
-          const rawEarly = Math.max(0, Math.round((win.end - lastOut) / 60000));
-          const coveredFrom = earlyPerm?.time ? hmToDate(d, earlyPerm.time) : null;
-          /* الاستئذان يغطي من وقته المعتمد إلى نهاية الوردية فقط. خروجٌ أسبق
-             يبقى مخالفةً بمقدار الجزء الواقع قبل بداية الاستئذان. */
-          punctualityEarlyMin = coveredFrom
-            ? Math.max(0, Math.round((coveredFrom - lastOut) / 60000))
-            : rawEarly;
-        }
+        if (latePerm)  note = (note ? note + ' · ' : '') + `استئذان تأخير حتى ${latePerm.time || ''}`;
+        if (earlyPerm) note = (note ? note + ' · ' : '') + `استئذان خروج مبكر ${earlyPerm.time || ''}`;
         /* ── نافذة الاستئذان ──
            يوم متأخر بلا استئذان معتمد: إمّا النافذة ما زالت مفتوحة فيُقال
            للموظف كم بقي له، أو أُغلقت فيُعتمد التأخير «بدون عذر» ويبقى في
@@ -281,15 +278,12 @@ export function buildDailyStatus(cyc, users, requests, recs, opts = {}) {
         if (permWindowOpen(dateStr)) note += ' · النافذة ما زالت مفتوحة';
       } else {
         status = 'غائب'; cls = 'absent';
-        if (latePerm)       note = `${permissionDisplayLabel(latePerm)} — تأخير حتى ${latePerm.time || ''}`;
-        else if (earlyPerm) note = `${permissionDisplayLabel(earlyPerm)} — خروج مبكر ${earlyPerm.time || ''}`;
+        if (latePerm)       note = `استئذان تأخير حتى ${latePerm.time || ''}`;
+        else if (earlyPerm) note = `استئذان خروج مبكر ${earlyPerm.time || ''}`;
       }
       if (shift.src === 'exception' && shift.exLabel) note = (note ? note + ' · ' : '') + shift.exLabel;
       else if (shift.src === 'dept')                  note = (note ? note + ' · ' : '') + 'وردية القسم';
-      rows.push({ u, dateStr, dow, shift, status, cls, note, firstIn, lastOut, secs, rec,
-                  permissions: linkedPerms.all,
-                  openSess, lateMin, compMin, excusable, hasAttendanceEvidence,
-                  punctualityLateMin, punctualityEarlyMin });
+      rows.push({ u, dateStr, dow, shift, status, cls, note, firstIn, lastOut, secs, rec, openSess, lateMin, compMin, excusable });
     }
   });
   rows.sort((a, b) => (a.u.name || '').localeCompare(b.u.name || '') || (a.dateStr > b.dateStr ? 1 : -1));

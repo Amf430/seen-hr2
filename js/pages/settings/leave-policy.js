@@ -17,7 +17,6 @@ import { leaveBalanceOf, migrationPreview, previewHasChanges,
          carryOverPreview, policyFor } from '../../lib/leave-balance.js';
 import { isStale } from '../../lib/nav.js';
 import { card, empty, tableWrap, sectionHead, button, callout, grid, stat, loading } from '../../lib/ui.js';
-import { loadRequiredSource } from '../../lib/required-source.js';
 
 /* ⚠️ async و await refreshUsers() قبل أي رسم — نمط departments.js و
    employees.js. الصفحة كانت متزامنة تقرأ getUsers() فوراً، فعلى تحميل بارد
@@ -47,15 +46,8 @@ export async function render(view, token) {
   host.appendChild(loading('جارٍ تحميل الموظفين…'));
   view.appendChild(host);
 
-  const usersSource = await loadRequiredSource(refreshUsers, getUsers);
+  try { await refreshUsers(); } catch (e) { console.error('leave-policy', e); }
   if (isStale(token)) return;
-  if (usersSource.status === 'error') {
-    console.error('leave-policy', usersSource.error);
-    host.innerHTML = '';
-    host.appendChild(callout('danger', 'تعذّر تحميل الموظفين',
-      'لم تُنشأ معاينة ناقصة، ولا يمكن تطبيق سياسة قبل نجاح تحميل جميع الموظفين.'));
-    return;
-  }
 
   function draw() {
     host.innerHTML = '';

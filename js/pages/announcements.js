@@ -12,10 +12,8 @@ import { ymdKsa } from '../lib/dates.js';
 import { fmtDT } from '../lib/format.js';
 import {
   createAnnouncement, editAnnouncement, deleteAnnouncement, allAnnouncements,
-  announcementsFor, acknowledge, myAck, ackList, audienceOf, isLive, PRIORITY_AR
+  announcementsFor, acknowledge, ackList, audienceOf, isLive, PRIORITY_AR
 } from '../lib/announcements.js';
-import { ACK_STATE, createAckIfPending,
-         readAckState } from '../lib/announcement-ack-state.js';
 import { isStale } from '../lib/nav.js';
 import { isAdmin } from '../lib/perms.js';
 import { card, empty, tableWrap, sectionHead, button, loading, callout, pageHead } from '../lib/ui.js';
@@ -99,8 +97,7 @@ async function adminView(view, token) {
   async function openAcks(a) {
     /* ⚠️ العدد الموثوق هو وثائق acks لا العدّاد — يُحسب هنا عند الفتح */
     let rows = [];
-    try { rows = await ackList(a.id); }
-    catch (e) { console.error(e); toast('تعذّر تحميل الإقرارات', 'err'); return; }
+    try { rows = await ackList(a.id); } catch (e) { console.error(e); }
     const reached = audienceOf(a, getUsers());
     const done = new Set(rows.map((r) => r.uid));
     const missing = reached.filter((u) => !done.has(u.id));
@@ -253,13 +250,6 @@ async function employeeView(view, token) {
     return;
   }
 
-  /* ⚠️ الإقرار create-only، لذلك نقرأ حالته قبل رسم الزر. فشل القراءة لا
-     يسقط إلى «لم يقرّ» ولا يسمح بمحاولة كتابة قد تكون مكررة. */
-  const ackStates = new Map(await Promise.all(live
-    .filter((a) => a.requireAck)
-    .map(async (a) => [a.id, await readAckState(() => myAck(a.id, me.id))])));
-  if (isStale(token)) return;
-
   live.forEach((a) => {
     const c = card('');
     c.appendChild(sectionHead({ text: a.title,
@@ -269,25 +259,12 @@ async function employeeView(view, token) {
       `${esc(a.createdByName || 'الموارد البشرية')} · ${esc(a.publishAt || '')}${
         a.editedAt ? ' · مُعدَّلة' : ''}`));
     if (a.requireAck) {
-      const state = ackStates.get(a.id);
-      if (state === ACK_STATE.ACKNOWLEDGED) {
-        c.appendChild(el('span', 'annbar__done', '✓ تم اطلاعك'));
-      } else if (state === ACK_STATE.ERROR) {
-        c.appendChild(callout('warn', 'تعذّرت قراءة حالة اطلاعك',
-          'لن نحاول تسجيل إقرار جديد حتى نتأكد من الحالة. حدّث الصفحة وحاول مرة أخرى.'));
-      } else {
-        const b = button('اطّلعت', 'btn sm', async () => {
-          b.disabled = true;
-          try {
-            await createAckIfPending(state, () => acknowledge(a.id));
-            toast('شكراً — سُجّل اطّلاعك', 'ok');
-            b.textContent = '✓ تم اطلاعك';
-          } catch (e) {
-            console.error(e); toast('تعذّر التسجيل', 'err'); b.disabled = false;
-          }
-        });
-        c.appendChild(b);
-      }
+      const b = button('اطّلعت', 'btn sm', async () => {
+        b.disabled = true;
+        try { await acknowledge(a.id); toast('شكراً — سُجّل اطّلاعك', 'ok'); b.textContent = '✓ سُجّل اطّلاعك'; }
+        catch (e) { console.error(e); toast('تعذّر التسجيل', 'err'); b.disabled = false; }
+      });
+      c.appendChild(b);
       c.appendChild(el('p', 'help', 'الإقرار لا يُسحب بعد تسجيله.'));
     }
     host.appendChild(c);

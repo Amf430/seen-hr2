@@ -6,22 +6,20 @@
      • الغياب       = خصم يوم كامل
      • إجازة مدفوعة = بلا خصم · إجازة بدون راتب = خصم يوم
      • استئذان معتمد (تأخير أو خروج مبكر) = معفى من الخصم
-     • المصدر       = يحدّده payroll.attendanceSource؛ غيابه يعني جهاز ZKTeco
+     • المصدر       = بصمات جهاز ZKTeco فقط (zkAttendance)
 
-   ⚠️⚠️ قلب computePayroll منقول من النسخة القديمة. اختيار المصدر يتم قبل
-   دخوله؛ لا يعرف الدالة إن كان السجل جهازاً أو جوالاً أو موحداً، ولذلك لا
-   توجد ثلاث نسخ من معادلة الخصم يمكن أن تتباعد.
+   ⚠️⚠️ computePayroll منقولة حرفياً من النسخة القديمة (السطور 2233-2313).
+   هذا كود يحسب رواتب أشخاص. تغيير ترتيب عملية أو تقريب رقم هنا لا يظهر في
+   أي اختبار — يظهر يوم الراتب. لا تُعاد صياغته ولا تُبسَّط حلقاته.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import { getSettings } from './state.js';
 import { ymd } from './dates.js';
 import { resolveShift, shiftHours, shiftWindowFor, compensableMin } from './shifts.js';
 import { sessionsOf, dayBounds, recFor } from './attendance.js';
-import { requestBelongsToEmployee, approvedPermissionsForDay } from './permission-link.js';
 
 export function payrollConfig() {
-  return { hoursPerDay: 8, daysPerMonth: 30, graceMinutes: 0,
-           attendanceSource: 'physical', ...(getSettings().payroll || {}) };
+  return { hoursPerDay: 8, daysPerMonth: 30, graceMinutes: 0, ...(getSettings().payroll || {}) };
 }
 
 export function isUnpaidLeave(leave) {
@@ -30,8 +28,8 @@ export function isUnpaidLeave(leave) {
   return /بدون\s*راتب/.test(leave.categoryLabel || '');
 }
 
-export function computePayroll(cyc, users, requests, recs, opts = {}) {
-  const cfg = { ...payrollConfig(), ...(opts.config || {}) };
+export function computePayroll(cyc, users, requests, recs) {
+  const cfg = payrollConfig();
   const recMap = {}; recs.forEach((r) => { recMap[r.employeeUid + '_' + r.date] = r; });
   const emps = users.filter((u) => u.role !== 'admin');
   const now = new Date();
@@ -63,7 +61,7 @@ export function computePayroll(cyc, users, requests, recs, opts = {}) {
       workDays++; reqH += need;
 
       const leave = requests.find((r) => r.type === 'leave' && r.status === 'approved' &&
-        requestBelongsToEmployee(r, u) && r.startDate <= dateStr && r.endDate >= dateStr);
+        r.employeeUid === u.id && r.startDate <= dateStr && r.endDate >= dateStr);
       if (leave) {
         if (isUnpaidLeave(leave)) {
           unpaidDays++;
@@ -75,8 +73,10 @@ export function computePayroll(cyc, users, requests, recs, opts = {}) {
         continue;
       }
 
-      const linkedPerms = approvedPermissionsForDay(requests, u, dateStr);
-      const { late: latePerm, early: earlyPerm } = linkedPerms;
+      const perms = requests.filter((r) => r.type === 'permission' && r.status === 'approved' &&
+        r.employeeUid === u.id && r.date === dateStr);
+      const latePerm  = perms.find((p) => (p.category || '').includes('تأخير'));
+      const earlyPerm = perms.find((p) => (p.category || '').includes('خروج'));
 
       /* ⚠️ recFor لا recMap[u.id + …]: من استُعيد وصوله تاريخُه تحت UID
          سابق، والبحث بالحالي وحده يجعل كل يوم مضى «غياباً» فيُخصم يوماً
@@ -90,8 +90,7 @@ export function computePayroll(cyc, users, requests, recs, opts = {}) {
 
       if (!firstIn) {
         absentDays++;
-        details.push({ dateStr, dow, status: 'غياب', lm: 0, em: 0, ded: dayRate, need,
-                       permissions: linkedPerms.all });
+        details.push({ dateStr, dow, status: 'غياب', lm: 0, em: 0, ded: dayRate, need });
         continue;
       }
       presentDays++;
@@ -125,8 +124,7 @@ export function computePayroll(cyc, users, requests, recs, opts = {}) {
       details.push({ dateStr, dow,
                      status: flag || (lm > 0 ? 'متأخر' : (cm > 0 ? 'حاضر — عُوِّض التأخير' : 'حاضر')),
                      lm, em, ex, cm,
-                     ded: ((lm + em) / 60) * hourRate, need, in: firstIn, out: lastOut,
-                     permissions: linkedPerms.all });
+                     ded: ((lm + em) / 60) * hourRate, need, in: firstIn, out: lastOut });
     }
 
     const dedHours  = ((lateMin + earlyMin) / 60) * hourRate;

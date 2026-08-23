@@ -30,8 +30,7 @@ import { logAction } from './audit.js';
 /* ⚠️ الصفوف تُختصر عمداً: computePayroll ترجع مع كل صف مصفوفة details فيها
    يوم بيوم. تخزينها لأربعين موظفاً يتجاوز حدّ الوثيقة (مليون بايت). نحفظ
    الأرقام النهائية التي صُرِف عليها — وهي وحدها ما يُحتجّ به محاسبياً.
-   التفصيل اليومي يبقى قابلاً لإعادة الاشتقاق من المصدر المحفوظ في config.
-   أما الأرقام المحتجّ بها فهي الصفوف المختصرة نفسها، لا إعادة الاشتقاق. */
+   التفصيل اليومي يبقى قابلاً لإعادة الاشتقاق من zkAttendance الذي لا يُعدَّل. */
 function slimRow(r) {
   return {
     uid: r.u.id, name: r.u.name || '', empId: r.u.empId || '',
@@ -48,7 +47,7 @@ function slimRow(r) {
   };
 }
 
-export async function approveRun(cyc, rows, config = payrollConfig()) {
+export async function approveRun(cyc, rows) {
   const me = getMe();
   const slim = rows.map(slimRow);
   const totals = slim.reduce((a, r) => ({
@@ -66,7 +65,7 @@ export async function approveRun(cyc, rows, config = payrollConfig()) {
     approvedAt: serverTimestamp(),
     rows: slim,
     totals,
-    config
+    config: payrollConfig()
   });
   await logAction('اعتماد مسير الرواتب',
     `${cyc.label} — ${totals.headcount} موظفاً · المستحق ${totals.net.toFixed(2)}`);

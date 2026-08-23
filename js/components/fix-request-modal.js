@@ -13,11 +13,9 @@
 
 import { esc, toast, openModal } from '../lib/dom.js';
 import { getMe, getRequests, getSettings } from '../lib/state.js';
-import { ymdKsa } from '../lib/dates.js';
+import { cycleOf, ymdKsa } from '../lib/dates.js';
 import { submitRequest, fixWindowOpen, fixOldestDate,
          fixCountInCycle, FIX_MAX_PER_CYCLE, FIX_WINDOW_DAYS } from '../lib/requests.js';
-import { fixCycleOf } from '../lib/request-windows.js';
-import { sourceRecordUid } from '../lib/attendance-sources.js';
 
 const KIND_AR = {
   missingOut: 'نسيت تسجيل الانصراف',
@@ -29,6 +27,7 @@ const KIND_AR = {
 export function openFixRequest(row, after) {
   const me = getMe();
   const today = ymdKsa();
+  const cyc = cycleOf(new Date());
 
   /* ⚠️ الفحصان قبل فتح النموذج لا بعد ملئه: رفضٌ بعد أن يكتب الموظف سببه
      يجعله يعيد الكتابة بلا سبب مفهوم. */
@@ -36,12 +35,7 @@ export function openFixRequest(row, after) {
     toast(`التصحيح للأيام ${FIX_WINDOW_DAYS} الماضية فقط — أقدم تاريخ مقبول ${fixOldestDate(today)}`, 'err');
     return;
   }
-  const cyc = fixCycleOf(row.dateStr);
-  if (!cyc) {
-    toast('تاريخ سجل الحضور غير صالح — حدّث الصفحة وحاول مرة ثانية', 'err');
-    return;
-  }
-  const used = fixCountInCycle(getRequests(), me, cyc);
+  const used = fixCountInCycle(getRequests(), me.id, cyc);
   if (used >= FIX_MAX_PER_CYCLE) {
     toast(`استهلكت ${FIX_MAX_PER_CYCLE} طلبات تصحيح في هذه الدورة — راجع مديرك`, 'err');
     return;
@@ -100,7 +94,7 @@ export function openFixRequest(row, after) {
     if (reason.length < 10) { err.textContent = 'السبب لازم يكون ١٠ أحرف على الأقل'; return; }
 
     const btn = m.$('#fxOk'); btn.disabled = true; btn.textContent = 'جارٍ التقديم…';
-    const request = {
+    const ok = await submitRequest({
       type: 'attendanceFix',
       date: row.dateStr,
       sessionIdx: idx,
@@ -114,14 +108,7 @@ export function openFixRequest(row, after) {
       chain: ['manager', 'admin'],
       step: 0,
       approvals: []
-    };
-    /* لا نخزّن الحقل للحالة العادية. يظهر فقط حين يستهدف الصف سجلاً بقي
-       تحت UID تاريخي؛ والقاعدة تثبت أنه ضمن previousUids لهذا الموظف. */
-    const targetUid = sourceRecordUid(row.rec, 'zkAttendance');
-    if (targetUid && targetUid !== me.id) {
-      request.attendanceUid = targetUid;
-    }
-    const ok = await submitRequest(request);
+    });
     if (!ok) { btn.disabled = false; btn.textContent = 'تقديم الطلب'; return; }
     m.close();
     if (after) await after();

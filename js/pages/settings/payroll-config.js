@@ -5,7 +5,6 @@ import { payrollConfig } from '../../lib/payroll.js';
 import { money } from '../../lib/format.js';
 import { logAction } from '../../lib/audit.js';
 import { card, button, callout } from '../../lib/ui.js';
-import { payrollAttendanceSource, payrollSourceLabel } from '../../lib/attendance-sources.js';
 
 export function render(view) {
   const S = getSettings();
@@ -30,19 +29,8 @@ export function render(view) {
         <div class="help">يُطرح من دقائق التأخير قبل حساب الخصم.</div></div>
       <div class="field"><label>معاينة</label>
         <div class="preview-box" id="pcPreview"></div></div>
-    </div>
-    <div class="form-row one">
-      <div class="field"><label for="pcSource">مصدر الحضور المستخدم في الرواتب</label>
-        <select id="pcSource">
-          <option value="physical">البصمة الفعلية</option>
-          <option value="mobile">بصمة الجوال</option>
-          <option value="both">كلا المصدرين — بلا تكرار اليوم أو الساعات</option>
-        </select>
-        <div class="help">الإعداد الحالي: <b>${payrollSourceLabel(cfg)}</b>. الحقل الغائب في البيانات القديمة يعني البصمة الفعلية.</div>
-      </div>
     </div>`;
   c.appendChild(body);
-  body.querySelector('#pcSource').value = payrollAttendanceSource(cfg);
 
   const prev = () => {
     const d = Number(body.querySelector('#pcDays').value) || 30;
@@ -57,18 +45,17 @@ export function render(view) {
     S.payroll = {
       daysPerMonth: Number(body.querySelector('#pcDays').value) || 30,
       hoursPerDay:  Number(body.querySelector('#pcHours').value) || 8,
-      graceMinutes: Number(body.querySelector('#pcGrace').value) || 0,
-      attendanceSource: body.querySelector('#pcSource').value
+      graceMinutes: Number(body.querySelector('#pcGrace').value) || 0
     };
     await saveSettings();
     await logAction('تعديل إعدادات الرواتب',
-      `يوم=${S.payroll.daysPerMonth} ساعة=${S.payroll.hoursPerDay} سماح=${S.payroll.graceMinutes}د مصدر=${payrollSourceLabel(S.payroll)}`);
+      `يوم=${S.payroll.daysPerMonth} ساعة=${S.payroll.hoursPerDay} سماح=${S.payroll.graceMinutes}د`);
     toast('حُفظت إعدادات الرواتب', 'ok');
   }));
   view.appendChild(c);
 
-  view.appendChild(callout('warn', 'التغيير لا يعدّل المسيرات المعتمدة',
-    'المسير غير المعتمد يُحسب لحظياً. أما المسير المعتمد فلقطته ومصدره محفوظان ولا يتغيران بهذا الإعداد.'));
+  view.appendChild(callout('warn', 'التغيير يسري بأثر رجعي',
+    'المسير يُحسب لحظياً من هذه القيم، فتعديلها يغيّر أرقام الدورات السابقة أيضاً عند فتحها. صدّر المسير قبل التعديل لو تحتاج نسخة من الأرقام القديمة.'));
 
   /* القواعد المعتمدة — مكتوبة كما ينفّذها الكود بالضبط */
   const rc = card('قواعد الاحتساب المعتمدة');
@@ -82,7 +69,7 @@ export function render(view) {
       <div class="detail-line"><span class="k">إجازة بدون راتب</span><span class="v">خصم يوم كامل</span></div>
       <div class="detail-line"><span class="k">استئذان معتمد</span><span class="v">معفى من الخصم</span></div>
       <div class="detail-line"><span class="k">نسيان بصمة الانصراف</span><span class="v">تُحتسب ساعات الوردية ناقص التأخير</span></div>
-      <div class="detail-line"><span class="k">مصدر الحضور</span><span class="v">${payrollSourceLabel(cfg)}</span></div>
+      <div class="detail-line"><span class="k">مصدر الحضور</span><span class="v">بصمات جهاز ZKTeco فقط</span></div>
     </div>`;
   view.appendChild(rc);
 }

@@ -8,7 +8,6 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import { getMe } from './state.js';
-import { requestBelongsToEmployee } from './permission-link.js';
 
 export const ROLE_AR = {
   admin:   'مدير النظام',
@@ -29,8 +28,7 @@ export function canApprove(r) {
   if (!me) return false;
   if (me.role === 'admin') return true;
   if (me.role === 'manager')
-    return !!r.department && r.department === me.department
-      && !requestBelongsToEmployee(r, me);
+    return !!r.department && r.department === me.department && r.employeeUid !== me.id;
   return false;
 }
 
@@ -64,7 +62,7 @@ export const chainRoleAr = (k) => CHAIN_ROLE_AR[k] || k;
 export function ownsCurrentStep(r) {
   const me = getMe();
   if (!me || !hasChain(r) || r.status !== 'pending') return false;
-  if (requestBelongsToEmployee(r, me)) return false;
+  if (r.employeeUid === me.id) return false;
   const role = r.chain[chainStep(r)];
   if (role === 'admin')   return me.role === 'admin';
   if (role === 'manager') return me.role === 'manager' && !!me.department && me.department === r.department;

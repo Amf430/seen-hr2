@@ -25,16 +25,6 @@ export const MAX_TEXT  = 200;
    وإلا صار التنظيف شرطاً للاستعمال. */
 export const MAX_OPEN = 60;
 
-/* ═══ اكتمال مصادر صفحة «قائمتي» ═══
-   ⚠️ الأدمن لا تُسنَد إليه مهام النظام، لذلك تخطّي مصدر المهام له حالة
-   مقصودة لا خطأ. أما الموظف والمدير ففشل المصدر لا يتحول إلى مصفوفة فارغة:
-   الفراغ يعني يقيناً أن المهمة خرجت من النشط، بينما فشل القراءة لا يثبت ذلك. */
-export async function loadMyDaySources({ role, uid, readTodos, readTasks }) {
-  const tasksPromise = role === 'admin' ? Promise.resolve([]) : readTasks(uid);
-  const [items, tasks] = await Promise.all([readTodos(), tasksPromise]);
-  return { items, tasks };
-}
-
 /* ═══ التطبيع ═══
    ⚠️ كل حقل غائب له سلوك افتراضي مطابق للأبسط: عنصر بلا موعد عنصرٌ صالح،
    وبلا `ref` عنصرٌ شخصي. لا حقل إلزامي جديد. */

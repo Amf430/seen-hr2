@@ -5,8 +5,7 @@ import { refreshUsers } from '../../lib/users.js';
 import { AR_DAYS } from '../../lib/dates.js';
 import { isStale } from '../../lib/nav.js';
 import { shiftPlansOf, planById } from '../../lib/shifts.js';
-import { card, empty, tableWrap, sectionHead, button, callout, loading } from '../../lib/ui.js';
-import { loadRequiredSource } from '../../lib/required-source.js';
+import { card, empty, tableWrap, sectionHead, button } from '../../lib/ui.js';
 
 /* ما الذي يحكم دوام هذا القسم فعلاً — بنفس ترتيب أولوية resolveShift.
    ⚠️ خطة الشفت تتقدّم على الورديات القديمة، فلو كان للقسم الاثنان معاً
@@ -54,18 +53,10 @@ export async function render(view, token) {
   view.appendChild(head);
 
   const host = el('div', '');
-  host.appendChild(loading('جارٍ تحميل الموظفين…'));
   view.appendChild(host);
 
-  const usersSource = await loadRequiredSource(refreshUsers, getUsers);
+  try { await refreshUsers(); } catch (e) { console.error(e); }
   if (isStale(token)) return;
-  if (usersSource.status === 'error') {
-    console.error('departments', usersSource.error);
-    host.innerHTML = '';
-    host.appendChild(callout('danger', 'تعذّر تحميل الموظفين',
-      'لن تُعرض أعداد أو أسماء مديرين ناقصة، ولن تتاح تعديلات الأقسام حتى تنجح القراءة.'));
-    return;
-  }
 
   function draw() {
     host.innerHTML = '';

@@ -9,8 +9,6 @@
    الموظف في شاشتين — وهو ما تمنعه قاعدة «حسبة واحدة في مكان واحد».
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { attendanceMetrics } from './attendance-metrics.js';
-
 const p2 = (n) => String(n).padStart(2, '0');
 
 /* «2026-08-13» → Date محلّي على منتصف الليل.
@@ -66,8 +64,7 @@ export function cycleGridOf(rows, startYmd, endYmd, todayYmd = '', isOff = null)
 }
 
 /* ═══ ملخّص الشهر ═══
-   → { workDays, present, late, absent, leave, missing,
-       attendanceRate, commitmentRate, avgInMin }
+   → { workDays, present, late, absent, leave, missing, onTimePct, avgInMin }
 
    ⚠️ المقام أيام العمل لا أيام الشهر: الراحة والعطلة الرسمية خارج الحساب،
    وإدخالها يجعل نسبة الالتزام تهبط في كل شهر فيه عطلة طويلة بلا ذنب لأحد.
@@ -82,8 +79,7 @@ export function monthSummary(rows) {
   /* ⚠️ نسيان بصمة الحضور يومُ عملٍ حضره الموظف — يدخل المقام ولا يدخل
      «في الوقت»: لا وقت دخول يُقاس عليه. مثل نسيان بصمة الخروج تماماً. */
   const missingIn = count('missingIn');
-  const metrics = attendanceMetrics(list);
-  const workDays = metrics.eligibleDays;
+  const workDays = present + late + absent + missing + missingIn;   /* الإجازة خارج المقام */
 
   /* متوسّط وقت الدخول — بالدقائق من منتصف الليل، لمن سجّل دخولاً فعلاً */
   const ins = list.map((r) => r.firstIn).filter(Boolean)
@@ -93,9 +89,8 @@ export function monthSummary(rows) {
 
   return {
     workDays, present, late, absent, leave, missing, missingIn,
-    attended: metrics.attendanceDays,
-    attendanceRate: metrics.attendanceRate,
-    commitmentRate: metrics.commitmentRate,
+    attended: present + late + missingIn,
+    onTimePct: workDays ? Math.round((present / workDays) * 100) : null,
     avgInMin
   };
 }

@@ -3,13 +3,12 @@ import { getMe, getRequests } from '../lib/state.js';
 import { requestCard } from '../components/request-card.js';
 import { go } from '../lib/nav.js';
 import { card, empty, button } from '../lib/ui.js';
-import { requestBelongsToEmployee } from '../lib/permission-link.js';
 
 /* مدير القسم يرى طلبات قسمه كلها في الكاش، فنفصل طلباته هو */
 export function ownRequests() {
   const me = getMe();
   const all = getRequests();
-  return all.filter((r) => requestBelongsToEmployee(r, me));
+  return me.role === 'manager' ? all.filter((r) => r.employeeUid === me.id) : all;
 }
 
 export function render(view) {

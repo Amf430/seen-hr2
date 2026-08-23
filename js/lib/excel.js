@@ -8,14 +8,12 @@
    جداوله ومعادلاته، فتغيير كلمة واحدة يكسر ملفاته الجاهزة.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { AR_DAYS, STATUS_AR, ymdKsa } from './dates.js';
+import { AR_DAYS, STATUS_AR, ymd } from './dates.js';
 import { fmtDate, hm, tsToDate } from './format.js';
 import { toast } from './dom.js';
 import { sessionsOf, flattenSessions, fetchAttendance } from './attendance.js';
 import { requestsInCycle } from './dates.js';
 import { payrollConfig } from './payroll.js';
-import { permissionExportFields } from './permission-link.js';
-import { payrollSourceLabel } from './attendance-sources.js';
 
 const X = () => window.XLSX;
 
@@ -47,8 +45,7 @@ export function exportRequests(requests) {
     'الوقت/النهاية': r.type === 'permission' ? r.time : r.endDate,
     'الأيام': r.type === 'leave' ? r.days : '', 'السبب': r.reasonLabel || '',
     'جهة الاعتماد': r.approverName || '', 'الحالة': STATUS_AR[r.status],
-    'سبب الرفض': r.rejectReason || '', 'روجع بواسطة': r.reviewedBy || '',
-    'معرف الطلب': r.id || '', 'تفاصيل الطلب': r.note || ''
+    'سبب الرفض': r.rejectReason || '', 'روجع بواسطة': r.reviewedBy || ''
   }));
   saveBook([['الطلبات', rows]], 'طلبات_سين_العقارية.xlsx');
   toast('تم التصدير', 'ok');
@@ -97,8 +94,7 @@ export async function monthlyExport(cyc, allRequests) {
     'الموظف': r.employeeName, 'الرقم الوظيفي': r.employeeEmpId || '', 'القسم': r.department || '',
     'نوع الاستئذان': r.categoryLabel, 'التاريخ': r.date, 'الوقت': r.time, 'السبب': r.reasonLabel || '',
     'جهة الاعتماد': r.approverName || '', 'الحالة': STATUS_AR[r.status],
-    'سبب الرفض': r.rejectReason || '', 'روجع بواسطة': r.reviewedBy || '',
-    'معرف الطلب': r.id || '', 'تفاصيل الطلب': r.note || ''
+    'سبب الرفض': r.rejectReason || '', 'روجع بواسطة': r.reviewedBy || ''
   }));
   const leaveRows = leaves.map((r) => ({
     'الموظف': r.employeeName, 'الرقم الوظيفي': r.employeeEmpId || '', 'القسم': r.department || '',
@@ -122,17 +118,13 @@ export function attendanceExport(cyc, opt, dailyRowsList, sessRowsList) {
   const tag = opt.isDevice ? 'بصمات_الجهاز' : 'حضور_الموقع';
   const sheets = [];
   if (dailyRowsList) {
-    sheets.push(['التقرير اليومي', dailyRowsList.map((r) => {
-      const p = permissionExportFields(r.permissions);
-      return ({
+    sheets.push(['التقرير اليومي', dailyRowsList.map((r) => ({
       'الموظف': r.u.name, 'الرقم الوظيفي': r.u.empId || '', 'القسم': r.u.department || '',
       'التاريخ': r.dateStr, 'اليوم': AR_DAYS[r.dow],
       'الوردية': r.shift ? ((r.shift.type === 'evening' ? 'مسائي ' : 'صباحي ') + (r.shift.start || '') + '–' + (r.shift.end || '')) : '',
       'الحالة': r.status, 'دخول': r.firstIn ? hm(r.firstIn) : '', 'خروج': r.lastOut ? hm(r.lastOut) : '',
-      'ساعات العمل': r.secs > 0 ? (r.secs / 3600).toFixed(2) : '', 'ملاحظة': r.note || '',
-      'يوجد استئذان معتمد': p.exists, 'معرف طلب الاستئذان': p.ids,
-      'نوع الاستئذان': p.types, 'سبب الاستئذان': p.reasons, 'تفاصيل الاستئذان': p.details
-    }); })]);
+      'ساعات العمل': r.secs > 0 ? (r.secs / 3600).toFixed(2) : '', 'ملاحظة': r.note || ''
+    }))]);
   }
   if (sessRowsList) {
     sheets.push(['الجلسات التفصيلية', sessRowsList.map((row) => {
@@ -155,7 +147,7 @@ export function attendanceExport(cyc, opt, dailyRowsList, sessRowsList) {
 
 /* ═══ مسير الرواتب ═══ */
 export function payrollExport(cyc, rowsPay) {
-  const cfg = rowsPay[0]?.cfg || payrollConfig();
+  const cfg = payrollConfig();
   const summary = rowsPay.map((r) => ({
     'الموظف': r.u.name, 'الرقم الوظيفي': r.u.empId || '', 'القسم': r.u.department || '', 'المسمى': r.u.jobTitle || '',
     'الراتب الأساسي': r.salary, 'قيمة اليوم': +r.dayRate.toFixed(2), 'قيمة الساعة': +r.hourRate.toFixed(2),
@@ -169,21 +161,17 @@ export function payrollExport(cyc, rowsPay) {
     'إجمالي الخصم': +r.total.toFixed(2), 'المستحق': +r.net.toFixed(2)
   }));
   const details = [];
-  rowsPay.forEach((r) => (r.details || []).forEach((d) => {
-    const p = permissionExportFields(d.permissions);
-    details.push({
+  rowsPay.forEach((r) => r.details.forEach((d) => details.push({
     'الموظف': r.u.name, 'الرقم الوظيفي': r.u.empId || '', 'التاريخ': d.dateStr, 'اليوم': AR_DAYS[d.dow] || '',
     'الحالة': d.status, 'ساعات مطلوبة': +(d.need || 0).toFixed(2),
     'دخول': d.in ? hm(d.in) : '', 'خروج': d.out ? hm(d.out) : '',
     'دقائق تأخير': d.lm || 0, 'دقائق خروج مبكر': d.em || 0, 'دقائق معفاة': d.ex || 0,
-    'خصم اليوم': +(d.ded || 0).toFixed(2),
-    'معرف طلب الاستئذان': p.ids, 'نوع الاستئذان': p.types, 'سبب الاستئذان': p.reasons,
-    'تفاصيل الاستئذان': p.details
-  }); }));
+    'خصم اليوم': +(d.ded || 0).toFixed(2)
+  })));
   const rules = [
     { 'البند': 'الدورة', 'القيمة': cyc.label },
-    { 'البند': 'من', 'القيمة': ymdKsa(cyc.start) },
-    { 'البند': 'إلى', 'القيمة': ymdKsa(cyc.end) },
+    { 'البند': 'من', 'القيمة': ymd(cyc.start) },
+    { 'البند': 'إلى', 'القيمة': ymd(cyc.end) },
     { 'البند': 'قيمة اليوم', 'القيمة': 'الراتب ÷ ' + cfg.daysPerMonth },
     { 'البند': 'قيمة الساعة', 'القيمة': 'قيمة اليوم ÷ ' + cfg.hoursPerDay },
     { 'البند': 'سماح التأخير', 'القيمة': (cfg.graceMinutes || 0) + ' دقيقة' },
@@ -192,7 +180,7 @@ export function payrollExport(cyc, rowsPay) {
     { 'البند': 'الإجازات المدفوعة', 'القيمة': 'بلا خصم' },
     { 'البند': 'إجازة بدون راتب', 'القيمة': 'خصم يوم كامل' },
     { 'البند': 'الاستئذان المعتمد', 'القيمة': 'معفى من الخصم' },
-    { 'البند': 'مصدر الحضور', 'القيمة': payrollSourceLabel(cfg) },
+    { 'البند': 'مصدر الحضور', 'القيمة': 'بصمات جهاز ZKTeco (zkAttendance)' },
     { 'البند': 'تاريخ إصدار المسير', 'القيمة': fmtDate(new Date()) }
   ];
   saveBook([['مسير الرواتب', summary], ['تفصيل الأيام', details], ['قواعد الحساب', rules]],

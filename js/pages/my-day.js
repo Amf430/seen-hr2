@@ -34,7 +34,7 @@ import { greeting, firstName, fmtDayDate } from '../lib/format.js';
 import { readTodos, writeTodos } from '../lib/todo-io.js';
 import { addItem, toggleItem, removeItem, todayView, prunable, pruneDone,
          dueReminders, todoColumns, dueForBucket, setDue,
-         loadMyDaySources, MAX_TEXT, PRUNE_AFTER_DAYS } from '../lib/todo.js';
+         MAX_TEXT, PRUNE_AFTER_DAYS } from '../lib/todo.js';
 import { tasksForAssignee } from '../lib/tasks.js';
 import { dueStateOf, progressOf, STATUS_AR } from '../lib/task-flow.js';
 import { isStale, go } from '../lib/nav.js';
@@ -80,12 +80,12 @@ export async function render(view, token) {
 
   let items = [], tasks = [];
   try {
-    ({ items, tasks } = await loadMyDaySources({
-      role: me.role,
-      uid: me.id,
-      readTodos,
-      readTasks: tasksForAssignee
-    }));
+    [items, tasks] = await Promise.all([
+      readTodos(),
+      /* ⚠️ الأدمن ليست له مهام مكلَّف بها — والاستعلام يفشل بلا ضرر، فالقائمة
+         الشخصية تعمل وحدها. */
+      tasksForAssignee(me.id).catch(() => [])
+    ]);
   } catch (e) {
     console.error('my-day', e);
     if (isStale(token)) return;

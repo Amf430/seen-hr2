@@ -30,10 +30,6 @@ import { computePayroll, isUnpaidLeave, payrollConfig } from '../../js/lib/payro
 import { buildDailyStatus, sessionsOf, workedSecs, lastOutOf, dayBounds } from '../../js/lib/attendance.js';
 import { compress } from '../../js/lib/photo.js';
 import { permWindowOpen, permOldestDate } from '../../js/lib/requests.js';
-import { mergeAttendanceSources, selectPayrollAttendance } from '../../js/lib/attendance-sources.js';
-import { attendanceMetrics } from '../../js/lib/attendance-metrics.js';
-import { applyAll, adjustedUnifiedAttendance, adjustedPayrollAttendance } from '../../js/lib/adjustments.js';
-import { todayAttendance, payrollSummary } from '../../js/lib/hr-stats.js';
 
 const out = document.getElementById('out');
 let pass = 0, fail = 0;
@@ -80,7 +76,6 @@ const at = (dateStr, hhmm) => new Date(dateStr + 'T' + hhmm + ':00');
 /* موظف واحد براتب ٩٠٠٠ — قيمة اليوم ٣٠٠، قيمة الساعة ٣٧٫٥ */
 const EMP = { id:'e1', name:'سالم', role:'employee', department:'المبيعات',
               salary:9000, hireDate:'2020-01-01' };
-const RESTORED_EMP = { ...EMP, id:'e-new', previousUids:['e1','e-old-2'] };
 
 /* سجل بصمة ليوم واحد */
 const rec = (dateStr, inHm, outHm) => ({
@@ -100,67 +95,6 @@ function fullMonth(overrides = {}) {
   return recs;
 }
 const runPayroll = (recs, reqs=[]) => computePayroll(CYC, [EMP], reqs, recs)[0];
-
-/* الهوية المستعادة تقرأ الطلب والسجل التاريخيين بلا تعديل أي وثيقة. */
-settings();
-{
-  const oldPerm = { id:'old-perm', type:'permission', status:'approved',
-    employeeUid:'e-old-2', date:'2026-06-01', category:'تأخير عن الدوام' };
-  const oldLeave = { id:'old-leave', type:'leave', status:'approved',
-    employeeUid:'e1', startDate:'2026-06-02', endDate:'2026-06-02',
-    leaveTypeId:LT_ANNUAL, categoryLabel:'إجازة سنوية', deduct:true };
-  const rows = buildDailyStatus(CYC, [RESTORED_EMP], [oldPerm, oldLeave], fullMonth({
-    '2026-06-01': { ...rec('2026-06-01','08:30','16:00'), employeeUid:'e-old-2' },
-    '2026-06-02': null
-  }));
-  eq('previousUid يربط الاستئذان بالسجل التاريخي', 'old-perm',
-    rows.find((r) => r.dateStr === '2026-06-01').permissions[0].id);
-  eq('previousUid يربط الإجازة بالهوية الحالية', 'leave',
-    rows.find((r) => r.dateStr === '2026-06-02').cls);
-  const foreign = computePayroll(CYC, [RESTORED_EMP], [{ ...oldLeave, employeeUid:'foreign-old' }],
-    fullMonth({ '2026-06-02': null }))[0];
-  eq('UID تاريخي لموظف آخر لا يمنح إجازة', 1, foreign.absentDays);
-}
-
-/* سجل موحد لا يضاعف اليوم، ويغذي المحرك المركزي بحدّين من مصدرين مختلفين. */
-{
-  const merged = mergeAttendanceSources([EMP], [
-    { coll:'zkAttendance', records:[{ employeeUid:'e1', date:'2026-06-01', sessions:[{ in:at('2026-06-01','07:55'), out:at('2026-06-01','15:50') }] }] },
-    { coll:'attendance', records:[{ employeeUid:'e1', date:'2026-06-01', sessions:[{ in:at('2026-06-01','08:20'), out:at('2026-06-01','16:10') }] }] }
-  ]);
-  eq('دمج المصدرين ينتج وثيقة يوم واحدة', 1, merged.length);
-  const mergedRows = buildDailyStatus(CYC, [EMP], [], fullMonth({ '2026-06-01': merged[0] }));
-  const day = mergedRows.find((r) => r.dateStr === '2026-06-01');
-  eq('الحالة الموحدة تستعمل الدخول الأبكر', '07:55', day.firstIn.toTimeString().slice(0,5));
-  eq('وتستعمل الخروج الأحدث بلا جمع ساعات المصدرين', 8.25, +(day.secs / 3600).toFixed(2));
-}
-
-/* تكامل Widget «داخل العمل الآن» مع السجل الموحد. */
-{
-  const today = ymd(new Date());
-  const allDays = Object.fromEntries(Array.from({ length: 7 }, (_, dow) =>
-    [dow, { type:'morning', start:'08:00', end:'16:00' }]));
-  settings({ shifts: allDays });
-  const physical = { employeeUid:'e1', date:today,
-    sessions:[{ in:at(today,'08:00'), out:null }] };
-  const mobile = { employeeUid:'e1', date:today,
-    sessions:[{ in:at(today,'08:05'), out:null }] };
-  const both = mergeAttendanceSources([EMP], [
-    { coll:'zkAttendance', records:[physical] },
-    { coll:'attendance', records:[mobile] }
-  ]);
-  const live = todayAttendance([EMP], both, []);
-  eq('Widget يعرض المصدرين مرة واحدة', [1,1,'both','بصمة + جوال'],
-     [live.inNow, live.insideNow.length, live.insideNow[0].sourceKind,
-      live.insideNow[0].sourceLabel]);
-
-  const completed = mergeAttendanceSources([EMP], [{ coll:'zkAttendance', records:[{
-    ...physical, sessions:[{ in:at(today,'08:00'), out:at(today,'16:00') }]
-  }] }]);
-  eq('Widget لا يعرض من أكمل Check-out', 0,
-     todayAttendance([EMP], completed, []).insideNow.length);
-  settings();
-}
 
 /* ══════════════════ ١. المسير — الأساس ══════════════════ */
 group('١. المسير — الحضور المثالي');
@@ -199,10 +133,9 @@ group('٢. التأخير والخروج المبكر');
 
 /* ══════════════════ ٣. الاستئذان المعتمد يُعفي ══════════════════ */
 group('٣. الاستئذان — المعتمد وحده يُعفي');
-const permOn = (date, cat, status='approved', over={}) => ({
+const permOn = (date, cat, status='approved') => ({
   id:'p-'+date+cat, type:'permission', status, employeeUid:'e1', date,
-  category:cat, categoryLabel:cat, time:'09:00', reasonLabel:'مهمة عمل',
-  note:'زيارة عميل', ...over
+  category:cat, categoryLabel:cat, time:'09:00'
 });
 {
   const late = { '2026-06-01': rec('2026-06-01','08:30','16:00') };
@@ -228,11 +161,6 @@ const permOn = (date, cat, status='approved', over={}) => ({
   /* ⚠️ النوع يقرّر أي دقائق تُعفى — «خروج مبكر» لا يمحو تأخير الصباح */
   eq('واستئذان «خروج مبكر» لا يُعفي تأخير الدخول',
      30, runPayroll(fullMonth(late), [permOn('2026-06-01','خروج مبكر')]).lateMin);
-  const semantic = permOn('2026-06-01','تصنيف تغيّر', 'approved', { id:'stable-request', permissionKind:'late' });
-  const semanticPay = runPayroll(fullMonth(late), [semantic]);
-  eq('الحقل الدلالي يعفي ولو تغيّر نص التصنيف', 0, semanticPay.lateMin);
-  eq('تفصيل المسير يحتفظ بمعرّف الطلب الأصلي', 'stable-request',
-     semanticPay.details.find((d) => d.dateStr === '2026-06-01').permissions[0].id);
 }
 {
   const early = { '2026-06-01': rec('2026-06-01','08:00','15:00') };
@@ -242,50 +170,6 @@ const permOn = (date, cat, status='approved', over={}) => ({
               return { early:r.earlyMin, exempt:r.exemptMin, ded:+r.total.toFixed(2) }; })());
   eq('واستئذان «تأخير» لا يُعفي الخروج المبكر',
      60, runPayroll(fullMonth(early), [permOn('2026-06-01','تأخير عن الدوام')]).earlyMin);
-}
-
-/* ══════════════════ ٤. الغياب والإجازات ══════════════════ */
-group('٣-ب. مصدر الحضور المستخدم في المسير');
-{
-  const physical = fullMonth({ '2026-06-01': rec('2026-06-01','08:30','16:00') });
-  const mobile   = fullMonth({ '2026-06-01': rec('2026-06-01','08:00','16:00') });
-  settings({ payroll:{ hoursPerDay:8, daysPerMonth:30, graceMinutes:0, attendanceSource:'physical' } });
-  eq('physical only يحتسب الجهاز', 30,
-     runPayroll(selectPayrollAttendance([EMP], { attendanceSource:'physical' }, physical, mobile)).lateMin);
-  eq('mobile only يحتسب الجوال', 0,
-     runPayroll(selectPayrollAttendance([EMP], { attendanceSource:'mobile' }, physical, mobile)).lateMin);
-  eq('both لا يكرر اليوم ويأخذ الحد الصحيح', 0,
-     runPayroll(selectPayrollAttendance([EMP], { attendanceSource:'both' }, physical, mobile)).lateMin);
-
-  const samePhysical = fullMonth({ '2026-06-01': rec('2026-06-01','08:30','16:00') });
-  const sameMobile   = fullMonth({ '2026-06-01': rec('2026-06-01','08:30','16:00') });
-  const bothRows = runPayroll(selectPayrollAttendance([EMP], { attendanceSource:'both' }, samePhysical, sameMobile));
-  eq('both لا يضاعف ساعات اليوم', 7.5,
-     +bothRows.workH.toFixed(1) - 22 * 8);
-  eq('both لا يضاعف دقائق التأخير', 30, bothRows.lateMin);
-  eq('both لا يضاعف الخصم', 18.75, +bothRows.total.toFixed(2));
-  eq('both يعمل بمصدر واحد', 30,
-     runPayroll(selectPayrollAttendance([EMP], { attendanceSource:'both' }, physical, [])).lateMin);
-
-  /* صفحات المسير واللوحة والبروفايل تمرّ من Pipeline المدخلات نفسها؛ لا
-     تملك أي شاشة نسخة مختصرة من اختيار المصدر أو تطبيق التصحيح. */
-  const correction = [{
-    employeeUid:'e1', employeeName:'سالم', date:'2026-06-01', coll:'zkAttendance',
-    sessionIdx:0, field:'in', value:at('2026-06-01','08:00'), status:'approved',
-    at:{ toMillis:()=>1 }
-  }];
-  for (const source of ['physical','mobile','both']) {
-    const config = { hoursPerDay:8, daysPerMonth:30, graceMinutes:0, attendanceSource:source };
-    const prepared = adjustedPayrollAttendance([EMP], config, physical, mobile, correction);
-    const official = computePayroll(CYC, [EMP], [], prepared, { config })[0];
-    const dashboard = payrollSummary(CYC, [EMP], [], prepared, { config }).rows[0];
-    const profile = computePayroll(CYC, [EMP], [], prepared, { config })[0];
-    const sig = (r) => [r.net, r.total, r.lateMin, r.workH];
-    eq(`${source}: Payroll وDashboard وProfile متطابقة`,
-       [sig(official), sig(official), sig(official)],
-       [sig(official), sig(dashboard), sig(profile)]);
-  }
-  settings();
 }
 
 /* ══════════════════ ٤. الغياب والإجازات ══════════════════ */
@@ -386,86 +270,6 @@ const statusOf = (recs, reqs=[]) => {
   eq('جلسة مفتوحة ومضى وقتها = نسيان بصمة خروج', 'missing', m['2026-06-01'].cls);
 }
 {
-  const outOnly = { employeeUid:'e1', date:'2026-06-01', missedCheckIn:true,
-    sessions:[{ in:null, out:at('2026-06-01','16:00') }] };
-  const m = statusOf([outOnly]);
-  eq('خروج منفرد معلّم يصل فعلياً إلى missingIn',
-     { cls:'missingIn', firstIn:null, out:'16:00', evidence:true },
-     { cls:m['2026-06-01'].cls, firstIn:m['2026-06-01'].firstIn,
-       out:m['2026-06-01'].lastOut.toTimeString().slice(0,5),
-       evidence:m['2026-06-01'].hasAttendanceEvidence });
-
-  const invalid = { employeeUid:'e1', date:'2026-06-01', missedCheckIn:true,
-    sessions:[{ in:null, out:null }] };
-  eq('وسم بلا بصمة فعلية لا يصير حضوراً', 'absent', statusOf([invalid])['2026-06-01'].cls);
-
-  const corrected = applyAll([outOnly], [{
-    employeeUid:'e1', date:'2026-06-01', sessionIdx:0, field:'in',
-    value:at('2026-06-01','08:00'), at:{ toMillis:()=>1 }
-  }]);
-  const fixed = statusOf(corrected)['2026-06-01'];
-  eq('إضافة دخول بتصحيح معتمد تعيد التصنيف', 'present', fixed.cls);
-  eq('وبعد التصحيح يصبح اليوم منضبطاً', [100,100],
-     (() => { const x=attendanceMetrics([fixed]); return [x.attendanceRate,x.commitmentRate]; })());
-
-  const inOnly = rec('2026-06-01','08:00',null);
-  eq('missingOut قبل التصحيح غير منضبط', 'missing', statusOf([inOnly])['2026-06-01'].cls);
-  const fixedOut = applyAll([inOnly], [{
-    employeeUid:'e1', date:'2026-06-01', sessionIdx:0, field:'out',
-    value:at('2026-06-01','16:00'), at:{ toMillis:()=>1 }
-  }]);
-  const fixedOutDay = statusOf(fixedOut)['2026-06-01'];
-  eq('تصحيح missingOut يعيد اليوم منضبطاً', ['present',100],
-     [fixedOutDay.cls, attendanceMetrics([fixedOutDay]).commitmentRate]);
-
-  const correctedUnified = adjustedUnifiedAttendance([EMP], [inOnly], [], [{
-    employeeUid:'e1', date:'2026-06-01', coll:'zkAttendance', sessionIdx:0, field:'out',
-    value:at('2026-06-01','16:00'), at:{ toMillis:()=>1 }
-  }]);
-  const truth = statusOf(correctedUnified)['2026-06-01'];
-  eq('المصدر الموحد يطبق التصحيح قبل التصنيف والمؤشرات', ['present',100,100],
-     [truth.cls, attendanceMetrics([truth]).attendanceRate,
-       attendanceMetrics([truth]).commitmentRate]);
-
-  const approvedAdj = (field, value, over={}) => ({
-    employeeUid:'e1', employeeName:'سالم', date:'2026-06-01', coll:'zkAttendance',
-    sessionIdx:0, field, value, status:'approved', at:{ toMillis:()=>field === 'in' ? 1 : 2 },
-    ...over
-  });
-  const noRawBoth = adjustedUnifiedAttendance([EMP], [], [], [
-    approvedAdj('in', at('2026-06-01','08:00')),
-    approvedAdj('out', at('2026-06-01','16:00'))
-  ]);
-  eq('no raw + in/out adjustment يصنف اليوم طبيعياً', 'present',
-     statusOf(noRawBoth)['2026-06-01'].cls);
-
-  const noRawIn = adjustedUnifiedAttendance([EMP], [], [], [
-    approvedAdj('in', at('2026-06-01','08:00'))
-  ]);
-  eq('no raw + in only يصنف missingOut', 'missing',
-     statusOf(noRawIn)['2026-06-01'].cls);
-
-  const noRawOut = adjustedUnifiedAttendance([EMP], [], [], [
-    approvedAdj('out', at('2026-06-01','16:00'))
-  ]);
-  eq('no raw + out only يصنف missingIn', 'missingIn',
-     statusOf(noRawOut)['2026-06-01'].cls);
-
-  const invalidOrRejected = adjustedUnifiedAttendance([EMP], [], [], [
-    approvedAdj('in', 'bad timestamp'),
-    approvedAdj('out', at('2026-06-01','16:00'), { status:'rejected' })
-  ]);
-  eq('invalid/rejected adjustment لا ينشئ حضوراً', 'absent',
-     statusOf(invalidOrRejected)['2026-06-01'].cls);
-
-  const rawAndAdjustment = adjustedUnifiedAttendance([EMP],
-    [rec('2026-06-01','08:30','16:00')], [],
-    [approvedAdj('in', at('2026-06-01','08:00'))]);
-  eq('raw + adjustment لا يكرر اليوم ولا يطبّق مرتين', [1,1,'08:00'],
-     [rawAndAdjustment.length, rawAndAdjustment[0].__sourceRecords.length,
-      statusOf(rawAndAdjustment)['2026-06-01'].firstIn.toTimeString().slice(0,5)]);
-}
-{
   /* الجمعة والسبت لا تظهران أصلاً — لا يُحاسب عليهما */
   const m = statusOf([]);
   eq('الجمعة غير محسوبة', undefined, m['2026-06-05']);
@@ -500,9 +304,7 @@ group('٧. نافذة الاستئذان على الحالة اليومية');
   const m = statusOf([rec('2026-06-01','08:30','16:00')],
                      [permOn('2026-06-01','تأخير عن الدوام')]);
   eq('استئذان معتمد ⇒ لا وسم «بدون عذر»', false, m['2026-06-01'].note.includes('بدون عذر'));
-  eq('ويُذكر الاستئذان وسببه في الملاحظة', true,  m['2026-06-01'].note.includes('استئذان — مهمة عمل'));
-  eq('وصف اليوم يحتفظ بمرجع الطلب الأصلي', 'p-2026-06-01تأخير عن الدوام',
-     m['2026-06-01'].permissions[0].id);
+  eq('ويُذكر الاستئذان في الملاحظة',      true,  m['2026-06-01'].note.includes('استئذان تأخير'));
 }
 eq('النافذة تقبل أمس',        true,  permWindowOpen(ymd(new Date(Date.now()-86400000))));
 eq('وترفض ما قبل ٤ أيام',     false, permWindowOpen(ymd(new Date(Date.now()-4*86400000))));
@@ -607,32 +409,6 @@ const admView = buildDailyStatus(CYC, [EMP], [], fullMonth({ [D]: rec(D, '09:00'
                                  { compensate: true }).find((r) => r.dateStr === D);
 eq('وشاشة الأدمن تعوّضه فيصير حاضراً', 'present', admView.cls);
 eq('وتشرح السبب للأدمن',               true, /عوّض/.test(admView.note));
-eq('لكن مؤشر الالتزام يحتفظ بالتأخير قبل التعويض', 60, admView.punctualityLateMin);
-eq('والبقاء بعد الدوام لا يجعل اليوم منضبطاً', 0,
-   attendanceMetrics([admView]).commitmentRate);
-
-/* ── تغطية الاستئذان زمنية لا إعفاء لليوم كله ── */
-const fullyCoveredLate = buildDailyStatus(CYC, [EMP],
-  [permOn(D, 'تأخير عن الدوام', 'approved', { time:'09:00' })],
-  fullMonth({ [D]: rec(D, '08:45', '16:00') })).find((r) => r.dateStr === D);
-eq('استئذان يغطي التأخير بالكامل → لا مخالفة التزام', 0,
-   fullyCoveredLate.punctualityLateMin);
-eq('واليوم المغطى بالكامل منضبط', 100,
-   attendanceMetrics([fullyCoveredLate]).commitmentRate);
-
-const partlyCoveredLate = buildDailyStatus(CYC, [EMP],
-  [permOn(D, 'تأخير عن الدوام', 'approved', { time:'08:30' })],
-  fullMonth({ [D]: rec(D, '09:00', '16:00') })).find((r) => r.dateStr === D);
-eq('استئذان حتى ٠٨:٣٠ لا يغطي دخول ٠٩:٠٠ بالكامل', 30,
-   partlyCoveredLate.punctualityLateMin);
-eq('والجزء غير المغطى يفشل الالتزام', 0,
-   attendanceMetrics([partlyCoveredLate]).commitmentRate);
-
-const partlyCoveredEarly = buildDailyStatus(CYC, [EMP],
-  [permOn(D, 'خروج مبكر', 'approved', { time:'15:00' })],
-  fullMonth({ [D]: rec(D, '08:00', '14:30') })).find((r) => r.dateStr === D);
-eq('الخروج قبل بداية الاستئذان يبقي الجزء السابق مخالفة', 30,
-   partlyCoveredEarly.punctualityEarlyMin);
 
 /* ══════════════════ ١٠. ضغط الصورة ══════════════════ */
 group('١٠. ضغط صورة إثبات الموقع');

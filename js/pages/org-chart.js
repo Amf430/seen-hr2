@@ -21,7 +21,6 @@ import { orgTree, flattenTree, directReports, allReports, managerOf } from '../l
 import { go, isStale } from '../lib/nav.js';
 import { card, tableWrap, empty, button, callout, sectionHead , statCard } from '../lib/ui.js';
 import { roleLabel } from '../lib/perms.js';
-import { loadRequiredSource } from '../lib/required-source.js';
 
 export async function render(view, token) {
   const me = getMe();
@@ -34,14 +33,8 @@ export async function render(view, token) {
   const host = el('div', '');
   view.appendChild(host);
 
-  const usersSource = await loadRequiredSource(refreshUsers, getUsers);
+  try { await refreshUsers(); } catch (e) { console.error(e); }
   if (isStale(token)) return;
-  if (usersSource.status === 'error') {
-    console.error('org-chart', usersSource.error);
-    host.appendChild(callout('danger', 'تعذّر تحميل الهيكل التنظيمي',
-      'لم تُعرض أرقام أو علاقات ناقصة. أعد المحاولة بعد التأكد من الاتصال.'));
-    return;
-  }
   draw();
   const search = view.querySelector('#orgSearch');
   if (search) search.oninput = draw;
