@@ -94,13 +94,12 @@ eq('نسيان بصمة', 1, s.missing);
 eq('إجازة', 1, s.leave);
 /* ⚠️ الإجازة خارج المقام: من كان في إجازة لا يُحاسب على أيامها */
 eq('⚠️ أيام العمل ٤ — الإجازة مطروحة من المقام', 4, s.workDays);
-eq('ومن لديه دليل حضور فعلي ٣', 3, s.attended);
-eq('نسبة الحضور ٣ من ٤ = ٧٥٪', 75, s.attendanceRate);
-eq('نسبة الالتزام يوم واحد من ٤ = ٢٥٪', 25, s.commitmentRate);
+eq('ومن حضر فعلاً ٢', 2, s.attended);
+eq('نسبة الالتزام ١ من ٤ = ٢٥٪', 25, s.onTimePct);
 
 const noWork = monthSummary([{ dateStr: '2026-08-01', cls: 'leave' }]);
-eq('⚠️ شهر كله إجازة لا يُقسم على صفر', null, noWork.commitmentRate);
-eq('صفوف فارغة', null, monthSummary([]).commitmentRate);
+eq('⚠️ شهر كله إجازة لا يُقسم على صفر', null, noWork.onTimePct);
+eq('صفوف فارغة', null, monthSummary([]).onTimePct);
 eq('null لا ينهار', 0, monthSummary(null).workDays);
 eq('صفّ بلا cls يُتجاهل', 0, monthSummary([{ dateStr: '2026-08-01' }]).workDays);
 

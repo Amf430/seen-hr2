@@ -29,10 +29,6 @@ import { getPosition } from '../lib/geo.js';
 const LEAFLET_VER = '1.9.4';
 const LEAFLET_JS  = `https://unpkg.com/leaflet@${LEAFLET_VER}/dist/leaflet.js`;
 const LEAFLET_CSS = `https://unpkg.com/leaflet@${LEAFLET_VER}/dist/leaflet.css`;
-/* من صفحة تنزيل Leaflet الرسمية لنفس الإصدار. إبقاؤهما بجوار الرابط يمنع
-   تغيير الملف من الـCDN بلا تغيير واعٍ هنا وفي اختبار عقد النشر. */
-const LEAFLET_JS_SRI  = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
-const LEAFLET_CSS_SRI = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=';
 
 /* مركز احتياطي حين يُفتح فرع جديد بلا إحداثيات — الرياض */
 const FALLBACK = { lat: 24.7136, lng: 46.6753 };
@@ -59,14 +55,10 @@ function loadLeaflet() {
       const css = el('link');
       css.rel = 'stylesheet';
       css.href = LEAFLET_CSS;
-      css.integrity = LEAFLET_CSS_SRI;
-      css.crossOrigin = 'anonymous';
       document.head.appendChild(css);
     }
     const s = document.createElement('script');
     s.src = LEAFLET_JS;
-    s.integrity = LEAFLET_JS_SRI;
-    s.crossOrigin = 'anonymous';
     s.async = true;
     s.onload  = () => (window.L ? resolve(window.L) : reject(new Error('leaflet-missing')));
     /* الفشل يُنسي الوعد حتى تُعيد المحاولة فتحةٌ لاحقة بدل أن تفشل للأبد */

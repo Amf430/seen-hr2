@@ -10,32 +10,13 @@ import { describeRule } from '../lib/geo.js';
 import { openEmpForm } from '../components/employee-form.js';
 import { go, isStale, rerender, getPageArg } from '../lib/nav.js';
 import { roleLabel } from '../lib/perms.js';
-import { card, empty, tableWrap, button, bar, sectionHead, statCard, callout } from '../lib/ui.js';
+import { card, empty, tableWrap, button, bar, sectionHead , statCard } from '../lib/ui.js';
 import { salaryCertificate, leaveStatement } from '../lib/certificates.js';
 import { directReports, managerOf, managerChain } from '../lib/org.js';
 import { openDocsModal, docsList } from '../components/documents-modal.js';
-import { adjustmentsForAttendanceRecords, adjustedUnifiedAttendance } from '../lib/adjustments.js';
-import { attendanceMetrics } from '../lib/attendance-metrics.js';
-import { requestBelongsToEmployee } from '../lib/permission-link.js';
-import { adjustedPayrollAttendance } from '../lib/attendance-pipeline.js';
-import {
-  loadRequiredAttendanceSources, payrollConfigForRun, payrollSourceLabel
-} from '../lib/attendance-sources.js';
-import { getRun } from '../lib/payroll-runs.js';
-import { payrollRowForEmployee } from '../lib/payroll-view.js';
-import { loadRequiredSource } from '../lib/required-source.js';
 
 export async function render(view, token) {
-  if (!getUsers().length) {
-    const usersSource = await loadRequiredSource(refreshUsers, getUsers);
-    if (isStale(token)) return;
-    if (usersSource.status === 'error') {
-      console.error('employee-profile', usersSource.error);
-      view.appendChild(callout('danger', 'تعذّر تحميل ملف الموظف',
-        'تعذر تحميل قائمة الموظفين، لذلك لم يُفسَّر الرابط على أنه موظف غير موجود.'));
-      return;
-    }
-  }
+  if (!getUsers().length) { try { await refreshUsers(); } catch (e) { console.error(e); } }
   if (isStale(token)) return;
 
   /* ── مصدر معرّف الموظف ──
@@ -53,9 +34,6 @@ export async function render(view, token) {
     return;
   }
 
-  /* الأدمن وحده يرى الرواتب ويحرّر — تُستعمل في عدة مواضع أدناه */
-  const isAdmin = getMe().role === 'admin';
-
   /* ترويسة */
   const hd = el('div', 'hero-card');
   hd.innerHTML = `
@@ -71,6 +49,9 @@ export async function render(view, token) {
       </div>
     </div>`;
   view.appendChild(hd);
+
+  /* الأدمن وحده يرى الرواتب ويحرّر — تُستعمل في عدة مواضع أدناه */
+  const isAdmin = getMe().role === 'admin';
 
   const bar2 = el('div', 'btn-bar');
   bar2.appendChild(button('كل الموظفين', 'btn sm ghost', () => go('employees')));
@@ -113,20 +94,18 @@ export async function render(view, token) {
 
   /* ── المستندات ──
      الأدمن وحده يحرّر (القاعدة تفرضه)؛ مدير القسم يرى ولا يعدّل. */
-  {
-    const dc = card('');
-    dc.appendChild(sectionHead({ text: 'المستندات وتواريخ الانتهاء', icon: 'doc' },
-      isAdmin ? button('إدارة المستندات', 'btn sm', () => openDocsModal(u, async () => {
-        await refreshUsers(); rerender();
-      }), 'gear') : null));
-    dc.appendChild(docsList(u));
-    view.appendChild(dc);
-  }
+  const dc = card('');
+  dc.appendChild(sectionHead({ text: 'المستندات وتواريخ الانتهاء', icon: 'doc' },
+    isAdmin ? button('إدارة المستندات', 'btn sm', () => openDocsModal(u, async () => {
+      await refreshUsers(); rerender();
+    }), 'gear') : null));
+  dc.appendChild(docsList(u));
+  view.appendChild(dc);
 
   /* اختيار الدورة */
   const cycles = recentCyclesList(12);
   const pick = card('تحليلات الالتزام', null, 'chart',
-    'المصدر: سجل يوم موحّد بين جهاز ZKTeco وتسجيل الجوال. أيام الراحة والعطل مستثناة.');
+    'المصدر: بصمات جهاز ZKTeco. أيام الراحة والعطل الرسمية مستثناة من الحساب.');
   const dd = el('select', 'select-lg');
   dd.innerHTML = cycles.map((c, i) => `<option value="${i}">${esc(c.label)}${i === 0 ? ' (الحالية)' : ''}</option>`).join('');
   pick.appendChild(dd);
@@ -138,32 +117,16 @@ export async function render(view, token) {
   async function draw() {
     const cyc = cycles[+dd.value];
     host.innerHTML = '<div class="card"><div class="empty"><span class="spinner"></span> جارٍ الحساب…</div></div>';
-    let recs = [], webRecs = [], adjustments = [], run = null;
-    /* مدير القسم يثبت نطاقه داخل الاستعلام نفسه: القسم + هوية الموظف
-       الحالية/السابقة + التاريخ. فلترة القسم بعد القراءة لا تمرّ من Rules. */
-    try {
-      const loaded = await Promise.all([
-        loadRequiredAttendanceSources({
-          physical: () => fetchMyAttendance(cyc, uidsOf(u), 'zkAttendance', u.department || ''),
-          mobile: () => fetchMyAttendance(cyc, uidsOf(u), 'attendance', u.department || '')
-        }),
-        /* لقطة المسير تحمل صفوف الشركة كاملة. المدير لا يحتاجها لبطاقات
-           الحضور، ولا توجد قراءة جزئية آمنة من مصفوفة rows داخل الوثيقة. */
-        isAdmin ? getRun(cyc.key) : Promise.resolve(null)
-      ]);
-      recs = loaded[0].physical;
-      webRecs = loaded[0].mobile;
-      run = loaded[1];
-      adjustments = await adjustmentsForAttendanceRecords([
-        { coll: 'zkAttendance', records: recs },
-        { coll: 'attendance', records: webRecs }
-      ]);
-    }
+    let recs = [];
+    /* قراءة مباشرة بمعرّف الوثيقة — الاستعلام بالمدى مرفوض لغير الأدمن،
+       وهذه الصفحة تحتاج موظفاً واحداً فقط فلا تحتاج استعلاماً ولا فهرساً. */
+    try { recs = await fetchMyAttendance(cyc, uidsOf(u), 'zkAttendance'); }
     catch (e) { console.error(e); host.innerHTML = '<div class="card"><div class="empty">تعذّر تحميل سجل البصمة</div></div>'; return; }
     if (isStale(token)) return;
 
-    const mine = adjustedUnifiedAttendance([u], recs, webRecs, adjustments);
-    const reqs = getRequests().filter((r) => requestBelongsToEmployee(r, u));
+    const mine = recs;
+    const reqs = getRequests().filter((r) => r.employeeUid === u.id);
+    /* بروفايل الموظف لا يفتحه إلا الأدمن أو مدير القسم — التعويض يظهر هنا */
     const rows = buildDailyStatus(cyc, [u], reqs, mine, { compensate: true });
     /* ⚠️ computePayroll تُسقط دور admin عمداً (لا مسير للأدمن)، فتُرجع مصفوفة
        فارغة حين يكون هذا البروفايل لأدمن — و [0] عندها undefined. كان الوصول
@@ -171,33 +134,25 @@ export async function render(view, token) {
        الصفحة»: أي بروفايل أدمن كان مكسوراً بالكامل، لا بطاقة الراتب وحدها.
        الآن الغياب حالة معلَنة: إحصاءات الحضور تُعرض كاملة، وما يعتمد على
        المسير يُستبدل بسطر يشرح السبب. */
-    const effectiveCfg = payrollConfigForRun(cfg, run);
-    const payrollRecs = !run ? adjustedPayrollAttendance(
-      [u], effectiveCfg, recs, webRecs, adjustments) : [];
-    const freshPay = !run
-      ? (computePayroll(cyc, [u], reqs, payrollRecs, { config: effectiveCfg })[0] || null)
-      : null;
-    /* الأدمن يأخذ اللقطة المجمدة كما هي. المدير لا يعيد حساب بديل Live
-       عندما يُمنع من اللقطة، لأن ذلك سيغيّر تاريخ دورة معتمدة بصمت. */
-    const pay = payrollRowForEmployee(run, freshPay, u);
-    const payrollUnavailable = 'لا يوجد صف مسير لهذا الحساب';
+    const pay = computePayroll(cyc, [u], reqs, mine)[0] || null;
 
     const cnt = (k) => rows.filter((r) => r.cls === k).length;
     const pres = cnt('present'), late = cnt('late'), abs = cnt('absent'),
           miss = cnt('missing'), lv = cnt('leave');
     const total = rows.length || 1;
-    const metrics = attendanceMetrics(rows);
+    const commit = Math.round(((pres + late + lv) / total) * 100);
+    const onTime = Math.round((pres / total) * 100);
     const ins = rows.filter((r) => r.firstIn).map((r) => r.firstIn.getHours() * 60 + r.firstIn.getMinutes());
     const avgIn = ins.length ? Math.round(ins.reduce((a, b) => a + b, 0) / ins.length) : null;
 
     host.innerHTML = '';
     const g = el('div', 'statgrid');
     g.append(
-      statCard({ label: 'نسبة الحضور', value: metrics.attendanceRate === null ? '—' : metrics.attendanceRate + '%', ico: 'chart',
-        tone: metrics.attendanceRate >= 90 ? 'good' : metrics.attendanceRate >= 75 ? 'warn' : 'bad',
-        sub: 'الحضور الفعلي من أيام العمل المحتسبة' }),
-      statCard({ label: 'نسبة الالتزام بالوقت', value: metrics.commitmentRate === null ? '—' : metrics.commitmentRate + '%', ico: 'check',
-        tone: metrics.commitmentRate >= 90 ? 'good' : metrics.commitmentRate >= 75 ? 'warn' : 'bad', sub: 'بلا مخالفات زمنية' }),
+      statCard({ label: 'نسبة الالتزام', value: commit + '%', ico: 'chart',
+        tone: commit >= 90 ? 'good' : commit >= 75 ? 'warn' : 'bad',
+        sub: 'حضور + إجازة معتمَدة' }),
+      statCard({ label: 'حضور في الوقت', value: onTime + '%', ico: 'check',
+        tone: onTime >= 90 ? 'good' : onTime >= 75 ? 'warn' : 'bad', sub: 'بلا تأخير يُحتسب' }),
       statCard({ label: 'أيام تأخير', value: late, ico: 'clock',
         tone: late ? 'warn' : 'good', sub: late ? 'يُخصم عليها بدقائقها' : 'لا تأخير' }),
       statCard({ label: 'أيام غياب', value: abs, ico: 'alert',
@@ -208,11 +163,9 @@ export async function render(view, token) {
     const g2 = el('div', 'statgrid');
     g2.append(
       statCard({ label: 'إجمالي التأخير', value: pay ? hhmm(pay.lateMin) : '—', ico: 'clock',
-        tone: pay && pay.lateMin ? 'warn' : '',
-        sub: pay ? 'مجموع دقائق الدورة' : payrollUnavailable }),
+        tone: pay && pay.lateMin ? 'warn' : '', sub: 'مجموع دقائق الدورة' }),
       statCard({ label: 'خروج مبكر', value: pay ? hhmm(pay.earlyMin) : '—', ico: 'login',
-        tone: pay && pay.earlyMin ? 'warn' : '',
-        sub: pay ? 'قبل نهاية الوردية' : payrollUnavailable }),
+        tone: pay && pay.earlyMin ? 'warn' : '', sub: 'قبل نهاية الوردية' }),
       statCard({ label: 'نسيان بصمة خروج', value: miss, ico: 'gap',
         tone: miss ? 'warn' : 'good', sub: miss ? 'تحتاج تصحيحاً' : 'لا نواقص' }),
       statCard({ label: 'متوسّط وقت الحضور', ico: 'clock',
@@ -224,11 +177,9 @@ export async function render(view, token) {
     const g3 = el('div', 'statgrid');
     g3.append(
       statCard({ label: 'ساعات عمل فعلية', value: pay ? pay.workH.toFixed(1) : '—', ico: 'clock',
-        sub: pay
-          ? (run ? 'من لقطة المسير المعتمدة' : `حسب ${payrollSourceLabel(effectiveCfg)}`)
-          : payrollUnavailable }),
+        sub: 'من بصمات الجهاز' }),
       statCard({ label: 'ساعات مطلوبة', value: pay ? pay.reqH.toFixed(1) : '—', ico: 'scale',
-        sub: pay ? 'حسب وردياته' : payrollUnavailable }),
+        sub: 'حسب وردياته' }),
       statCard({ label: 'أيام إجازة', value: lv, ico: 'calendar', sub: 'معتمَدة في الدورة' }),
       statCard({ label: 'طلبات في الدورة', ico: 'inbox',
         value: reqs.filter((r) => { const d = reqEventDate(r); return d >= cyc.start && d <= cyc.end; }).length,
@@ -251,14 +202,12 @@ export async function render(view, token) {
       /* مدير القسم لا يرى أرقام الراتب إطلاقاً */
     } else if (!pay) {
       const w = card('');
-      w.appendChild(empty(payrollUnavailable, 'money'));
+      w.appendChild(empty('لا يُحتسب مسير رواتب لحساب مدير النظام.', 'money'));
       w.appendChild(el('p', 'help',
-        'إحصاءات الحضور أعلاه من المصدرين الموحّدين — المستثنى هو المسير وحده.'));
+        'إحصاءات الحضور أعلاه محسوبة كاملةً من بصمات الجهاز — المستثنى هو المسير وحده.'));
       host.appendChild(w);
-    } else if (pay.salary) {
-      const pc = card(run
-        ? 'أثر الالتزام على الراتب — لقطة معتمدة ومجمّدة'
-        : 'أثر الالتزام على راتب هذه الدورة', null, 'money');
+    } else if (u.salary) {
+      const pc = card('أثر الالتزام على راتب هذه الدورة', null, 'money');
       pc.innerHTML += `
         <div class="detail-list">
           <div class="detail-line"><span class="k">الراتب الأساسي</span><span class="v money">${money(pay.salary)}</span></div>

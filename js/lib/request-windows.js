@@ -36,8 +36,7 @@
 
    ⚠️ و dates.js نقيّة (لا تجرّ firebase) فتُستورد هنا بلا أن تُفقد هذه
    الوحدة قابليتها للاختبار في node. */
-import { cycleOf, ymdKsa } from './dates.js';
-import { requestBelongsToEmployee } from './permission-link.js';
+import { ymdKsa } from './dates.js';
 
 const ymdOf = (d) => d.getFullYear() + '-' +
   String(d.getMonth() + 1).padStart(2, '0') + '-' +
@@ -73,27 +72,6 @@ export const fixOldestDate = (today = ymdKsa()) => backDate(today, FIX_WINDOW_DA
 export const fixWindowOpen = (dateStr, today = ymdKsa()) =>
   !!dateStr && dateStr >= fixOldestDate(today) && dateStr <= today;
 
-/* صفوف الأداء التي يستطيع الموظف فتح طلب تصحيح لها فعلاً.
-   ⚠️ `missing` هو نسيان الانصراف في buildDailyStatus، أما `missingIn`
-   والغياب فطلبهما يصحح الدخول. لا نُظهر المسار لحالة سليمة أو ليوم خرج
-   من النافذة؛ openFixRequest يعيد الفحص نفسه قبل فتح النموذج. */
-const FIXABLE_ATTENDANCE_CLASSES = new Set(['missing', 'missingIn', 'absent']);
-export function fixableAttendanceRows(rows, today = ymdKsa()) {
-  return (Array.isArray(rows) ? rows : []).filter((row) =>
-    FIXABLE_ATTENDANCE_CLASSES.has(row?.cls) && fixWindowOpen(row?.dateStr, today));
-}
-
-/* دورة التصحيح هي دورة اليوم المراد إصلاحه، لا دورة يوم فتح النموذج.
-   ⚠️ عند عبور 25 ← 26 قد يبقى سجل الأمس داخل نافذة السبعة أيام، لكنه يتبع
-   مسيراً مختلفاً له سقفه وإغلاقه. التاريخ الفاسد لا يسقط إلى «اليوم» كي لا
-   نفحص دورة أخرى بصمت. */
-export function fixCycleOf(dateStr) {
-  if (typeof dateStr !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null;
-  const d = new Date(dateStr + 'T00:00:00');
-  if (isNaN(d) || ymdOf(d) !== dateStr) return null;
-  return cycleOf(d);
-}
-
 /* ═══ السقف الشهري ═══
    ⚠️⚠️ مفروض في الواجهة **وحدها**، ولا يمكن فرضه في قاعدة: عدّ طلبات
    الموظف الأخرى يحتاج استعلاماً داخل القاعدة وFirestore لا يقدر عليه. فلا
@@ -105,9 +83,9 @@ export const FIX_MAX_PER_CYCLE = 3;
 
 /* ⚠️ المرفوض لا يُحسب: طلب رُفض لم يستهلك شيئاً، وعدّه يعاقب الموظف مرتين
    — مرةً بالرفض ومرةً بحرمانه من محاولة. */
-export function fixCountInCycle(requests, employee, cyc) {
+export function fixCountInCycle(requests, uid, cyc) {
   const from = ymdOf(cyc.start), to = ymdOf(cyc.end);
   return (requests || []).filter((r) =>
-    r.type === 'attendanceFix' && requestBelongsToEmployee(r, employee) &&
+    r.type === 'attendanceFix' && r.employeeUid === uid &&
     r.status !== 'rejected' && r.date >= from && r.date <= to).length;
 }

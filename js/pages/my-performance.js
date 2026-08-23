@@ -10,49 +10,36 @@
    الوحيد لقرار «حاضر/متأخر/غائب». حساب مستقل هنا يعني رقمين مختلفين لنفس
    اليوم: واحد يراه الموظف وآخر يُخصم به، وهذا أسوأ من ألّا يرى شيئاً.
 
-   ⚠️ حالة الحضور توحّد جهاز البصمة وتسجيل الجوال في يوم واحد بلا جمع
-   الساعات مرتين. بطاقتا المصدرين أدناه تبقيان خاماً للتدقيق، أما المسير
-   فيختار مصدره من إعداد الرواتب المركزي.
+   ⚠️ المصدر zkAttendance (جهاز البصمة) لا attendance (تسجيل الجوال) — لأنه
+   ما يُحسب عليه المسير فعلاً.
 
-   ⚠️ القراءة باستعلام مقيّد بـemployeeUid الحالي والسابق وبمدى التاريخ:
-   قاعدة zkAttendance تسمح للموظف بسجلاته فقط، وFirestore يرفض استعلام مدى
-   غير مقيّد بالهوية. الفهرس (employeeUid,date) موجود في ملف الفهارس.
+   ⚠️ القراءة بمعرّف الوثيقة لا بالاستعلام: قاعدة zkAttendance تسمح للموظف
+   بسجلاته هو فقط، وFirestore يرفض أي استعلام بمدى ما لم يكن مقيَّداً بحيث
+   تحقّق كل نتيجة محتملة شرط القاعدة. fetchMyAttendance تقرأ الوثائق مباشرةً
+   فلا تحتاج فهرساً ولا صلاحية أوسع.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import { el, esc } from '../lib/dom.js';
-import { db, collection, getDocs, query, where } from '../lib/firebase.js';
 import { getMe, getRequests } from '../lib/state.js';
-import { recentCyclesList, AR_DAYS, ymdKsa } from '../lib/dates.js';
+import { recentCyclesList, AR_DAYS } from '../lib/dates.js';
 import { hhmm, hm, fmtDur, p2 } from '../lib/format.js';
 import { fetchMyAttendance, buildDailyStatus, uidsOf,
          sessionsOf, lastOutOf } from '../lib/attendance.js';
 import { tsToDate } from '../lib/format.js';
 import { isStale, go, rerender } from '../lib/nav.js';
-import { PERM_BACKDATE_DAYS, fixCountInCycle,
-         FIX_WINDOW_DAYS, FIX_MAX_PER_CYCLE,
-         fixableAttendanceRows } from '../lib/requests.js';
+import { PERM_BACKDATE_DAYS, fixWindowOpen, fixCountInCycle,
+         FIX_WINDOW_DAYS, FIX_MAX_PER_CYCLE } from '../lib/requests.js';
 import { openFixRequest } from '../components/fix-request-modal.js';
-import { adjustedUnifiedAttendance } from '../lib/adjustments.js';
-import { attendanceDistribution, attendanceMetrics } from '../lib/attendance-metrics.js';
-import { requestBelongsToEmployee } from '../lib/permission-link.js';
 import { card, empty, tableWrap, bar, sectionHead, callout, button, statCard } from '../lib/ui.js';
-
-async function fetchAdjustmentsForUsers(users, fromDate, toDate) {
-  const ids = [...new Set((users || []).flatMap(uidsOf))];
-  const snaps = await Promise.all(ids.map((uid) => getDocs(query(
-    collection(db, 'attendanceAdjustments'), where('employeeUid', '==', uid)))));
-  return [...new Map(snaps.flatMap((snap) => snap.docs.map((d) => ({ id: d.id, ...d.data() })))
-    .filter((a) => a.date >= fromDate && a.date <= toDate)
-    .map((a) => [a.id, a])).values()];
-}
 
 export async function render(view, token) {
   const me = getMe();
+
   const cycles = recentCyclesList(12);
   const pick = card('');
   pick.appendChild(sectionHead({ text: 'أدائي', icon: 'chart' }));
   pick.appendChild(el('p', 'desc',
-    'محسوب من سجل يوم موحّد بين جهاز الحضور وتسجيل الجوال. أيام الراحة والعطل الرسمية مستثناة.'));
+    'محسوب من بصمات جهاز الحضور. أيام الراحة والعطل الرسمية مستثناة — لا تُحتسب عليك.'));
   const dd = el('select', 'select-lg');
   dd.innerHTML = cycles.map((c, i) =>
     `<option value="${i}">${esc(c.label)}${i === 0 ? ' (الحالية)' : ''}</option>`).join('');
@@ -66,14 +53,14 @@ export async function render(view, token) {
     const cyc = cycles[+dd.value];
     host.innerHTML = '<div class="card"><div class="empty"><span class="spinner"></span> جارٍ الحساب…</div></div>';
 
-    /* ⚠️ المصدران معاً للحالة اليومية، وكل واحد يُعرض خاماً للمقارنة.
+    /* ⚠️ المصدران معاً: zkAttendance هو ما يُحسب عليه المسير ويبقى أساس
+       الأرقام أعلاه، و attendance (تسجيل الجوال) يُعرض بجانبه للمقارنة.
        الموظف يسأل «بصمت وما ظهر» — وبلا عرض المصدرين لا جواب عنده. */
-    let recs = [], webRecs = [], adjustments = [];
+    let recs = [], webRecs = [];
     try {
-      [recs, webRecs, adjustments] = await Promise.all([
+      [recs, webRecs] = await Promise.all([
         fetchMyAttendance(cyc, uidsOf(me), 'zkAttendance'),
-        fetchMyAttendance(cyc, uidsOf(me), 'attendance'),
-        fetchAdjustmentsForUsers([me], ymdKsa(cyc.start), ymdKsa(cyc.end))
+        fetchMyAttendance(cyc, uidsOf(me), 'attendance').catch(() => [])
       ]);
     }
     catch (e) {
@@ -83,9 +70,8 @@ export async function render(view, token) {
     }
     if (isStale(token)) return;
 
-    const reqs = getRequests().filter((r) => requestBelongsToEmployee(r, me));
-    const unified = adjustedUnifiedAttendance([me], recs, webRecs, adjustments);
-    const rows = buildDailyStatus(cyc, [me], reqs, unified);
+    const reqs = getRequests().filter((r) => r.employeeUid === me.id);
+    const rows = buildDailyStatus(cyc, [me], reqs, recs);
 
     host.innerHTML = '';
     if (!rows.length) {
@@ -99,8 +85,8 @@ export async function render(view, token) {
     const pres = cnt('present'), late = cnt('late'), abs = cnt('absent'),
           miss = cnt('missing'), missIn = cnt('missingIn'), lv = cnt('leave');
     const total = rows.length;
-    const metrics = attendanceMetrics(rows);
-    const distribution = attendanceDistribution(rows).counts;
+    /* الإجازة المعتمدة ليست غياباً — تُحسب ضمن الالتزام */
+    const commit = Math.round(((pres + late + lv + missIn) / total) * 100);
     const lateMin = rows.reduce((a, r) => a + (r.lateMin || 0), 0);
 
     /* ── الأرقام الأربعة بألوانها ──
@@ -122,12 +108,9 @@ export async function render(view, token) {
 
     const g2 = el('div', 'statgrid');
     g2.append(
-      statCard({ label: 'نسبة الحضور', value: metrics.attendanceRate === null ? '—' : metrics.attendanceRate + '%', ico: 'chart',
-        tone: metrics.attendanceRate >= 90 ? 'good' : metrics.attendanceRate >= 75 ? 'warn' : 'bad',
-        sub: 'الإجازة المعتمدة مستثناة' }),
-      statCard({ label: 'نسبة الالتزام بالوقت', value: metrics.commitmentRate === null ? '—' : metrics.commitmentRate + '%', ico: 'check',
-        tone: metrics.commitmentRate >= 90 ? 'good' : metrics.commitmentRate >= 75 ? 'warn' : 'bad',
-        sub: 'بلا تأخير أو خروج مبكر أو بصمة ناقصة' }),
+      statCard({ label: 'نسبة الالتزام', value: commit + '%', ico: 'chart',
+        tone: commit >= 90 ? 'good' : commit >= 75 ? 'warn' : 'bad',
+        sub: 'الإجازة المعتمَدة محسوبة ضمنها' }),
       statCard({ label: 'إجمالي التأخير', value: lateMin ? hhmm(lateMin) : '—', ico: 'clock',
         tone: lateMin ? 'warn' : 'good', sub: lateMin ? 'مجموع دقائق الدورة' : 'لا تأخير' }),
       statCard({ label: 'نسيان بصمة انصراف', value: miss, ico: 'gap',
@@ -155,28 +138,34 @@ export async function render(view, token) {
       host.appendChild(c);
     }
 
-    /* ⚠️ المسار يظهر فقط للأيام التي يقبل منطق التصحيح فتح طلب لها الآن.
-       كان الشرط `miss` وحده، فأخفى الزر عن missingIn والغياب رغم أن النموذج
-       نفسه يدعمهما. */
-    const fixable = fixableAttendanceRows(rows);
-    if (fixable.length) {
+    /* ⚠️ نسيان بصمة الانصراف يُحسب يوماً بلا ساعات في المسير — الموظف يجب
+       أن يعرف أنه ليس تفصيلاً شكلياً. */
+    if (miss) {
       const c = card('');
       /* ⚠️ الرسالة القديمة كانت «راجع الموارد البشرية» — أي أن الحل الوحيد
          تعديل إداري يدوي. صار للموظف طريق يقدّمه بنفسه من هنا. */
-      c.appendChild(callout('warn', `${fixable.length} يوم يحتاج تصحيح بصمة`,
-        `تقدر تقدّم طلب تصحيح عن الأيام ${FIX_WINDOW_DAYS} الماضية — يعتمده مديرك ثم الموارد البشرية.`));
+      c.appendChild(callout('warn', `${miss} يوم بلا بصمة انصراف`,
+        `اليوم بلا بصمة انصراف لا تُحتسب ساعاته كاملةً. تقدر تقدّم طلب تصحيح عن الأيام ${FIX_WINDOW_DAYS} الماضية — يعتمده مديرك ثم الموارد البشرية.`));
       /* ⚠️ الأيام داخل النافذة وحدها تُعرض بزرّ: زرٌّ على يوم خارجها يُضغط
          ثم يُرفض، وهو أسوأ من غيابه. */
       /* ⚠️ `missingIn` أولى الثلاث بالتصحيح لا آخرها: هي الحالة التي
          أُنشئت لأجل هذا الطلب أصلاً (قرار ٢٠٢٦-٠٨-١٣) — الموظف داوم وفاتته
          نافذة البصمة، والدليل بصمة خروجه. */
-      const acts = el('div', 'actions-cell');
-      fixable.forEach((r) => acts.appendChild(
-        button(`تصحيح ${r.dateStr}`, 'btn sm ghost', () => openFixRequest(r, () => rerender()))));
-      c.appendChild(acts);
-      const usedFix = fixCountInCycle(getRequests(), me, cycles[Number(dd.value) || 0]);
-      c.appendChild(el('p', 'help',
-        `قدّمت ${usedFix} من ${FIX_MAX_PER_CYCLE} طلبات تصحيح في هذه الدورة.`));
+      const fixable = rows.filter((r) =>
+        (r.cls === 'missing' || r.cls === 'missingIn' || r.cls === 'absent')
+        && fixWindowOpen(r.dateStr));
+      if (fixable.length) {
+        const acts = el('div', 'actions-cell');
+        fixable.forEach((r) => acts.appendChild(
+          button(`تصحيح ${r.dateStr}`, 'btn sm ghost', () => openFixRequest(r, () => rerender()))));
+        c.appendChild(acts);
+        const usedFix = fixCountInCycle(getRequests(), me.id, cycles[Number(dd.value) || 0]);
+        c.appendChild(el('p', 'help',
+          `قدّمت ${usedFix} من ${FIX_MAX_PER_CYCLE} طلبات تصحيح في هذه الدورة.`));
+      } else {
+        c.appendChild(el('p', 'help',
+          `مضى أكثر من ${FIX_WINDOW_DAYS} أيام على هذه الأيام — التصحيح لم يعد ممكناً، راجع الموارد البشرية.`));
+      }
       host.appendChild(c);
     }
 
@@ -186,12 +175,11 @@ export async function render(view, token) {
     const seg = (n, label, color) => n === 0 ? '' :
       `<div class="row-between mt-2"><span>${label}</span><b class="num">${n} يوم (${Math.round(n / total * 100)}%)</b></div>` +
       bar((n / total) * 100, color);
-    bc.innerHTML += seg(distribution.present,   'حاضر في الوقت',    'var(--green)')
-                  + seg(distribution.late,      'متأخر',             'var(--amber)')
-                  + seg(distribution.absent,    'غائب',              'var(--red)')
-                  + seg(distribution.leave,     'إجازة',             'var(--info)')
-                  + seg(distribution.missing,   'نسيان بصمة انصراف', 'var(--violet)')
-                  + seg(distribution.missingIn, 'نسيان بصمة حضور',   'var(--violet)');
+    bc.innerHTML += seg(pres, 'حاضر في الوقت', 'var(--green)')
+                  + seg(late, 'متأخر',        'var(--amber)')
+                  + seg(abs,  'غائب',         'var(--red)')
+                  + seg(lv,   'إجازة',        'var(--info)')
+                  + seg(miss, 'نسيان بصمة',   'var(--violet)');
     host.appendChild(bc);
 
     /* ── يوماً بيوم ──
@@ -214,9 +202,9 @@ export async function render(view, token) {
 
     /* ── المصدران جنباً إلى جنب ── */
     host.appendChild(sourceCard('البصمة الحقيقية — جهاز ZKTeco', 'finger', recs,
-      'سجل يكتبه الجهاز في المكتب ولا يُعدَّل من التطبيق؛ دخوله في المسير يحدده إعداد مصدر الحضور.'));
+      'هذا هو المصدر الذي يُحسب عليه راتبك. يكتبه الجهاز في المكتب ولا يُعدَّل من التطبيق.'));
     host.appendChild(sourceCard('بصمة الجوال — تسجيل من التطبيق', 'globe', webRecs,
-      'تسجيلك الذاتي من الجوال مع موقعك؛ دخوله في المسير يحدده إعداد مصدر الحضور.'));
+      'تسجيلك الذاتي من الجوال مع موقعك. للتوثيق والمتابعة — لا يحلّ محلّ بصمة الجهاز في المسير.'));
   }
 
   dd.onchange = draw;

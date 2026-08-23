@@ -5,9 +5,10 @@
 
    ── ثلاثة قرارات مكتوبة هنا لأنها ليست بديهية ──
 
-   ١) حالة اليوم توحّد zkAttendance وattendance قبل buildDailyStatus، فلا
-      يُحسب الموظف مرتين ولا تضيع بصمة موجودة في مصدر واحد. اختيار مصدر
-      المسير مستقل ويأتي من إعداد الرواتب المركزي.
+   ١) المصدر هو zkAttendance (جهاز البصمة) لا attendance (تسجيل الجوال).
+      لأن المسير يُحسب على الجهاز. ولو حسبت هذه الشاشة من الجوال بينما
+      «أدائي» تحسب من الجهاز، لصار للموظف الواحد رقما تأخير مختلفان في
+      شاشتين — والمدير يبني قراراً على أحدهما ولا يعرف أيّهما الصحيح.
 
    ٢) الاستعلام مقيَّد بـ where('department','==',…) للمدير. ليس تحسيناً
       للأداء: قاعدة القراءة تمنحه الوصول عبر sameDept()، وFirestore يرفض
@@ -36,7 +37,6 @@ import { isStale, go } from '../lib/nav.js';
 import { isAdmin } from '../lib/perms.js';
 import { card, empty, tableWrap, sectionHead, callout, button, loading,
          pageHead, statCard } from '../lib/ui.js';
-import { adjustmentsForAttendanceRecords, adjustedUnifiedAttendance } from '../lib/adjustments.js';
 
 export async function render(view, token) {
   const me = getMe();
@@ -60,7 +60,7 @@ export async function render(view, token) {
   /* ── شريط الاختيار ── */
   /* ⚠️ رأس صفحة لا بطاقة عنوان (الهوية الجديدة) */
   view.appendChild(pageHead(admin ? 'أداء الأقسام' : 'أداء موظفي قسمي',
-    'محسوب من سجل يوم موحّد بين جهاز الحضور وتسجيل الجوال. أيام الراحة والعطل الرسمية مستثناة.'));
+    'محسوب من بصمات جهاز الحضور — وهو المصدر الذي يُحسب عليه المسير. أيام الراحة والعطل الرسمية مستثناة.'));
   const head = card('');
 
   const bar = el('div', 'cluster');
@@ -93,38 +93,30 @@ export async function render(view, token) {
     /* الدورة السابقة للمقارنة — يوم واحد قبل بداية الحالية يقع فيها */
     const prevCyc = cycleOf(new Date(cyc.start.getTime() - 86400000));
 
-    const staff = getUsers().filter((u) => u.role !== 'admin' && u.department === dept);
-    let recs, prevRecs, webRecs, prevWebRecs, adjustments;
+    let recs, prevRecs;
     try {
       /* ⚠️ الأدمن يقرأ بلا تقييد (قاعدته تسمح)، والمدير مقيَّد بقسمه وإلا
          رُفض استعلامه كاملاً. نمرّر القسم في الحالتين: الأدمن يريده فلتراً،
          والمدير يحتاجه شرطاً. */
-      [recs, prevRecs, webRecs, prevWebRecs] = await Promise.all([
+      [recs, prevRecs] = await Promise.all([
         fetchAttendance(cyc,     'zkAttendance', dept),
-        fetchAttendance(prevCyc, 'zkAttendance', dept),
-        fetchAttendance(cyc,     'attendance', dept),
-        fetchAttendance(prevCyc, 'attendance', dept)
-      ]);
-      adjustments = await adjustmentsForAttendanceRecords([
-        { coll: 'zkAttendance', records: [...recs, ...prevRecs] },
-        { coll: 'attendance', records: [...webRecs, ...prevWebRecs] }
+        fetchAttendance(prevCyc, 'zkAttendance', dept)
       ]);
     } catch (e) {
       console.error('team-perf', e);
       if (isStale(token)) return;
       host.innerHTML = '';
       host.appendChild(callout('warn', 'تعذّر قراءة سجلات الحضور',
-        'فشل مصدر حضور مطلوب أو تصحيحاته؛ لن تُعرض نتيجة ناقصة.'));
+        'الغالب أن الفهرس المركّب (department, date) غير منشور بعد. راجع firestore.indexes.json وانشره: firebase deploy --only firestore:indexes'));
       return;
     }
     if (isStale(token)) return;
 
+    const staff = getUsers().filter((u) => u.role !== 'admin' && u.department === dept);
     const reqs  = getRequests();
-    const unified = adjustedUnifiedAttendance(staff, recs, webRecs, adjustments);
-    const prevUnified = adjustedUnifiedAttendance(staff, prevRecs, prevWebRecs, adjustments);
 
-    const rows     = buildDailyStatus(cyc,     staff, reqs, unified,     { compensate: admin });
-    const prevRows = buildDailyStatus(prevCyc, staff, reqs, prevUnified, { compensate: admin });
+    const rows     = buildDailyStatus(cyc,     staff, reqs, recs,     { compensate: admin });
+    const prevRows = buildDailyStatus(prevCyc, staff, reqs, prevRecs, { compensate: admin });
     const sum      = teamSummaryOf(rows);
     const prevSum  = teamSummaryOf(prevRows);
     const cov      = deptCoverageOf(recs);
@@ -155,13 +147,13 @@ export async function render(view, token) {
       /* ⚠️ الفرق في حقله لا داخل الرقم: «63%▲63» تُقرأ رقماً واحداً مشوّهاً،
          و statCard تعرضه سطراً مستقلاً بسهمه ولونه. واللون يأتي من `good`
          صراحةً — ارتفاع الالتزام خبرٌ جيّد، بخلاف ارتفاع الغياب. */
-      statCard({ label: 'نسبة الالتزام بالوقت', value: `${t.commitmentRate}%`, ico: 'chart',
-        tone: t.commitmentRate >= 90 ? 'good' : t.commitmentRate >= 75 ? 'warn' : 'bad',
-        sub: 'أيام منضبطة من أيام العمل المحتسبة',
+      statCard({ label: 'الالتزام العام', value: `${t.overall}%`, ico: 'chart',
+        tone: t.overall >= 90 ? 'good' : t.overall >= 75 ? 'warn' : 'bad',
+        sub: 'حضور في الوقت من أيام العمل',
         delta: tr ? { pct: tr.delta, good: true } : null }),
-      statCard({ label: 'نسبة الحضور', value: `${t.attendanceRate}%`, ico: 'check',
-        tone: t.attendanceRate >= 90 ? 'good' : t.attendanceRate >= 75 ? 'warn' : 'bad',
-        sub: 'الحضور الفعلي من أيام العمل المحتسبة' }),
+      statCard({ label: 'حضور في الوقت', value: `${t.onTime}%`, ico: 'check',
+        tone: t.onTime >= 90 ? 'good' : t.onTime >= 75 ? 'warn' : 'bad',
+        sub: 'بلا تأخير يُحتسب' }),
       statCard({ label: 'موظفو القسم', value: t.employeeCount, ico: 'people',
         sub: 'محسوبون في هذه الأرقام' }),
       statCard({ label: 'متوسّط التأخير', value: t.avgLateMinPerLateDay ? `${t.avgLateMinPerLateDay} د` : '—',
@@ -193,7 +185,7 @@ export async function render(view, token) {
           <th>الموظف</th><th class="num">أيام</th><th class="num">حاضر</th>
           <th class="num">متأخر</th><th class="num">غائب</th><th class="num">إجازة</th>
           <th class="num">خروج ناقص</th><th class="num">مجموع التأخير</th>
-          <th class="num">ساعات</th><th class="num">نسبة الحضور</th><th class="num">الالتزام بالوقت</th>
+          <th class="num">ساعات</th><th class="num">الالتزام</th>
         </tr></thead>
         <tbody></tbody>
       </table>`);
@@ -211,8 +203,7 @@ export async function render(view, token) {
         <td class="num ${e.missing ? 'text-amber' : ''}">${e.missing || '—'}</td>
         <td class="num">${e.lateMin ? esc(hhmm(e.lateMin)) : '—'}</td>
         <td class="num">${Math.round(e.secs / 360) / 10}</td>
-        <td class="num">${e.attendanceRate}%</td>
-        <td class="num"><b class="${e.commitmentRate >= 90 ? 'text-green' : e.commitmentRate >= 75 ? 'text-amber' : 'text-red'}">${e.commitmentRate}%</b></td>`;
+        <td class="num"><b class="${e.overall >= 90 ? 'text-green' : e.overall >= 75 ? 'text-amber' : 'text-red'}">${e.overall}%</b></td>`;
       /* ⚠️ المعرّف 'profile' لا 'employee-profile' — الثاني غير مُسجَّل في
          PAGES ولا في الراوتر، فكان الضغط يُعيد المستخدم للرئيسية بصمت. */
       row.onclick = () => go('profile', e.uid);
@@ -221,7 +212,7 @@ export async function render(view, token) {
 
     c.appendChild(w);
     c.appendChild(el('p', 'help',
-      'الترتيب: نسبة الالتزام بالوقت، ثم نسبة الحضور، ثم الاسم. الإجازة المعتمدة مستثناة من مقام المؤشرين.'));
+      'الالتزام = (حاضر + متأخر + إجازة) ÷ الأيام المحسوبة — يقيس الحضور أصلاً. و«في الوقت» يقيس الانضباط في موعد البداية.'));
     host.appendChild(c);
   }
 

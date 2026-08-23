@@ -24,10 +24,6 @@ import { db, doc, setDoc, collection, getDocs, query, where, serverTimestamp, Ti
 import { getMe } from './state.js';
 import { logAction } from './audit.js';
 import { tsToDate } from './format.js';
-import {
-  applyAttendanceAdjustments, applyAllAttendanceAdjustments,
-  adjustedUnifiedAttendance, adjustedPayrollAttendance
-} from './attendance-pipeline.js';
 
 /* المعرّف يحمل كل ما يميّز التصحيح — فإعادة تصحيح نفس الحقل تُنشئ قيداً
    جديداً بختم زمني مختلف بدل أن تكتب فوق السابق. */
@@ -63,31 +59,6 @@ export async function adjustmentsInRange(fromDate, toDate) {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
-/* المدير لا يستطيع سرد تصحيحات UID تاريخي بقيد الهوية وحده: القاعدة تثبت
-   القسم من سجل الحضور الخام، ولذلك يجب أن يثبت الاستعلام نفس السجل بدقة
-   (المصدر + UID + التاريخ). هذا ليس ترشيحاً في المتصفح؛ كل Query يطابق
-   adjustmentSourceSameDept() حرفياً، وأي سجل من قسم آخر يبقى مرفوضاً. */
-export async function adjustmentsForAttendanceRecords(sources) {
-  const keys = new Map();
-  for (const source of sources || []) {
-    if (!['attendance', 'zkAttendance'].includes(source?.coll)) continue;
-    for (const rec of source.records || []) {
-      if (!rec?.employeeUid || !rec?.date) continue;
-      const key = source.coll + '|' + rec.employeeUid + '|' + rec.date;
-      keys.set(key, { coll: source.coll, employeeUid: rec.employeeUid, date: rec.date });
-    }
-  }
-
-  const base = collection(db, 'attendanceAdjustments');
-  const snaps = await Promise.all([...keys.values()].map((k) => getDocs(query(base,
-    where('coll', '==', k.coll),
-    where('employeeUid', '==', k.employeeUid),
-    where('date', '==', k.date)
-  ))));
-  return [...new Map(snaps.flatMap((snap) => snap.docs.map((d) =>
-    [d.id, { id: d.id, ...d.data() }]))).values()];
-}
-
 /* ═══ التطبيق ═══
 
    ⚠️ ترتيب مقصود: القيد الأحدث يفوز. مصفوفة التصحيحات تُرتَّب بالوقت ثم
@@ -97,11 +68,38 @@ export async function adjustmentsForAttendanceRecords(sources) {
    ⚠️ الدالة تُرجع نسخة جديدة ولا تعدّل السجل الأصلي في مكانه — سجلات
    fetchAttendance مشتركة بين عدة شاشات، وتعديلها في مكانه يسرّب التصحيح إلى
    حسابات لم تطلبه. */
-export const applyAdjustments = applyAttendanceAdjustments;
+export function applyAdjustments(rec, adjustments) {
+  const mine = (adjustments || [])
+    .filter((a) => a.employeeUid === rec.employeeUid && a.date === rec.date)
+    .sort((a, b) => {
+      const ta = a.at && a.at.toMillis ? a.at.toMillis() : 0;
+      const tb = b.at && b.at.toMillis ? b.at.toMillis() : 0;
+      return ta - tb;
+    });
+  if (!mine.length) return rec;
+
+  const sessions = (rec.sessions || []).map((s) => ({ ...s }));
+  const applied = [];
+  for (const a of mine) {
+    let s = sessions[a.sessionIdx];
+    /* تصحيح على جلسة غير موجودة: ينشئها لو كان دخولاً — الحالة الواقعية هي
+       موظف حضر ولم تُسجَّل بصمته إطلاقاً. */
+    if (!s) {
+      if (a.field !== 'in') continue;
+      while (sessions.length <= a.sessionIdx) sessions.push({ in: null, out: null });
+      s = sessions[a.sessionIdx];
+    }
+    s[a.field] = a.value;
+    s[a.field + 'Adjusted'] = true;
+    applied.push(a);
+  }
+  return { ...rec, sessions, __adjustments: applied, __adjusted: applied.length > 0 };
+}
 
 /* تطبيق دفعة كاملة — يُستدعى مرة واحدة بعد الجلب بدل مرة لكل صف */
 export function applyAll(recs, adjustments) {
-  return applyAllAttendanceAdjustments(recs, adjustments);
+  if (!adjustments || !adjustments.length) return recs;
+  return recs.map((r) => applyAdjustments(r, adjustments));
 }
 
-export { tsToDate, adjustedUnifiedAttendance, adjustedPayrollAttendance };
+export { tsToDate };

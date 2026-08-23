@@ -14,7 +14,6 @@ import { roleLabel } from '../lib/perms.js';
 import { describeRule } from '../lib/geo.js';
 import { card, tableWrap, empty, contractCell, button, rowMenu, pageHead, avatar } from '../lib/ui.js';
 import { docsOf, worstDocState, kindLabel } from '../lib/documents.js';
-import { loadRequiredSource } from '../lib/required-source.js';
 
 export async function render(view, token) {
   const me = getMe();
@@ -217,14 +216,8 @@ export async function render(view, token) {
     host.appendChild(g);
   }
 
-  const usersSource = await loadRequiredSource(refreshUsers, getUsers);
+  try { await refreshUsers(); } catch (e) { console.error(e); }
   if (isStale(token)) return;
-  if (usersSource.status === 'error') {
-    console.error('employees', usersSource.error);
-    host.innerHTML = '';
-    host.appendChild(empty('تعذّر تحميل الموظفين. أعد المحاولة ولا تعتمد على قائمة ناقصة.', 'alert'));
-    return;
-  }
   draw();
   const search = view.querySelector('#empSearch');
   if (search) search.oninput = draw;
