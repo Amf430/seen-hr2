@@ -24,6 +24,7 @@ import { db, doc, setDoc, collection, getDocs, query, where, serverTimestamp, Ti
 import { getMe } from './state.js';
 import { logAction } from './audit.js';
 import { tsToDate } from './format.js';
+import { employeeUidsOf } from './permission-link.js';
 import {
   applyAttendanceAdjustments, applyAllAttendanceAdjustments,
   adjustedUnifiedAttendance, adjustedPayrollAttendance
@@ -61,6 +62,20 @@ export async function adjustmentsInRange(fromDate, toDate) {
     where('date', '<=', toDate)
   ));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+/* الموظف يقرأ تصحيحاته تحت UID الحالي وما سبقه. نقيّد كل Query بالهوية
+   نفسها ثم نطبّق مدى التاريخ محلياً، لأن جمع UID + مدى يحتاج فهرساً مركباً
+   جديداً بينما قواعد القراءة تثبت الهوية على كل نتيجة بالفعل. */
+export async function adjustmentsForUsers(users, fromDate, toDate) {
+  const ids = [...new Set((users || []).flatMap(employeeUidsOf))];
+  const snaps = await Promise.all(ids.map((employeeUid) => getDocs(query(
+    collection(db, 'attendanceAdjustments'), where('employeeUid', '==', employeeUid)
+  ))));
+  return [...new Map(snaps.flatMap((snap) => snap.docs
+    .map((d) => ({ id: d.id, ...d.data() })))
+    .filter((a) => a.date >= fromDate && a.date <= toDate)
+    .map((a) => [a.id, a])).values()];
 }
 
 /* المدير لا يستطيع سرد تصحيحات UID تاريخي بقيد الهوية وحده: القاعدة تثبت

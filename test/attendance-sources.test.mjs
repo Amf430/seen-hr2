@@ -7,6 +7,7 @@ import {
   applyAllAttendanceAdjustments, adjustedPayrollAttendance
 } from '../js/lib/attendance-pipeline.js';
 import { payrollRowsForView, payrollRowForEmployee } from '../js/lib/payroll-view.js';
+import { readFileSync } from 'node:fs';
 
 let pass = 0, fail = 0;
 const eq = (name, expected, actual) => {
@@ -20,6 +21,17 @@ const rec = (uid, source, sessions, over = {}) => ({
   date: '2026-08-18', source, sessions, ...over
 });
 const users = [{ id: 'newUid', previousUids: ['oldUid'], name: 'سالم' }];
+
+console.log('\n\x1b[1m═══ عقد وحدات تصحيحات الحضور ═══\x1b[0m');
+const adjustmentModule = readFileSync(
+  new URL('../js/lib/adjustments.js', import.meta.url), 'utf8'
+);
+const employeeHome = readFileSync(
+  new URL('../js/pages/home-employee.js', import.meta.url), 'utf8'
+);
+eq('رئيسية الموظف لا تستورد adjustmentsForUsers بلا export مطابق', true,
+  /import\s*\{[^}]*\badjustmentsForUsers\b[^}]*\}\s*from\s*['"]\.\.\/lib\/adjustments\.js['"]/.test(employeeHome)
+  && /export\s+async\s+function\s+adjustmentsForUsers\s*\(/.test(adjustmentModule));
 
 console.log('\n\x1b[1m═══ توحيد مصدري الحضور ═══\x1b[0m');
 
