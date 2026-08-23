@@ -13,9 +13,10 @@
 import { el, esc } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { getUsers, getRequests, getMe } from '../lib/state.js';
-import { cycleOf, ymd } from '../lib/dates.js';
+import { cycleOf, ymdKsa } from '../lib/dates.js';
 import { fmtDate as fd, money, hhmm, hm, greeting, firstName, fmtDayDate } from '../lib/format.js';
 import { fetchAttendance } from '../lib/attendance.js';
+import { payrollConfig } from '../lib/payroll.js';
 import { canApprove } from '../lib/perms.js';
 import { go, isStale } from '../lib/nav.js';
 import { setProfileUid } from '../lib/state.js';
@@ -27,9 +28,12 @@ import { hasChain, ownsCurrentStep } from '../lib/requests.js';
 import { publishLeaderboard, readLeaderboard } from '../lib/leaderboard.js';
 import { topPunctualCard } from '../components/top-punctual.js';
 import { expiringDocs, kindLabel } from '../lib/documents.js';
-import { card, grid, stat, empty, tableWrap, sectionHead, button, statCard } from '../lib/ui.js';
+import { card, grid, stat, empty, tableWrap, sectionHead, button, statCard, callout } from '../lib/ui.js';
 import { miniRow, approvalRow } from '../components/request-card.js';
 import { monthlyExport } from '../lib/excel.js';
+import { adjustmentsInRange, adjustedUnifiedAttendance, adjustedPayrollAttendance } from '../lib/adjustments.js';
+import { loadRequiredAttendanceSources, payrollConfigForRun, payrollSourceLabel } from '../lib/attendance-sources.js';
+import { getRun } from '../lib/payroll-runs.js';
 
 export async function render(view, token) {
   const cyc = cycleOf(new Date());
@@ -76,21 +80,23 @@ export async function render(view, token) {
 
   /* ── الطلبات: بطاقة واحدة، في الأسفل ── */
   const rp = requestPulse(cyc, reqs, canApprove);
-  const rc = card('');
-  rc.appendChild(sectionHead({ text: 'الطلبات', icon: 'inbox' },
-    button('عرض الكل', 'btn sm ghost', () => go('inbox'))));
-  const rg = grid(4);
-  rg.append(
-    stat(rp.pending, 'بانتظار المراجعة', rp.pending ? 'a' : ''),
-    stat(rp.cycleTotal, 'طلبات الدورة'),
-    stat(rp.permissions, 'استئذانات'),
-    stat(rp.leaves, 'إجازات')
-  );
-  rc.appendChild(rg);
-  const waiting = reqs.filter((r) => r.status === 'pending').slice(0, 3);
-  if (!waiting.length) rc.appendChild(empty('لا توجد طلبات معلّقة', 'check'));
-  else waiting.forEach((r) => rc.appendChild(miniRow(r)));
-  view.appendChild(rc);
+  {
+    const rc = card('');
+    rc.appendChild(sectionHead({ text: 'الطلبات', icon: 'inbox' },
+      button('عرض الكل', 'btn sm ghost', () => go('inbox'))));
+    const rg = grid(4);
+    rg.append(
+      stat(rp.pending, 'بانتظار المراجعة', rp.pending ? 'a' : ''),
+      stat(rp.cycleTotal, 'طلبات الدورة'),
+      stat(rp.permissions, 'استئذانات'),
+      stat(rp.leaves, 'إجازات')
+    );
+    rc.appendChild(rg);
+    const waiting = reqs.filter((r) => r.status === 'pending').slice(0, 3);
+    if (!waiting.length) rc.appendChild(empty('لا توجد طلبات معلّقة', 'check'));
+    else waiting.forEach((r) => rc.appendChild(miniRow(r)));
+    view.appendChild(rc);
+  }
 
   /* ⚠️ «التوزيع حسب القسم» انتقل إلى الصفّ غير المتماثل بجوار حلقة اليوم،
      ويُبنى بعد الجلب من w2 لا من w — الأولى كانت تُلتقط قبل وصول القائمة
@@ -111,20 +117,41 @@ export async function render(view, token) {
   view.appendChild(qc);
 
   /* ═══ الجلب المتأخر ═══ */
-  const today = ymd(new Date());
-  let todayRecs = [], zk = [], weekWeb = [], weekZk = [];
+  const today = ymdKsa(new Date());
+  const wk = weekWindow();
+  let todayRecs = [], zk = [], cycleWeb = [], weekWeb = [], weekZk = [], adjustments = [], run = null;
   try {
-    const cur = { start: new Date(today + 'T00:00:00'), end: new Date(today + 'T23:59:59') };
     /* ⚠️ نافذة الأسبوع تُجلب كاملةً من المصدرين: لوحة المنتظمين تحسب
        «أيّهما أبكر»، ولا يكفيها سجل اليوم من الجوال ولا دورة الجهاز وحدها. */
-    const wk = weekWindow();
-    [todayRecs, zk, weekWeb, weekZk] = await Promise.all([
-      fetchAttendance(cur, 'attendance').catch(() => []),
-      fetchAttendance(cyc, 'zkAttendance').catch(() => []),
-      fetchAttendance(wk, 'attendance').catch(() => []),
-      fetchAttendance(wk, 'zkAttendance').catch(() => [])
+    const adjFrom = ymdKsa(wk.start < cyc.start ? wk.start : cyc.start);
+    const adjTo = ymdKsa(wk.end > cyc.end ? wk.end : cyc.end);
+    const loaded = await Promise.all([
+      loadRequiredAttendanceSources({
+        physical: () => fetchAttendance(cyc, 'zkAttendance'),
+        mobile: () => fetchAttendance(cyc, 'attendance')
+      }),
+      loadRequiredAttendanceSources({
+        physical: () => fetchAttendance(wk, 'zkAttendance'),
+        mobile: () => fetchAttendance(wk, 'attendance')
+      }),
+      adjustmentsInRange(adjFrom, adjTo),
+      getRun(cyc.key)
     ]);
-  } catch (e) { console.error(e); }
+    zk = loaded[0].physical;
+    cycleWeb = loaded[0].mobile;
+    weekZk = loaded[1].physical;
+    weekWeb = loaded[1].mobile;
+    adjustments = loaded[2];
+    run = loaded[3];
+    todayRecs = cycleWeb.filter((r) => r.date === today);
+  } catch (e) {
+    console.error(e);
+    if (isStale(token)) return;
+    pulseHost.innerHTML = '';
+    pulseHost.appendChild(callout('warn', 'تعذّرت قراءة حقيقة الحضور',
+      'لم تُعرض مؤشرات الحضور لأن أحد مصادر السجل أو التصحيحات المعتمدة لم يُقرأ كاملاً.'));
+    return;
+  }
   if (isStale(token)) return;
 
   /* ⚠️ تُقرأ قائمة الموظفين من جديد هنا، ولا يُعاد استعمال `users` المُلتقطة
@@ -151,7 +178,10 @@ export async function render(view, token) {
 
      ⚠️ النشر لا يُعطّل اللوحة إن فشل: بطاقة تحفيز لا تستحق أن تُسقط لوحة
      القيادة كلها، فنعرض المحسوب محلياً ونمضي. */
-  const punc = weeklyPunctuality(staff, weekZk, weekWeb, reqs);
+  const weekAdjustments = adjustments.filter((a) =>
+    a.date >= ymdKsa(wk.start) && a.date <= ymdKsa(wk.end));
+  const weekUnified = adjustedUnifiedAttendance(staff, weekZk, weekWeb, weekAdjustments);
+  const punc = weeklyPunctuality(staff, weekUnified, reqs);
   if (punc.board.length) {
     publishLeaderboard({ board: punc.board, window: punc.window, minDays: punc.minDays })
       .catch((e) => console.error('publish leaderboard', e));
@@ -164,7 +194,7 @@ export async function render(view, token) {
     const puncCard = topPunctualCard(data || {
       top: punc.board.slice(0, 3).map((x, i) => ({ rank: i + 1, name: x.name,
         department: x.department, rate: x.rate, days: x.counted })),
-      from: ymd(punc.window.start), to: ymd(punc.window.end), minDays: punc.minDays, at: new Date()
+      from: ymdKsa(punc.window.start), to: ymdKsa(punc.window.end), minDays: punc.minDays, at: new Date()
     });
     /* نفس السبب: #view لا يُستبدل، فـ isConnected لا يكشف إعادة العرض */
     if (isStale(token)) return;
@@ -172,13 +202,16 @@ export async function render(view, token) {
   });
 
   /* ── شريط النبض النهائي: الحضور الحيّ يتصدّر ── */
-  const ta = todayAttendance(staff, todayRecs, reqs);
+  const todayUnified = adjustedUnifiedAttendance(
+    staff, zk.filter((r) => r.date === today), todayRecs,
+    adjustments.filter((a) => a.date === today));
+  const ta = todayAttendance(staff, todayUnified, reqs);
   const rateColor = (r) => r >= 90 ? 'var(--green)' : r >= 70 ? 'var(--amber)' : 'var(--red)';
 
   /* ⚠️ سلسلة الأسبوع من المصدرين معاً: الجوال وجهاز البصمة مستقلّان، ومن
      يقرأ أحدهما وحده يرى نصف الحضور. dailySeries تعدّ الموظفين لا السجلات
      فلا يُحسب من بصم في الاثنين مرّتين. */
-  const series = dailySeries([...weekWeb, ...weekZk], weekWindow());
+  const series = dailySeries(weekUnified, weekWindow());
   const spark = series.map((d) => d.count);
 
   pulseHost.innerHTML = '';
@@ -247,10 +280,11 @@ export async function render(view, token) {
       button('كل السجل', 'btn sm ghost', () => go('attendance'))));
     lc.appendChild(tableWrap(`
       <table class="tight">
-        <thead><tr><th>الموظف</th><th>القسم</th><th class="num">منذ</th></tr></thead>
+        <thead><tr><th>الموظف</th><th>القسم</th><th>المصدر</th><th class="num">منذ</th></tr></thead>
         <tbody>${ta.insideNow.slice(0, 10).map((x) => `<tr>
           <td><b>${esc(x.u.name)}</b></td>
           <td>${esc(x.u.department || '—')}</td>
+          <td>${esc(x.sourceLabel || '—')}</td>
           <td class="num">${x.since ? hm(x.since) : '—'}</td></tr>`).join('')}</tbody>
       </table>`));
     if (ta.insideNow.length > 10)
@@ -259,7 +293,17 @@ export async function render(view, token) {
   }
 
   /* ── صفّ: الطلبات المعلّقة | تفصيل الرواتب ── */
-  const ps = payrollSummary(cyc, staff, reqs, zk);
+  const currentPayrollCfg = payrollConfig();
+  const effectivePayrollCfg = payrollConfigForRun(currentPayrollCfg, run);
+  let ps;
+  if (run) {
+    ps = payrollSummary(cyc, staff, reqs, [], { config: effectivePayrollCfg, run });
+  } else {
+    const payrollRecs = adjustedPayrollAttendance(
+      staff, effectivePayrollCfg, zk, cycleWeb, adjustments);
+    ps = payrollSummary(cyc, staff, reqs, payrollRecs,
+      { config: effectivePayrollCfg, run: null });
+  }
   const paySplit = el('div', 'split split--even');
 
   /* الاعتمادات — قرار من اللوحة بلا فتح صفحة */
@@ -291,32 +335,35 @@ export async function render(view, token) {
   const pc = card('');
   pc.appendChild(sectionHead({ text: 'تفصيل الرواتب', icon: 'money' },
     button('فتح المسير', 'btn sm ghost', () => go('payroll'))));
-  pc.appendChild(el('p', 'help', 'إلى أين يذهب مسير هذه الدورة — محسوب حتى اليوم من بصمات الجهاز'));
+  {
+    pc.appendChild(el('p', 'help', run
+      ? `لقطة المسير المعتمدة والمجمّدة — المصدر وقت الاعتماد: ${payrollSourceLabel(effectivePayrollCfg)}`
+      : `إلى أين يذهب مسير هذه الدورة — المصدر: ${payrollSourceLabel(effectivePayrollCfg)}`));
 
-  /* ⚠️ الشرائح: المستحق + الخصومات = إجمالي الرواتب. لا نضيف «ضرائب» ولا
-     «بدلات» كما في مرجع التصميم — لا وجود لهما في بياناتنا، ورسمُهما بصفر
-     يوحي بأن النظام يتتبّعهما. */
-  const paySegs = [
-    { value: Math.max(0, ps.net), color: 'var(--green)', label: 'المستحق' },
-    { value: Math.max(0, ps.total), color: 'var(--red)', label: 'الخصومات' }
-  ];
-  const payRing = el('div', 'ringbox');
-  const gross = ps.salary || 1;
-  payRing.innerHTML = donut(paySegs, {
-    centerValue: money(ps.net), centerLabel: 'المستحق', centerSize: 15,
-    emptyLabel: 'لا مسير محسوب بعد'
-  }) + `<div class="legend">${paySegs.map((s) => `
-      <div class="legend__row">
-        <span class="legend__dot" style="background:${s.color}"></span>
-        <span class="legend__label">${esc(s.label)}</span>
-        <span class="legend__value num">${Math.round((s.value / gross) * 100)}٪</span>
-      </div>`).join('')}
-      <div class="legend__row">
-        <span class="legend__dot" style="background:var(--amber)"></span>
-        <span class="legend__label">تأخير وخروج مبكر</span>
-        <span class="legend__value num">${esc(hhmm(ps.lateMin + ps.earlyMin))}</span>
-      </div></div>`;
-  pc.appendChild(payRing);
+    /* ⚠️ الشرائح: المستحق + الخصومات = إجمالي الرواتب. لا نضيف «ضرائب» ولا
+       «بدلات» كما في مرجع التصميم — لا وجود لهما في بياناتنا. */
+    const paySegs = [
+      { value: Math.max(0, ps.net), color: 'var(--green)', label: 'المستحق' },
+      { value: Math.max(0, ps.total), color: 'var(--red)', label: 'الخصومات' }
+    ];
+    const payRing = el('div', 'ringbox');
+    const gross = ps.salary || 1;
+    payRing.innerHTML = donut(paySegs, {
+      centerValue: money(ps.net), centerLabel: 'المستحق', centerSize: 15,
+      emptyLabel: 'لا مسير محسوب بعد'
+    }) + `<div class="legend">${paySegs.map((s) => `
+        <div class="legend__row">
+          <span class="legend__dot" style="background:${s.color}"></span>
+          <span class="legend__label">${esc(s.label)}</span>
+          <span class="legend__value num">${Math.round((s.value / gross) * 100)}٪</span>
+        </div>`).join('')}
+        <div class="legend__row">
+          <span class="legend__dot" style="background:var(--amber)"></span>
+          <span class="legend__label">تأخير وخروج مبكر</span>
+          <span class="legend__value num">${esc(hhmm(ps.lateMin + ps.earlyMin))}</span>
+        </div></div>`;
+    pc.appendChild(payRing);
+  }
 
   /* تقدّم الدورة — أيام حقيقية، لا خطوات اعتماد لا وجود لها عندنا */
   const dayMs = 86400000;

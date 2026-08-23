@@ -117,11 +117,11 @@ export function render(view) {
     host.appendChild(requestsTable(sorted, canAct));
   }
 
-  /* الجدول — صورة رمزية، نوع، تصنيف، تواريخ، أيام، سبب، حالة، إجراءات. */
+  /* الجدول — صورة رمزية، نوع، تصنيف، تواريخ، أيام، سبب، تفاصيل، حالة، إجراءات. */
   function requestsTable(rows, canAct) {
     const body = rows.map((r, i) => {
       const when = r.type === 'permission'
-        ? fmtDate(r.date)
+        ? `${fmtDate(r.date)}${r.time ? ` · ${r.time}` : ''}`
         : `${fmtDate(r.startDate)} ← ${fmtDate(r.endDate)}`;
       const days = r.type === 'permission' ? '—' : (r.days || 1);
       /* ⚠️ «—» لا زرّ معطّل: المعطّل يوحي بأنه سيعمل لو ضُغط بقوة */
@@ -137,7 +137,8 @@ export function render(view) {
         <td>${esc(r.categoryLabel || '—')}</td>
         <td>${esc(when)}</td>
         <td class="num">${esc(String(days))}</td>
-        <td>${esc(r.note || r.reason || '—')}</td>
+        <td>${esc(r.reasonLabel || r.reason || '—')}</td>
+        <td>${esc(r.note || '—')}</td>
         <td><span class="pill pill--dot ${esc(r.status)}">${esc(STATUS_AR[r.status] || r.status)}</span></td>
         <td>${acts}</td>
       </tr>`;
@@ -147,7 +148,7 @@ export function render(view) {
        بطاقات على الجوال. الحاوية الخام تتركه يتمرّر أفقياً ويُقصّ. */
     const wrap = tableWrap(`<table><thead><tr>
       <th>الموظف</th><th>النوع</th><th>التصنيف</th><th>التاريخ</th>
-      <th class="num">الأيام</th><th>السبب</th><th>الحالة</th><th></th>
+      <th class="num">الأيام</th><th>السبب</th><th>التفاصيل</th><th>الحالة</th><th></th>
     </tr></thead><tbody>${body}</tbody></table>`);
 
     /* المعالجات تُربط بعد البناء — الصفّ نصّ، والمعالج لا يُكتب في نصّ */

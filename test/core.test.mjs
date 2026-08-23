@@ -28,6 +28,9 @@ import { canApprove, canApproveType, hasChain, chainStep, isLastStep,
 import { cycleOf, ymd } from '../js/lib/dates.js';
 import { deptCoverageOf, coverageNote, rangeCovered } from '../js/lib/zk-coverage.js';
 import { teamSummaryOf, trendOf, teamExportRows } from '../js/lib/team-stats.js';
+import { hrThreadUiState } from '../js/lib/hr-thread-state.js';
+import { loadRequiredSource } from '../js/lib/required-source.js';
+import { readBridgeStatus } from '../js/lib/bridge-status.js';
 
 let pass = 0, fail = 0;
 const eq = (name, expected, actual) => {
@@ -55,6 +58,18 @@ const baseSettings = (over = {}) => ({
   leaveTypes: [], approvers: [], company: { lat: null, lng: null, radius: 500 },
   payroll: { hoursPerDay: 8, daysPerMonth: 30, graceMinutes: 0 }, ...over
 });
+
+group('٠. محادثة الموارد البشرية — الكتابة بعد اكتمال القراءة');
+
+eq('قبل نجاح التحميل لا تظهر إجراءات الكتابة',
+   { showComposer: false, showSend: false, showFinish: false, showError: false, showClose: true },
+   hrThreadUiState('loading', { mayReply: true, mayFinish: true }));
+eq('بعد نجاح التحميل تظهر إجراءات المستخدم المخوّل',
+   { showComposer: true, showSend: true, showFinish: true, showError: false, showClose: true },
+   hrThreadUiState('ready', { mayReply: true, mayFinish: true }));
+eq('فشل القراءة يبقي الخطأ والإغلاق فقط',
+   { showComposer: false, showSend: false, showFinish: false, showError: true, showClose: true },
+   hrThreadUiState('error', { mayReply: true, mayFinish: true }));
 
 /* ═════════════════════ ١. حلّ الوردية وترتيب أولوياتها ═════════════════════
    الترتيب المعلن: استثناء التاريخ ← وردية القسم ← وردية الشركة.
@@ -225,7 +240,7 @@ eq('نطاق خاص غير رقمي يُرفض',    null, geoRuleFor({ geoRadius
 group('٦. من يعتمد ماذا');
 
 const ADMIN   = { id: 'a1', role: 'admin',    name: 'الأدمن' };
-const MGR     = { id: 'm1', role: 'manager',  name: 'المدير',  department: 'المبيعات' };
+const MGR     = { id: 'm1', role: 'manager',  name: 'المدير',  department: 'المبيعات', previousUids: ['m-old'] };
 const EMP     = { id: 'e1', role: 'employee', name: 'الموظف',  department: 'المبيعات' };
 const permReq  = { type: 'permission', department: 'المبيعات', employeeUid: 'e1', status: 'pending' };
 const leaveReq = { type: 'leave',      department: 'المبيعات', employeeUid: 'e1', status: 'pending' };
@@ -243,6 +258,8 @@ eq('ولا يعتمد الإجازة — تمسّ الرصيد',    false, canAp
 eq('ولا يعتمد لقسم غيره',                false, canApprove(otherDept));
 eq('ولا يعتمد طلبه هو',                  false,
    canApprove({ ...permReq, employeeUid: 'm1' }));
+eq('ولا يعتمد طلبه التاريخي',            false,
+   canApprove({ ...permReq, employeeUid: 'm-old' }));
 
 setMe(EMP);
 eq('الموظف لا يعتمد شيئاً', false, canApprove(permReq));
@@ -271,6 +288,9 @@ eq('طلب معتمَد لا يملك أحد خطوته', false, ownsCurrentStep
 eq('وطلب مسحوب كذلك',              false, ownsCurrentStep({ ...chained, step: 1, status: 'cancelled' }));
 setMe({ id: 'e1', role: 'manager', name: 'مدير يقدّم لنفسه', department: 'المبيعات' });
 eq('ولا يعتمد صاحبُ الطلب خطوته ولو ملك الدور', false, ownsCurrentStep(chained));
+setMe(MGR);
+eq('ولا يعتمد طلبه التاريخي في السلسلة', false,
+   ownsCurrentStep({ ...chained, employeeUid: 'm-old' }));
 
 /* ═════════════════════ ٨. الدورة الشهرية ٢٦ ← ٢٥ ═════════════════════ */
 group('٨. دورة الرواتب — من ٢٦ إلى ٢٥');
@@ -668,7 +688,10 @@ eq('لا بيانات → لا ندّعي نقصاً',          true,  rangeCove
 group('١٤. تجميع أداء الفريق');
 
 const U = (id, name, dept = 'المبيعات') => ({ id, name, department: dept, jobTitle: '' });
-const day = (u, cls, lateMin = 0, secs = 28800) => ({ u, cls, lateMin, secs });
+const day = (u, cls, lateMin = 0, secs = 28800) => ({
+  u, cls, lateMin, secs,
+  firstIn: ['present', 'late', 'missing', 'missingIn'].includes(cls) ? new Date(2026, 7, 1, 8, 0) : null
+});
 
 const sami = U('u1', 'سامي'), noura = U('u2', 'نورة');
 const teamRows = [
@@ -680,17 +703,18 @@ const S = teamSummaryOf(teamRows);
 eq('موظفان في التجميع', 2, S.employees.length);
 eq('نورة أعلى التزاماً فتتصدّر', 'نورة', S.employees[0].name);
 eq('أيام سامي الأربعة محسوبة', 4, S.employees.find((e) => e.uid === 'u1').days);
-eq('التزام سامي = (٢ حاضر + ١ متأخر) ÷ ٤', 75, S.employees.find((e) => e.uid === 'u1').overall);
-eq('وفي الوقت له = ٢ ÷ ٤',                  50, S.employees.find((e) => e.uid === 'u1').onTime);
-eq('⚠️ الإجازة تُحسب التزاماً لا تقصيراً',   100, S.employees.find((e) => e.uid === 'u2').overall);
-eq('⚠️ لكنها لا تُحسب حضوراً في الوقت',       75, S.employees.find((e) => e.uid === 'u2').onTime);
+eq('حضور سامي = ٣ ÷ ٤', 75, S.employees.find((e) => e.uid === 'u1').attendanceRate);
+eq('التزام سامي بالوقت = ٢ ÷ ٤', 50, S.employees.find((e) => e.uid === 'u1').commitmentRate);
+eq('⚠️ الإجازة خارج مقام نورة', 100, S.employees.find((e) => e.uid === 'u2').attendanceRate);
+eq('والتزام نورة بالوقت كامل', 100, S.employees.find((e) => e.uid === 'u2').commitmentRate);
 eq('مجموع دقائق تأخير سامي', 20, S.employees.find((e) => e.uid === 'u1').lateMin);
 
 eq('إجماليات القسم',
-   { days: 8, present: 5, late: 1, absent: 1, leave: 1, employeeCount: 2 },
+   { days: 7, present: 5, late: 1, absent: 1, leave: 1, employeeCount: 2 },
    (() => { const t = S.totals; return { days: t.days, present: t.present, late: t.late,
             absent: t.absent, leave: t.leave, employeeCount: t.employeeCount }; })());
-eq('التزام القسم = (٥+١+١) ÷ ٨', 88, S.totals.overall);
+eq('حضور القسم = ٦ ÷ ٧ بعد استبعاد الإجازة', 86, S.totals.attendanceRate);
+eq('التزام القسم = ٥ ÷ ٧', 71, S.totals.commitmentRate);
 
 /* ⚠️ المتوسط على الأيام المتأخرة وحدها. لو قُسم على كل الأيام لصار ٢٫٥ د
    فلا يلفت أحداً، والمشكلة عند شخص واحد تأخّر ٢٠ دقيقة. */
@@ -699,33 +723,73 @@ eq('قسم بلا تأخير → صفر لا قسمة على صفر',
    0, teamSummaryOf([day(sami, 'present')]).totals.avgLateMinPerLateDay);
 
 eq('لا صفوف → إجماليات صفرية بلا استثناء',
-   { days: 0, overall: 0, employeeCount: 0 },
-   (() => { const t = teamSummaryOf([]).totals; return { days: t.days, overall: t.overall, employeeCount: t.employeeCount }; })());
+   { days: 0, attendanceRate: null, commitmentRate: null, employeeCount: 0 },
+   (() => { const t = teamSummaryOf([]).totals; return { days: t.days, attendanceRate: t.attendanceRate,
+            commitmentRate: t.commitmentRate, employeeCount: t.employeeCount }; })());
 
 /* ⚠️ صنف غير معروف يبقى في المقام — نسبة على مقام ناقص أخطر من صنف غير معدود */
 eq('صنف غير متوقّع يُعدّ في الأيام ولا يُسقط الصف',
-   { days: 2, overall: 50 },
+   { days: 2, attendanceRate: 50 },
    (() => { const t = teamSummaryOf([day(sami, 'present'), day(sami, 'وضع_جديد')]).totals;
-            return { days: t.days, overall: t.overall }; })());
+            return { days: t.days, attendanceRate: t.attendanceRate }; })());
 
 /* ── اتجاه المقارنة ── */
 group('١٤-ب. المقارنة بالدورة السابقة');
-eq('تحسّن',  { delta: 10, dir: 'up' },   trendOf({ days: 8, overall: 90 }, { days: 8, overall: 80 }));
-eq('تراجع',  { delta: -5, dir: 'down' }, trendOf({ days: 8, overall: 75 }, { days: 8, overall: 80 }));
-eq('ثبات',   { delta: 0,  dir: 'flat' }, trendOf({ days: 8, overall: 80 }, { days: 8, overall: 80 }));
+eq('تحسّن',  { delta: 10, dir: 'up' },   trendOf({ days: 8, commitmentRate: 90 }, { days: 8, commitmentRate: 80 }));
+eq('تراجع',  { delta: -5, dir: 'down' }, trendOf({ days: 8, commitmentRate: 75 }, { days: 8, commitmentRate: 80 }));
+eq('ثبات',   { delta: 0,  dir: 'flat' }, trendOf({ days: 8, commitmentRate: 80 }, { days: 8, commitmentRate: 80 }));
 /* ⚠️ سهم أخضر مبنيّ على «صفر سابقاً» يقرأه المدير تحسّناً وهو لا شيء */
-eq('لا دورة سابقة → لا سهم', null, trendOf({ days: 8, overall: 90 }, { days: 0, overall: 0 }));
-eq('لا دورة حالية → لا سهم', null, trendOf({ days: 0, overall: 0 }, { days: 8, overall: 80 }));
-eq('previous مفقودة → لا سهم', null, trendOf({ days: 8, overall: 90 }, null));
+eq('لا دورة سابقة → لا سهم', null, trendOf({ days: 8, commitmentRate: 90 }, { days: 0, commitmentRate: null }));
+eq('لا دورة حالية → لا سهم', null, trendOf({ days: 0, commitmentRate: null }, { days: 8, commitmentRate: 80 }));
+eq('previous مفقودة → لا سهم', null, trendOf({ days: 8, commitmentRate: 90 }, null));
 
 /* ── صفوف التصدير = أرقام الشاشة نفسها ── */
 const xrows = teamExportRows(S);
 eq('صف تصدير لكل موظف', 2, xrows.length);
 eq('⚠️ التصدير يحمل رقم الشاشة نفسه لا حساباً ثانياً',
-   S.employees[0].overall, xrows[0]['الالتزام %']);
+   [S.employees[0].attendanceRate, S.employees[0].commitmentRate],
+   [xrows[0]['نسبة الحضور %'], xrows[0]['نسبة الالتزام بالوقت %']]);
 eq('والساعات مشتقّة من ثوانيها لا محسوبة من جديد',
    Math.round((S.employees[0].secs / 3600) * 10) / 10, xrows[0]['ساعات العمل']);
 eq('نورة: ٣ أيام حضور × ٨ ساعات = ٢٤', 24, xrows[0]['ساعات العمل']);
+
+const tied = teamSummaryOf([
+  day(U('u3', 'بدر'), 'present'), day(U('u3', 'بدر'), 'absent', 0, 0),
+  day(U('u4', 'أحمد'), 'present'), day(U('u4', 'أحمد'), 'absent', 0, 0)
+]);
+eq('تعادل المؤشرين يُحسم بالاسم', ['أحمد', 'بدر'], tied.employees.map((e) => e.name));
+eq('صفوف Excel تحفظ ترتيب الشاشة نفسه', ['أحمد', 'بدر'],
+   teamExportRows(tied).map((e) => e['الموظف']));
+
+group('١٥. المصدر المطلوب للشاشات الإدارية');
+const loadedUsers = [{ id: 'u1' }];
+eq('نجاح القراءة يعيد البيانات الفعلية',
+   { status: 'ready', data: loadedUsers, error: null },
+   await loadRequiredSource(async () => {}, () => loadedUsers));
+eq('القائمة الفارغة صحيحة فقط بعد نجاح القراءة',
+   { status: 'ready', data: [], error: null },
+   await loadRequiredSource(async () => {}, () => []));
+const requiredFailure = new Error('users unavailable');
+const failedRequiredSource = await loadRequiredSource(async () => { throw requiredFailure; }, () => []);
+eq('فشل المصدر لا يتحول إلى قائمة فارغة',
+   { status: 'error', data: null, sameError: true },
+   { status: failedRequiredSource.status, data: failedRequiredSource.data,
+     sameError: failedRequiredSource.error === requiredFailure });
+
+group('١٦. قراءة حالة جسر البصمة');
+const bridgeData = { deviceOk: true };
+eq('وثيقة الجسر الموجودة تبقى حالة جاهزة',
+   { status: 'ready', data: bridgeData, error: null },
+   await readBridgeStatus(async () => bridgeData));
+eq('غياب الوثيقة وحده يعني أن لا نبض سُجّل بعد',
+   { status: 'missing', data: null, error: null },
+   await readBridgeStatus(async () => null));
+const bridgeFailure = new Error('bridge read failed');
+const failedBridge = await readBridgeStatus(async () => { throw bridgeFailure; });
+eq('فشل القراءة لا يتحول إلى ادعاء أن الجسر بلا نبض',
+   { status: 'error', data: null, sameError: true },
+   { status: failedBridge.status, data: failedBridge.data,
+     sameError: failedBridge.error === bridgeFailure });
 
 console.log(`\n\x1b[1m═══ النتيجة: ${pass} ناجح، ${fail} فاشل ═══\x1b[0m`);
 process.exit(fail ? 1 : 0);

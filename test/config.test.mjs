@@ -30,6 +30,8 @@ const t = (label, actual, expected) => {
 const ok = (label, cond) => t(label, !!cond, true);
 
 const fb  = JSON.parse(readFileSync(join(ROOT, 'firebase.json'), 'utf8'));
+const jekyll = readFileSync(join(ROOT, '_config.yml'), 'utf8');
+const mapPicker = readFileSync(join(ROOT, 'js/components/map-picker.js'), 'utf8');
 const csp = fb.hosting.headers
   .flatMap((h) => h.headers)
   .find((h) => h.key === 'Content-Security-Policy').value;
@@ -51,6 +53,15 @@ t('ويشير إلى ملف القواعد', fb.firestore.rules, 'firestore.rule
 /* ملفات الإعداد يجب ألا تُنشر كأصول عامة على الاستضافة */
 ['firebase.json', 'firestore.rules', 'firestore.indexes.json'].forEach((f) => {
   ok(`${f} مستثنى من النشر العام`, fb.hosting.ignore.includes(f));
+});
+
+/* ملاحظات العمل تحتوي حدوداً أمنية وتشغيلية مقصوداً أن تبقى داخل المشروع.
+   GitHub Pages وFirebase Hosting لهما قائمتان مستقلتان، فيلزم استثناء كل ملف
+   من الاثنين حتى لا يعود علنياً عند تغيير مسار الاستضافة. */
+['AGENTS.md', 'ATTENDANCE_IMPROVEMENTS.md', 'RESUME.md'].forEach((f) => {
+  ok(`${f} مستثنى من Firebase Hosting`, fb.hosting.ignore.includes(f));
+  ok(`${f} مستثنى من GitHub Pages`,
+    new RegExp(`^\\s*-\\s+${f.replace('.', '\\.')}$`, 'm').test(jekyll));
 });
 
 /* ═══ ٢. ترويسات الأمان لم تُضعَّف ═══ */
@@ -133,6 +144,18 @@ ok('unpkg.com في style-src',  /style-src[^;]*unpkg\.com/.test(csp));
 ok('unpkg.com في img-src',    /img-src[^;]*unpkg\.com/.test(csp));
 ok('خوادم البلاطات في img-src', /img-src[^;]*\*\.tile\.openstreetmap\.org/.test(csp));
 ok('nominatim في connect-src', /connect-src[^;]*nominatim\.openstreetmap\.org/.test(csp));
+
+/* Leaflet يُحمَّل كسولاً من JavaScript، فلا يراه فحص وسوم index.html.
+   نثبّت hash الإصدار 1.9.4 الرسمي وCORS على الوسمين الديناميكيين؛ بدونهما
+   يستطيع CDN مخترق استبدال كود يعمل بصلاحيات صفحة الأدمن. */
+ok('Leaflet JS يحمل SRI الرسمي',
+  mapPicker.includes("sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="));
+ok('Leaflet CSS يحمل SRI الرسمي',
+  mapPicker.includes("sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="));
+ok('وسم Leaflet JS يربط integrity وcrossOrigin',
+  /s\.integrity\s*=\s*LEAFLET_JS_SRI[\s\S]*?s\.crossOrigin\s*=\s*['"]anonymous['"]/.test(mapPicker));
+ok('وسم Leaflet CSS يربط integrity وcrossOrigin',
+  /css\.integrity\s*=\s*LEAFLET_CSS_SRI[\s\S]*?css\.crossOrigin\s*=\s*['"]anonymous['"]/.test(mapPicker));
 
 /* ⚠️ خلل حيّ كشفه هذا الاختبار أول مرة شُغّل (٢٠٢٦-٠٨-١٢):
    location-view.js:85 يعرض خريطة OSM داخل <iframe> منذ الكوميت c1b6132،

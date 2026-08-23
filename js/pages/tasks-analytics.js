@@ -22,6 +22,7 @@ import { fetchAttendance, buildDailyStatus } from '../lib/attendance.js';
 import { teamSummaryOf } from '../lib/team-stats.js';
 import { isStale } from '../lib/nav.js';
 import { card, tableWrap, sectionHead, loading, callout, pageHead, statCard } from '../lib/ui.js';
+import { adjustmentsInRange, adjustedUnifiedAttendance } from '../lib/adjustments.js';
 
 export async function render(view, token) {
   const today = ymdKsa();
@@ -36,9 +37,14 @@ export async function render(view, token) {
   host.appendChild(loading('جارٍ حساب التحليلات…'));
   view.appendChild(host);
 
-  let tasks, zk;
+  const staff = getUsers().filter((u) => u.role !== 'admin');
+  let tasks, zk, web, adjustments;
   try {
-    [tasks, zk] = await Promise.all([allTasks(), fetchAttendance(cyc, 'zkAttendance')]);
+    [tasks, zk, web, adjustments] = await Promise.all([
+      allTasks(), fetchAttendance(cyc, 'zkAttendance'),
+      fetchAttendance(cyc, 'attendance'),
+      adjustmentsInRange(ymdKsa(cyc.start), ymdKsa(cyc.end))
+    ]);
   } catch (e) {
     console.error('tasks-analytics', e);
     if (isStale(token)) return;
@@ -107,8 +113,8 @@ export async function render(view, token) {
   host.appendChild(dc);
 
   /* ── الجدول المدموج: الحضور مقابل المهام ── */
-  const staff = getUsers().filter((u) => u.role !== 'admin');
-  const attRows = buildDailyStatus(cyc, staff, getRequests(), zk, { compensate: true });
+  const unified = adjustedUnifiedAttendance(staff, zk, web, adjustments);
+  const attRows = buildDailyStatus(cyc, staff, getRequests(), unified, { compensate: true });
   const attSum  = teamSummaryOf(attRows);
   const attByUid = new Map(attSum.employees.map((e) => [e.uid, e]));
   const byUser = analyticsBy(tasks, today, (t) => t.assigneeUid);
@@ -120,7 +126,7 @@ export async function render(view, token) {
   uc.appendChild(tableWrap(`
     <table class="tight">
       <thead><tr><th>الموظف</th><th>القسم</th>
-        <th class="num">التزام الحضور</th><th class="num">مهام</th><th class="num">منجزة</th>
+        <th class="num">نسبة الحضور</th><th class="num">الالتزام بالوقت</th><th class="num">مهام</th><th class="num">منجزة</th>
         <th class="num">متأخرة</th><th class="num">في الوقت</th><th class="num">التقييم</th></tr></thead>
       <tbody>${byUser.map((r) => {
         const u = staff.find((x) => x.id === r.key);
@@ -129,7 +135,8 @@ export async function render(view, token) {
         return `<tr>
           <td><b>${esc(u.name)}</b></td>
           <td>${esc(u.department || '—')}</td>
-          <td class="num">${att ? `<b class="${att.overall >= 90 ? 'text-green' : att.overall >= 75 ? 'text-amber' : 'text-red'}">${att.overall}%</b>` : '—'}</td>
+          <td class="num">${att?.attendanceRate ?? '—'}${att?.attendanceRate != null ? '%' : ''}</td>
+          <td class="num">${att?.commitmentRate ?? '—'}${att?.commitmentRate != null ? '%' : ''}</td>
           <td class="num">${r.total}</td>
           <td class="num">${r.done}</td>
           <td class="num ${r.overdueNow ? 'text-red' : ''}">${r.overdueNow || '—'}</td>
