@@ -38,6 +38,7 @@ import { mergeAttendanceSources, selectPayrollAttendance } from '../../js/lib/at
 import { attendanceMetrics } from '../../js/lib/attendance-metrics.js';
 import { applyAll, adjustedUnifiedAttendance, adjustedPayrollAttendance } from '../../js/lib/adjustments.js';
 import { todayAttendance, payrollSummary } from '../../js/lib/hr-stats.js';
+import { attendancePresentation } from '../../js/lib/attendance-presentation.js';
 
 const out = document.getElementById('out');
 let pass = 0, fail = 0;
@@ -269,6 +270,20 @@ const featureDay = (record, permissions=[]) => buildDailyStatus(CYC, [EMP], perm
   const D='2026-06-01', lateRec=rec(D,'08:30','16:00');
   const full=intervalPerm(D,'تأخير عن الدوام','08:00','08:30');
   const partial=intervalPerm(D,'تأخير عن الدوام','08:00','08:15');
+  const presented=attendancePresentation(featureDay(lateRec,[full]));
+  eq('عرض Late يستخدم الدخول الرسمي ويحفظ الفعلي في الملاحظة', {
+    official:'08:00', actual:'08:30', note:'دخول فعلي 08:30 — استئذان معتمد 08:00–08:30'
+  }, {
+    official:presented.officialIn.toTimeString().slice(0,5),
+    actual:presented.actualIn.toTimeString().slice(0,5), note:presented.note
+  });
+  const partialPresentation=attendancePresentation(featureDay(lateRec,[partial]));
+  eq('عرض Late الجزئي لا يخفي الفجوة غير المغطاة', {
+    official:'08:30', note:'استئذان معتمد 08:00–08:15', uncovered:15
+  }, {
+    official:partialPresentation.officialIn.toTimeString().slice(0,5),
+    note:partialPresentation.note, uncovered:partialPresentation.uncoveredMin
+  });
   eq('Late صريح كامل يعوّض الدقائق المغطاة فقط', { late:0, exempt:30, hours:8, ded:0 },
      (() => { const r=runPayroll(fullMonth({[D]:lateRec}),[full]); const d=r.details.find(x=>x.dateStr===D);
        return { late:r.lateMin, exempt:r.exemptMin, hours:d.effectiveSecs/3600, ded:r.dedHours }; })());
@@ -282,6 +297,7 @@ const featureDay = (record, permissions=[]) => buildDailyStatus(CYC, [EMP], perm
   const full=intervalPerm(D,'خروج مبكر','15:00','16:00');
   const partial=intervalPerm(D,'خروج مبكر','15:30','16:00');
   const day=featureDay(earlyRec,[full]);
+  const presented=attendancePresentation(day);
   const pay=runPayroll(fullMonth({[D]:earlyRec}),[full]);
   eq('Early صريح كامل يحتسب نهاية الوردية ويحفظ الخروج الفعلي',
      { actual:'15:00', effective:'16:00', actualH:7, effectiveH:8, early:0 }, {
@@ -290,6 +306,19 @@ const featureDay = (record, permissions=[]) => buildDailyStatus(CYC, [EMP], perm
      });
   eq('ملاحظة Early تعرض الدليل الفعلي ونهاية الوردية', true,
      /خروج فعلي 15:00.*استئذان خروج مبكر معتمد حتى نهاية الوردية 16:00/.test(day.note));
+  eq('عرض Early يختصر الدليل ويعرض الخروج الرسمي', {
+    official:'16:00', actual:'15:00', note:'خروج فعلي 15:00 — استئذان معتمد 15:00–16:00'
+  }, {
+    official:presented.officialOut.toTimeString().slice(0,5),
+    actual:presented.actualOut.toTimeString().slice(0,5), note:presented.note
+  });
+  const partialPresentation=attendancePresentation(featureDay(earlyRec,[partial]));
+  eq('عرض Early الجزئي لا يحول الخروج إلى نهاية الوردية', {
+    official:'15:00', note:'استئذان معتمد 15:30–16:00', uncovered:30
+  }, {
+    official:partialPresentation.officialOut.toTimeString().slice(0,5),
+    note:partialPresentation.note, uncovered:partialPresentation.uncoveredMin
+  });
   eq('Early صريح جزئي يبقي النقص خارجه', { early:30, exempt:30, hours:7.5, ded:18.75 },
      (() => { const r=runPayroll(fullMonth({[D]:earlyRec}),[partial]); const d=r.details.find(x=>x.dateStr===D);
        return { early:r.earlyMin, exempt:r.exemptMin, hours:d.effectiveSecs/3600, ded:r.dedHours }; })());
@@ -300,6 +329,7 @@ const featureDay = (record, permissions=[]) => buildDailyStatus(CYC, [EMP], perm
   const full=intervalPerm(D,'استئذان أثناء الدوام','12:00','13:00');
   const partial=intervalPerm(D,'استئذان أثناء الدوام','12:00','12:30');
   const fullDay=featureDay(split,[full]);
+  const presented=attendancePresentation(fullDay);
   const fullPay=runPayroll(fullMonth({[D]:split}),[full]);
   eq('Mid كامل: اتحاد الجلسات والاستئذان يعطي ٨ ساعات',
      { actual:7, effective:8, gap:0, exempt:60 }, {
@@ -307,6 +337,12 @@ const featureDay = (record, permissions=[]) => buildDailyStatus(CYC, [EMP], perm
        gap:fullPay.gapMin, exempt:fullPay.exemptMin
      });
   eq('سجل الموظف يطبق Mid المعتمد', 8, dayWork(split,EMP.department,EMP,[full]).secs/3600);
+  eq('عرض Mid يبقي الحدود الرسمية ويعرض ملاحظة مختصرة', {
+    in:'08:00', out:'16:00', note:'استئذان معتمد 12:00–13:00'
+  }, {
+    in:presented.officialIn.toTimeString().slice(0,5),
+    out:presented.officialOut.toTimeString().slice(0,5), note:presented.note
+  });
   eq('بلا Mid Approved لا يتغير تعريف ساعات سجل الموظف', 7,
      dayWork(split,EMP.department,EMP,[]).secs/3600);
   const partialDay=featureDay(split,[partial]);
@@ -379,13 +415,30 @@ const featureDay = (record, permissions=[]) => buildDailyStatus(CYC, [EMP], perm
   window.XLSX={ utils:{ book_new:()=>({sheets:{}}), json_to_sheet:(rows)=>rows,
     book_append_sheet:(book,sheet,name)=>{book.sheets[name]=sheet;} },
     writeFile:(book,filename)=>saved.push({book,filename}) };
-  attendanceExport(CYC,{isDevice:true},[featureDay(rec(D,'08:00','15:00'),
-    [intervalPerm(D,'خروج مبكر','15:00','16:00')])],[{r:rec(D,'08:00','15:00'),idx:0,s:rec(D,'08:00','15:00').sessions[0]}]);
+  const actualRecord=rec(D,'08:00','15:00');
+  const exportDay=featureDay(actualRecord,[intervalPerm(D,'خروج مبكر','15:00','16:00')]);
+  attendanceExport(CYC,{isDevice:true},[exportDay],
+    [{r:actualRecord,idx:0,s:actualRecord.sessions[0]}]);
   const att=saved.pop().book.sheets;
-  eq('Excel الحضور يبقي الخروج الفعلي ويفصل المحتسب',
-     { actual:'15:00', effective:'16:00', actualH:'7.00', effectiveH:'8.00' },
-     (() => { const x=att['التقرير اليومي'][0]; return { actual:x['خروج'], effective:x['خروج محتسب'],
-       actualH:x['ساعات فعلية'], effectiveH:x['ساعات العمل'] }; })());
+  const attendanceRow=att['التقرير اليومي'][0];
+  eq('Excel الحضور يعرض الوقت الرسمي والملاحظة القصيرة', {
+    in:'08:00', out:'16:00', hours:'8.00', type:'خروج مبكر',
+    note:'خروج فعلي 15:00 — استئذان معتمد 15:00–16:00'
+  }, {
+    in:attendanceRow['الدخول الرسمي'], out:attendanceRow['الخروج الرسمي'],
+    hours:attendanceRow['ساعات العمل المحتسبة'], type:attendanceRow['نوع الاستئذان'],
+    note:attendanceRow['ملاحظة']
+  });
+  eq('Excel التقرير الرئيسي يحتوي الأعمدة الإدارية الاثني عشر فقط', [
+    'الموظف','الرقم الوظيفي','القسم','التاريخ','اليوم','الوردية','الحالة',
+    'الدخول الرسمي','الخروج الرسمي','ساعات العمل المحتسبة','نوع الاستئذان','ملاحظة'
+  ], Object.keys(attendanceRow));
+  eq('Excel التقرير الرئيسي لا يعرض أعمدة التشخيص', true, [
+    'دقائق استئذان محتسبة','فترات استئذان محتسبة','دقائق نقص أثناء الوردية',
+    'ساعات فعلية','خروج محتسب','معرف طلب الاستئذان','تفاصيل الاستئذان'
+  ].every((key)=>!Object.hasOwn(attendanceRow,key)));
+  eq('طبقة العرض والتصدير لا تغير البصمة الفعلية', '15:00',
+     actualRecord.sessions[0].out.toTimeString().slice(0,5));
   eq('Excel الجلسات الخام يبقى سبع ساعات', '7.00', att['الجلسات التفصيلية'][0]['ساعات العمل']);
   payrollExport(CYC,[partialPay]);
   const pay=saved.pop().book.sheets;
