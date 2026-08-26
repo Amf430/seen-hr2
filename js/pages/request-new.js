@@ -53,6 +53,7 @@ function permForm() {
         <select id="pfCat">
           <option value="تأخير عن الدوام">تأخير عن الدوام</option>
           <option value="خروج مبكر">خروج مبكر</option>
+          <option value="استئذان أثناء الدوام">استئذان أثناء الدوام</option>
         </select></div>
       <div class="field"><label for="pfReason">السبب</label>
         <select id="pfReason">${(S.permissionReasons || []).map((r) =>
@@ -62,8 +63,9 @@ function permForm() {
       <div class="field"><label for="pfDate">التاريخ</label>
         <input id="pfDate" type="date" min="${esc(oldest)}" value="${esc(today)}">
         <div class="help">يُقبل الاستئذان عن يومه وحتى ${PERM_BACKDATE_DAYS} أيام مضت
-          (من ${esc(oldest)}). بعدها تُغلق الحالة ويُعتمد التأخير أو الخروج المبكر بدون عذر.</div></div>
-      <div class="field"><label for="pfTime">الوقت</label><input id="pfTime" type="time"></div>
+          (من ${esc(oldest)}). بعدها تُغلق الحالة ويُعتمد النقص الزمني بدون عذر.</div></div>
+      <div class="field"><label for="pfStart">من الساعة</label><input id="pfStart" type="time"></div>
+      <div class="field"><label for="pfEnd">إلى الساعة</label><input id="pfEnd" type="time"></div>
     </div>
     <div class="form-row one">
       <div class="field"><label for="pfApprover">جهة الاعتماد (المُستأذَن منه)</label>
@@ -78,13 +80,19 @@ function permForm() {
   f.querySelector('#pfSubmit').onclick = async (e) => {
     const btn = e.currentTarget;
     const cat = f.querySelector('#pfCat').value;
-    const permissionKind = cat === 'تأخير عن الدوام' ? PERMISSION_KIND.LATE : PERMISSION_KIND.EARLY;
+    const permissionKind = ({
+      'تأخير عن الدوام': PERMISSION_KIND.LATE,
+      'خروج مبكر': PERMISSION_KIND.EARLY,
+      'استئذان أثناء الدوام': PERMISSION_KIND.MID
+    })[cat];
     const date = f.querySelector('#pfDate').value;
-    const time = f.querySelector('#pfTime').value;
+    const startTime = f.querySelector('#pfStart').value;
+    const endTime = f.querySelector('#pfEnd').value;
     const rId = f.querySelector('#pfReason').value;
     const aId = f.querySelector('#pfApprover').value;
     const note = f.querySelector('#pfNote').value.trim();
-    if (!date || !time) { toast('أدخل التاريخ والوقت', 'err'); return; }
+    if (!date || !startTime || !endTime) { toast('أدخل التاريخ وبداية ونهاية الاستئذان', 'err'); return; }
+    if (startTime === endTime) { toast('بداية الاستئذان ونهايته لا يمكن أن تتطابقا', 'err'); return; }
     /* ⚠️ يُعاد الحساب على تاريخ اليوم الآن لا على `today` المحفوظ عند بناء
        النموذج: صفحة تُركت مفتوحة ليلاً تعبر منتصف الليل، فتزحف النافذة. */
     if (!permWindowOpen(date)) {
@@ -99,7 +107,7 @@ function permForm() {
     const appr = (S.approvers || []).find((x) => x.id === aId);
     btn.disabled = true; btn.textContent = 'جارٍ التقديم…';
     const ok = await submitRequest({
-      type: 'permission', permissionKind, category: cat, categoryLabel: cat, date, time,
+      type: 'permission', permissionKind, category: cat, categoryLabel: cat, date, startTime, endTime,
       reasonId: rId, reasonLabel: reason?.label || '',
       approverId: aId, approverName: appr?.name || '', note
     });

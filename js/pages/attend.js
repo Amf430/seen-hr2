@@ -1,10 +1,11 @@
 import { el, esc } from '../lib/dom.js';
 import { db, doc, getDoc } from '../lib/firebase.js';
-import { getMe } from '../lib/state.js';
+import { getMe, getRequests } from '../lib/state.js';
 import { attendPanel } from '../components/attend-panel.js';
 import { cycleOf, ymd, AR_DAYS } from '../lib/dates.js';
 import { fmtDur, hm } from '../lib/format.js';
-import { sessionsOf, workedSecs, fetchMyAttendance, uidsOf } from '../lib/attendance.js';
+import { sessionsOf, workedSecs, dayBounds, fetchMyAttendance, uidsOf } from '../lib/attendance.js';
+import { permissionWorkTime } from '../lib/permission-work-time.js';
 import { resolveShift, shiftWindowFor } from '../lib/shifts.js';
 import { isStale } from '../lib/nav.js';
 import { tableWrap, empty, pageHead, statCard } from '../lib/ui.js';
@@ -15,12 +16,22 @@ import { tableWrap, empty, pageHead, statCard } from '../lib/ui.js';
    buildDailyStatus، وكان ما زال قائماً في هذه الصفحة وحدها.
    الوردية تُحلّ بنفس ترتيب الأولوية المعتمد: استثناء التاريخ ← وردية القسم
    ← الوردية العامة. */
-function daySecs(rec, deptName, emp) {
+export function dayWork(rec, deptName, emp, requests) {
+  const sessions = sessionsOf(rec);
   const d  = new Date(rec.date + 'T00:00:00');
-  if (isNaN(d)) return workedSecs(sessionsOf(rec)).secs;
+  if (isNaN(d)) return { secs: workedSecs(sessions).secs };
   const sh = resolveShift(rec.date, d.getDay(), deptName, emp);
   const w  = shiftWindowFor(d, sh);
-  return workedSecs(sessionsOf(rec), w ? w.end.getTime() : null).secs;
+  /* خط الأساس هنا يبقى مجموع جلسات الجوال كما كان؛ لا نبدّله إلى span.
+     الاستئذان يضيف فترته فقط، وMid المعتمد هو وحده الذي يطلب اتحاد الجلسات. */
+  const rawSecs = workedSecs(sessions, w ? w.end.getTime() : null).secs;
+  const { firstIn, lastOut } = dayBounds(sessions);
+  const effect = permissionWorkTime({
+    requests, employee: emp, dateStr: rec.date, sessions, firstIn, lastOut,
+    baseSecs: rawSecs, shiftStart: w ? w.start : null, shiftEnd: w ? w.end : null,
+    lateGraceMinutes: 0
+  });
+  return { secs: lastOut ? effect.effectiveSecs : rawSecs, effect };
 }
 
 export async function render(view, token) {
@@ -52,13 +63,15 @@ export async function render(view, token) {
   host.innerHTML = '';
   if (!mine.length) { host.appendChild(empty('ما سجّلت حضوراً في هذه الدورة بعد', 'calendar')); return; }
 
-  const totalSecs = mine.reduce((s, r) => s + daySecs(r, me.department, me), 0);
+  const requests = getRequests();
+  const days = mine.map((r) => ({ r, work: dayWork(r, me.department, me, requests) }));
+  const totalSecs = days.reduce((s, x) => s + x.work.secs, 0);
   const sg = el('div', 'statgrid');
   sg.append(
     statCard({ label: 'أيام حضور', value: mine.length, ico: 'calendar',
       sub: 'سجّلت فيها من جوالك' }),
     statCard({ label: 'مجموع ساعات الدورة', value: fmtDur(totalSecs), ico: 'clock',
-      sub: 'من أول بصمة لآخرها' }),
+      sub: 'بعد الاستئذانات المعتمدة' }),
     statCard({ label: 'متوسّط اليوم', value: fmtDur(totalSecs / mine.length), ico: 'chart',
       sub: 'على أيام حضورك وحدها' })
   );
@@ -67,10 +80,10 @@ export async function render(view, token) {
   host.appendChild(tableWrap(`
     <table class="tight">
       <thead><tr><th class="num">التاريخ</th><th>اليوم</th><th>المكان</th><th class="num">دخول</th><th class="num">خروج</th><th class="num">الجلسات</th><th class="num">الساعات</th></tr></thead>
-      <tbody>${mine.map((r) => {
+      <tbody>${days.map(({ r, work }) => {
         const ss = sessionsOf(r);
         const last = ss[ss.length - 1];
-        const secs = daySecs(r, me.department, me);
+        const secs = work.secs;
         const d = new Date(r.date + 'T00:00:00');
         return `<tr>
           <td class="num">${esc(r.date)}</td>
@@ -79,7 +92,7 @@ export async function render(view, token) {
           <td class="num text-green">${ss.length ? hm(ss[0].in) : '—'}</td>
           <td class="num text-red">${(last && last.out) ? hm(last.out) : '<span class="pill pill--dot missing">مفتوحة</span>'}</td>
           <td class="num">${ss.length}</td>
-          <td class="num">${secs > 0 ? fmtDur(secs) : '—'}</td>
+          <td class="num" title="${work.effect?.creditedSecs ? `يشمل ${Math.round(work.effect.creditedSecs / 60)} د باستئذان معتمد` : ''}">${secs > 0 ? fmtDur(secs) : '—'}</td>
         </tr>`;
       }).join('')}</tbody>
     </table>`));

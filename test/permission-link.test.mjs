@@ -17,7 +17,9 @@ const base = {
 };
 
 console.log('\n\x1b[1m═══ ربط الاستئذان بالحضور ═══\x1b[0m');
-eq('الحقل الدلالي يتقدّم على النص القديم', PERMISSION_KIND.EARLY,
+eq('الحقل الدلالي المتوافق مع الفئة يُقرأ', PERMISSION_KIND.EARLY,
+   permissionKindOf({ ...base, category: 'خروج مبكر', permissionKind: 'early' }));
+eq('التركيبة المتناقضة تفشل مغلقاً', '',
    permissionKindOf({ ...base, permissionKind: 'early' }));
 eq('الطلب القديم يبقى مقروءاً بالمطابقة الدقيقة', PERMISSION_KIND.LATE, permissionKindOf(base));
 eq('نص يحتوي الكلمة عرضاً لا يمنح إعفاءً', '',
@@ -28,11 +30,14 @@ eq('قيمة دلالية مجهولة لا تمنح إعفاءً', '',
 const pending = { ...base, id: 'pending', status: 'pending' };
 const rejected = { ...base, id: 'rejected', status: 'rejected' };
 const cancelled = { ...base, id: 'cancelled', status: 'cancelled' };
-const early = { ...base, id: 'perm-2', permissionKind: 'early', category: 'اسم قابل للتغيير' };
-const linked = approvedPermissionsForDay([base, pending, rejected, cancelled, early], 'u1', '2026-08-18');
-eq('المعتمد وحده يرتبط باليوم', ['perm-1', 'perm-2'], linked.all.map((r) => r.id));
+const early = { ...base, id: 'perm-2', permissionKind: 'early', category: 'خروج مبكر', categoryLabel: 'خروج مبكر' };
+const mid = { ...base, id: 'perm-3', permissionKind: 'mid', category: 'استئذان أثناء الدوام', categoryLabel: 'استئذان أثناء الدوام' };
+const legacyMid = { ...mid, id: 'legacy-mid' }; delete legacyMid.permissionKind;
+const linked = approvedPermissionsForDay([base, pending, rejected, cancelled, early, mid, legacyMid], 'u1', '2026-08-18');
+eq('المعتمد ذو العقد الصحيح وحده يرتبط باليوم', ['perm-1', 'perm-2', 'perm-3'], linked.all.map((r) => r.id));
 eq('الربط يعيد معرّف الطلب الأصلي', 'perm-1', linked.late.id);
-eq('النوع الدلالي يحدد الخروج المبكر ولو تغيّر التصنيف', 'perm-2', linked.early.id);
+eq('النوع الدلالي المتوافق يحدد الخروج المبكر', 'perm-2', linked.early.id);
+eq('استئذان أثناء الدوام يحتاج permissionKind صريحاً', ['perm-3'], linked.mid.map((r) => r.id));
 eq('الموظف أو اليوم الآخر لا يرث الاستئذان', 0,
    approvedPermissionsForDay([base], 'u2', '2026-08-18').all.length);
 
@@ -53,9 +58,10 @@ eq('وثيقة attendanceFix القديمة ترجع إلى employeeUid', 'u-new
    attendanceUidOf({ employeeUid: 'u-new' }));
 
 eq('حقول Excel تحمل الإثبات والسبب والتفاصيل', {
-  exists: 'نعم', ids: 'perm-1 · perm-2',
-  types: 'تأخير عن الدوام · تأخير عن الدوام', reasons: 'مهمة عمل · مهمة عمل',
-  details: 'زيارة موقع العميل · زيارة موقع العميل'
+  exists: 'نعم', ids: 'perm-1 · perm-2 · perm-3',
+  types: 'تأخير عن الدوام · خروج مبكر · استئذان أثناء الدوام',
+  reasons: 'مهمة عمل · مهمة عمل · مهمة عمل',
+  details: 'زيارة موقع العميل · زيارة موقع العميل · زيارة موقع العميل'
 }, permissionExportFields(linked.all));
 eq('عنوان العرض يجمع الاستئذان وسببه', 'استئذان — مهمة عمل', permissionDisplayLabel(base));
 

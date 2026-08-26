@@ -6,7 +6,7 @@
    اسمه لا يجوز أن يمنح إعفاءً من خصم الراتب بالصدفة.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-export const PERMISSION_KIND = Object.freeze({ LATE: 'late', EARLY: 'early' });
+export const PERMISSION_KIND = Object.freeze({ LATE: 'late', EARLY: 'early', MID: 'mid' });
 
 /* هوية الموظف ليست UID واحداً بعد استعادة الوصول. هذه الوحدة نقيّة ومشتركة
    بين الحضور والمسير والطلبات حتى لا يربط كل مستهلك التاريخ بطريقة مختلفة. */
@@ -26,6 +26,11 @@ export function attendanceUidOf(request) {
   return request?.attendanceUid || request?.employeeUid || '';
 }
 
+const CATEGORY_KIND = Object.freeze({
+  'تأخير عن الدوام': PERMISSION_KIND.LATE,
+  'خروج مبكر': PERMISSION_KIND.EARLY,
+  'استئذان أثناء الدوام': PERMISSION_KIND.MID
+});
 const LEGACY_KIND = Object.freeze({
   'تأخير عن الدوام': PERMISSION_KIND.LATE,
   'خروج مبكر': PERMISSION_KIND.EARLY
@@ -34,8 +39,9 @@ const LEGACY_KIND = Object.freeze({
 export function permissionKindOf(r) {
   if (!r || r.type !== 'permission') return '';
   if ('permissionKind' in r) {
-    return r.permissionKind === PERMISSION_KIND.LATE || r.permissionKind === PERMISSION_KIND.EARLY
-      ? r.permissionKind : '';
+    /* الحقل هو المصدر الدلالي، لكن الفئة جزء من عقد التخزين والعرض. تركيبة
+       متناقضة تُرفض في القراءة أيضاً حتى لا تمنح وثيقة قديمة مشوّهة إعفاءً. */
+    return CATEGORY_KIND[r.category] === r.permissionKind ? r.permissionKind : '';
   }
   return LEGACY_KIND[r.category] || '';
 }
@@ -47,7 +53,8 @@ export function approvedPermissionsForDay(requests, employee, date) {
   return {
     all,
     late: all.find((r) => permissionKindOf(r) === PERMISSION_KIND.LATE) || null,
-    early: all.find((r) => permissionKindOf(r) === PERMISSION_KIND.EARLY) || null
+    early: all.find((r) => permissionKindOf(r) === PERMISSION_KIND.EARLY) || null,
+    mid: all.filter((r) => permissionKindOf(r) === PERMISSION_KIND.MID)
   };
 }
 

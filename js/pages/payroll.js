@@ -27,7 +27,7 @@ export async function render(view, token) {
 
   const head = card(null, null, 'money',
     `قيمة اليوم = الراتب ÷ ${cfg.daysPerMonth} · قيمة الساعة = قيمة اليوم ÷ ${cfg.hoursPerDay}. ` +
-    `الخصم بالساعات للتأخير والخروج المبكر، والغياب بخصم يوم كامل. المصدر: ${payrollSourceLabel(cfg)}.`);
+    `الخصم بالساعات للتأخير والخروج المبكر والفجوة غير المغطاة، والغياب بخصم يوم كامل. المصدر: ${payrollSourceLabel(cfg)}.`);
   const dd = el('select', 'select-lg');
   dd.innerHTML = cycles.map((c, i) =>
     `<option value="${i}">${esc(c.label)}${i === 0 ? ' (الحالية — غير مكتملة)' : ''}</option>`).join('');
@@ -142,10 +142,11 @@ export async function render(view, token) {
     );
     host.appendChild(g);
 
-    const g2 = grid(3);
+    const g2 = grid(4);
     g2.append(
       stat(hhmm(tot.lateMin), 'إجمالي التأخير', 'a'),
       stat(hhmm(tot.earlyMin), 'إجمالي الخروج المبكر', 'a'),
+      stat(hhmm(tot.gapMin), 'نقص أثناء الوردية', 'a'),
       stat(money(tot.dedAbsent + tot.dedUnpaid), 'خصم الغياب والإجازات غير المدفوعة', 'r')
     );
     host.appendChild(g2);
@@ -166,7 +167,7 @@ export async function render(view, token) {
         <thead><tr>
           <th>الموظف</th><th>القسم</th><th class="money">الراتب</th><th class="money">قيمة الساعة</th>
           <th class="num">أيام العمل</th><th class="num">حضور</th><th class="num">غياب</th><th class="num">إجازة مدفوعة</th><th class="num">بدون راتب</th>
-          <th class="num">تأخير</th><th class="num">خروج مبكر</th><th class="money">خصم ساعات</th><th class="money">خصم غياب</th><th class="money">إجمالي الخصم</th><th class="money">المستحق</th>
+          <th class="num">تأخير</th><th class="num">خروج مبكر</th><th class="num">نقص أثناء الوردية</th><th class="money">خصم ساعات</th><th class="money">خصم غياب</th><th class="money">إجمالي الخصم</th><th class="money">المستحق</th>
         </tr></thead>
         <tbody></tbody>
       </table>`);
@@ -186,6 +187,7 @@ export async function render(view, token) {
         <td class="num">${r.unpaidDays || '—'}</td>
         <td class="num">${r.lateMin ? hhmm(r.lateMin) : '—'}</td>
         <td class="num">${r.earlyMin ? hhmm(r.earlyMin) : '—'}</td>
+        <td class="num">${r.gapMin ? hhmm(r.gapMin) : '—'}</td>
         <td class="money neg">${r.dedHours ? '− ' + money(r.dedHours) : '—'}</td>
         <td class="money neg">${(r.dedAbsent + r.dedUnpaid) ? '− ' + money(r.dedAbsent + r.dedUnpaid) : '—'}</td>
         <td class="money neg">${r.total ? '− ' + money(r.total) : '—'}</td>
@@ -196,7 +198,7 @@ export async function render(view, token) {
 
     const totRow = el('tr', 'row-total');
     totRow.innerHTML = `
-      <td colspan="11">الإجمالي</td>
+      <td colspan="12">الإجمالي</td>
       <td class="money neg">− ${money(tot.dedHours)}</td>
       <td class="money neg">− ${money(tot.dedAbsent + tot.dedUnpaid)}</td>
       <td class="money neg">− ${money(tot.total)}</td>

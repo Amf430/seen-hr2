@@ -452,17 +452,37 @@ service cloud.firestore {
       );
     }
 
+    function permissionTimeOk(v) {
+      return v is string && v.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+    }
+
+    function permissionKindOk() {
+      return (d().permissionKind == 'late'  && d().category == 'تأخير عن الدوام')
+          || (d().permissionKind == 'early' && d().category == 'خروج مبكر')
+          || (d().permissionKind == 'mid'   && d().category == 'استئذان أثناء الدوام');
+    }
+
     function permOk() {
       /* التفاصيل تحفظ سياق قرار الإعفاء من الخصم، والسقف يمنع تحويل الطلب
          إلى مساحة تخزين غير محدودة على حساب مالك النظام. */
       return isYmd(d().date)
           && d().date >= ymd(ksa() - duration.value(3, 'd'))
-          && d().category in ['تأخير عن الدوام', 'خروج مبكر']
-          /* اختياري للتوافق مع العملاء والوثائق القديمة؛ إن وُجد فلا يقبل
-             نصاً حراً يستطيع تغيير معنى الإعفاء في المسير. */
-          && (!('permissionKind' in d())
-              || (d().permissionKind == 'late' && d().category == 'تأخير عن الدوام')
-              || (d().permissionKind == 'early' && d().category == 'خروج مبكر'))
+          && d().category in ['تأخير عن الدوام', 'خروج مبكر', 'استئذان أثناء الدوام']
+          && (
+            /* الشكل الجديد: الفترة صريحة وpermissionKind هو معناها
+               الدلالي. لا نقارن الوقتين نصياً لأن 23:00→01:00 صحيح. */
+            ('startTime' in d() && 'endTime' in d() && !('time' in d())
+              && ('permissionKind' in d()) && permissionKindOk()
+              && permissionTimeOk(d().startTime) && permissionTimeOk(d().endTime)
+              && d().startTime != d().endTime)
+            ||
+            /* العميل والوثائق القديمة: time وحده للفئتين القديمتين. وجود
+               permissionKind اختياري، لكنه إن وُجد يبقى متطابقاً. */
+            (!('startTime' in d()) && !('endTime' in d())
+              && d().category in ['تأخير عن الدوام', 'خروج مبكر']
+              && permissionTimeOk(d().time)
+              && (!('permissionKind' in d()) || permissionKindOk()))
+          )
           && d().note is string
           && d().note.trim().size() > 0
           && d().note.size() <= 500;
