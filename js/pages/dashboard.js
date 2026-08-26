@@ -313,8 +313,8 @@ export async function render(view, token) {
       </div>`).join('')}
       <div class="legend__row">
         <span class="legend__dot" style="background:var(--amber)"></span>
-        <span class="legend__label">تأخير وخروج مبكر</span>
-        <span class="legend__value num">${esc(hhmm(ps.lateMin + ps.earlyMin))}</span>
+        <span class="legend__label">نقص ساعات غير مغطى</span>
+        <span class="legend__value num">${esc(hhmm(ps.lateMin + ps.earlyMin + (ps.gapMin || 0)))}</span>
       </div></div>`;
   pc.appendChild(payRing);
 

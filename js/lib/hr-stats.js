@@ -98,8 +98,9 @@ export function payrollSummary(cyc, users, requests, zkRecs) {
   const t = rows.reduce((a, r) => ({
     salary: a.salary + r.salary, total: a.total + r.total, net: a.net + r.net,
     lateMin: a.lateMin + r.lateMin, earlyMin: a.earlyMin + r.earlyMin,
+    gapMin: a.gapMin + (r.gapMin || 0),
     absentDays: a.absentDays + r.absentDays, missingOut: a.missingOut + r.missingOut
-  }), { salary: 0, total: 0, net: 0, lateMin: 0, earlyMin: 0, absentDays: 0, missingOut: 0 });
+  }), { salary: 0, total: 0, net: 0, lateMin: 0, earlyMin: 0, gapMin: 0, absentDays: 0, missingOut: 0 });
   return { rows, ...t };
 }
 
