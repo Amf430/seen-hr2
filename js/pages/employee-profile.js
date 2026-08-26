@@ -213,6 +213,9 @@ export async function render(view, token) {
       statCard({ label: 'خروج مبكر', value: pay ? hhmm(pay.earlyMin) : '—', ico: 'login',
         tone: pay && pay.earlyMin ? 'warn' : '',
         sub: pay ? 'قبل نهاية الوردية' : payrollUnavailable }),
+      statCard({ label: 'نقص أثناء الوردية', value: pay ? hhmm(pay.gapMin || 0) : '—', ico: 'gap',
+        tone: pay && pay.gapMin ? 'warn' : '',
+        sub: pay ? 'غير مغطى باستئذان' : payrollUnavailable }),
       statCard({ label: 'نسيان بصمة خروج', value: miss, ico: 'gap',
         tone: miss ? 'warn' : 'good', sub: miss ? 'تحتاج تصحيحاً' : 'لا نواقص' }),
       statCard({ label: 'متوسّط وقت الحضور', ico: 'clock',
@@ -223,9 +226,9 @@ export async function render(view, token) {
 
     const g3 = el('div', 'statgrid');
     g3.append(
-      statCard({ label: 'ساعات عمل فعلية', value: pay ? pay.workH.toFixed(1) : '—', ico: 'clock',
+      statCard({ label: 'ساعات عمل محتسبة', value: pay ? pay.workH.toFixed(1) : '—', ico: 'clock',
         sub: pay
-          ? (run ? 'من لقطة المسير المعتمدة' : `حسب ${payrollSourceLabel(effectiveCfg)}`)
+          ? (run ? 'من لقطة المسير المعتمدة بعد الاستئذانات' : `حسب ${payrollSourceLabel(effectiveCfg)} بعد الاستئذانات`)
           : payrollUnavailable }),
       statCard({ label: 'ساعات مطلوبة', value: pay ? pay.reqH.toFixed(1) : '—', ico: 'scale',
         sub: pay ? 'حسب وردياته' : payrollUnavailable }),
@@ -262,7 +265,7 @@ export async function render(view, token) {
       pc.innerHTML += `
         <div class="detail-list">
           <div class="detail-line"><span class="k">الراتب الأساسي</span><span class="v money">${money(pay.salary)}</span></div>
-          <div class="detail-line"><span class="k">خصم الساعات (${hhmm(pay.lateMin + pay.earlyMin)} × ${money(pay.hourRate)})</span><span class="v money neg">− ${money(pay.dedHours)}</span></div>
+          <div class="detail-line"><span class="k">خصم الساعات (${hhmm(pay.lateMin + pay.earlyMin + (pay.gapMin || 0))} × ${money(pay.hourRate)})</span><span class="v money neg">− ${money(pay.dedHours)}</span></div>
           <div class="detail-line"><span class="k">خصم الغياب (${pay.absentDays} يوم × ${money(pay.dayRate)})</span><span class="v money neg">− ${money(pay.dedAbsent)}</span></div>
           <div class="detail-line"><span class="k">خصم إجازة بدون راتب (${pay.unpaidDays} يوم)</span><span class="v money neg">− ${money(pay.dedUnpaid)}</span></div>
           <div class="detail-line detail-line--total"><span class="k">المستحق</span><span class="v money net">${money(pay.net)}</span></div>

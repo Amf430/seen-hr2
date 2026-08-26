@@ -47,8 +47,9 @@ export function payrollTotals(rows) {
     net: a.net + (Number(r.net) || 0),
     lateMin: a.lateMin + (Number(r.lateMin) || 0),
     earlyMin: a.earlyMin + (Number(r.earlyMin) || 0),
+    gapMin: a.gapMin + (Number(r.gapMin) || 0),
     absentDays: a.absentDays + (Number(r.absentDays) || 0),
     missingOut: a.missingOut + (Number(r.missingOut) || 0)
   }), { salary: 0, dedHours: 0, dedAbsent: 0, dedUnpaid: 0, total: 0, net: 0,
-        lateMin: 0, earlyMin: 0, absentDays: 0, missingOut: 0 });
+        lateMin: 0, earlyMin: 0, gapMin: 0, absentDays: 0, missingOut: 0 });
 }

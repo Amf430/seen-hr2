@@ -18,6 +18,9 @@ import { permissionExportFields } from './permission-link.js';
 import { payrollSourceLabel } from './attendance-sources.js';
 
 const X = () => window.XLSX;
+const permissionPeriod = (r) => r.startTime && r.endTime
+  ? `${r.startTime}–${r.endTime}`
+  : (r.time || '');
 
 function saveBook(sheets, filename) {
   const wb = X().utils.book_new();
@@ -44,11 +47,13 @@ export function exportRequests(requests) {
     'الموظف': r.employeeName, 'الرقم الوظيفي': r.employeeEmpId || '', 'القسم': r.department || '',
     'النوع': r.type === 'permission' ? 'استئذان' : 'إجازة', 'التصنيف': r.categoryLabel,
     'التاريخ/البداية': r.type === 'permission' ? r.date : r.startDate,
-    'الوقت/النهاية': r.type === 'permission' ? r.time : r.endDate,
+    'الوقت/النهاية': r.type === 'permission' ? permissionPeriod(r) : r.endDate,
     'الأيام': r.type === 'leave' ? r.days : '', 'السبب': r.reasonLabel || '',
     'جهة الاعتماد': r.approverName || '', 'الحالة': STATUS_AR[r.status],
     'سبب الرفض': r.rejectReason || '', 'روجع بواسطة': r.reviewedBy || '',
-    'معرف الطلب': r.id || '', 'تفاصيل الطلب': r.note || ''
+    'معرف الطلب': r.id || '', 'تفاصيل الطلب': r.note || '',
+    'من الساعة': r.type === 'permission' ? (r.startTime || '') : '',
+    'إلى الساعة': r.type === 'permission' ? (r.endTime || '') : ''
   }));
   saveBook([['الطلبات', rows]], 'طلبات_سين_العقارية.xlsx');
   toast('تم التصدير', 'ok');
@@ -95,10 +100,11 @@ export async function monthlyExport(cyc, allRequests) {
   ];
   const permRows = perms.map((r) => ({
     'الموظف': r.employeeName, 'الرقم الوظيفي': r.employeeEmpId || '', 'القسم': r.department || '',
-    'نوع الاستئذان': r.categoryLabel, 'التاريخ': r.date, 'الوقت': r.time, 'السبب': r.reasonLabel || '',
+    'نوع الاستئذان': r.categoryLabel, 'التاريخ': r.date, 'الوقت': permissionPeriod(r), 'السبب': r.reasonLabel || '',
     'جهة الاعتماد': r.approverName || '', 'الحالة': STATUS_AR[r.status],
     'سبب الرفض': r.rejectReason || '', 'روجع بواسطة': r.reviewedBy || '',
-    'معرف الطلب': r.id || '', 'تفاصيل الطلب': r.note || ''
+    'معرف الطلب': r.id || '', 'تفاصيل الطلب': r.note || '',
+    'من الساعة': r.startTime || '', 'إلى الساعة': r.endTime || ''
   }));
   const leaveRows = leaves.map((r) => ({
     'الموظف': r.employeeName, 'الرقم الوظيفي': r.employeeEmpId || '', 'القسم': r.department || '',
@@ -131,7 +137,14 @@ export function attendanceExport(cyc, opt, dailyRowsList, sessRowsList) {
       'الحالة': r.status, 'دخول': r.firstIn ? hm(r.firstIn) : '', 'خروج': r.lastOut ? hm(r.lastOut) : '',
       'ساعات العمل': r.secs > 0 ? (r.secs / 3600).toFixed(2) : '', 'ملاحظة': r.note || '',
       'يوجد استئذان معتمد': p.exists, 'معرف طلب الاستئذان': p.ids,
-      'نوع الاستئذان': p.types, 'سبب الاستئذان': p.reasons, 'تفاصيل الاستئذان': p.details
+      'نوع الاستئذان': p.types, 'سبب الاستئذان': p.reasons, 'تفاصيل الاستئذان': p.details,
+      /* «خروج» أعلاه يبقى الفعلي للتدقيق، وهذه الأعمدة الجديدة في النهاية
+         تصرّح بما استعملته الحسبة من دون زحزحة أعمدة الملفات القائمة. */
+      'خروج محتسب': r.effectiveOut ? hm(r.effectiveOut) : '',
+      'ساعات فعلية': r.actualSecs > 0 ? (r.actualSecs / 3600).toFixed(2) : '',
+      'فترات استئذان محتسبة': r.permissionIntervalsLabel || '',
+      'دقائق استئذان محتسبة': r.creditedSecs > 0 ? Math.round(r.creditedSecs / 60) : 0,
+      'دقائق نقص أثناء الوردية': r.midGapMin || 0
     }); })]);
   }
   if (sessRowsList) {
@@ -163,10 +176,13 @@ export function payrollExport(cyc, rowsPay) {
     'أيام الغياب': r.absentDays, 'إجازة مدفوعة (يوم)': r.paidLeaveDays, 'إجازة بدون راتب (يوم)': r.unpaidDays,
     'أيام بلا بصمة انصراف': r.missingOut,
     'دقائق التأخير': r.lateMin, 'دقائق الخروج المبكر': r.earlyMin, 'دقائق معفاة باستئذان': r.exemptMin,
-    'ساعات مطلوبة': +r.reqH.toFixed(2), 'ساعات فعلية': +r.workH.toFixed(2),
+    'ساعات مطلوبة': +r.reqH.toFixed(2),
+    'ساعات فعلية': +(Number.isFinite(r.recordedWorkH) ? r.recordedWorkH : r.workH).toFixed(2),
     'خصم الساعات': +r.dedHours.toFixed(2), 'خصم الغياب': +r.dedAbsent.toFixed(2),
     'خصم إجازة بدون راتب': +r.dedUnpaid.toFixed(2),
-    'إجمالي الخصم': +r.total.toFixed(2), 'المستحق': +r.net.toFixed(2)
+    'إجمالي الخصم': +r.total.toFixed(2), 'المستحق': +r.net.toFixed(2),
+    'ساعات محتسبة بعد الاستئذانات': +r.workH.toFixed(2),
+    'دقائق نقص أثناء الوردية': r.gapMin || 0
   }));
   const details = [];
   rowsPay.forEach((r) => (r.details || []).forEach((d) => {
@@ -178,7 +194,14 @@ export function payrollExport(cyc, rowsPay) {
     'دقائق تأخير': d.lm || 0, 'دقائق خروج مبكر': d.em || 0, 'دقائق معفاة': d.ex || 0,
     'خصم اليوم': +(d.ded || 0).toFixed(2),
     'معرف طلب الاستئذان': p.ids, 'نوع الاستئذان': p.types, 'سبب الاستئذان': p.reasons,
-    'تفاصيل الاستئذان': p.details
+    'تفاصيل الاستئذان': p.details,
+    'خروج محتسب': d.effectiveOut ? hm(d.effectiveOut) : '',
+    'ساعات فعلية': d.actualSecs > 0 ? +(d.actualSecs / 3600).toFixed(2) : '',
+    'ساعات محتسبة': d.effectiveSecs > 0 ? +(d.effectiveSecs / 3600).toFixed(2) : '',
+    'ملاحظة': d.note || '',
+    'دقائق نقص أثناء الوردية': d.gm || 0,
+    'فترات استئذان محتسبة': d.permissionIntervalsLabel || '',
+    'دقائق استئذان محتسبة': d.creditedSecs > 0 ? Math.round(d.creditedSecs / 60) : 0
   }); }));
   const rules = [
     { 'البند': 'الدورة', 'القيمة': cyc.label },
@@ -187,11 +210,11 @@ export function payrollExport(cyc, rowsPay) {
     { 'البند': 'قيمة اليوم', 'القيمة': 'الراتب ÷ ' + cfg.daysPerMonth },
     { 'البند': 'قيمة الساعة', 'القيمة': 'قيمة اليوم ÷ ' + cfg.hoursPerDay },
     { 'البند': 'سماح التأخير', 'القيمة': (cfg.graceMinutes || 0) + ' دقيقة' },
-    { 'البند': 'خصم التأخير والخروج المبكر', 'القيمة': 'بالساعات × قيمة الساعة' },
+    { 'البند': 'خصم نقص الساعات', 'القيمة': 'التأخير + الخروج المبكر + الفجوة غير المغطاة، بالساعات × قيمة الساعة' },
     { 'البند': 'خصم الغياب', 'القيمة': 'يوم كامل × قيمة اليوم' },
     { 'البند': 'الإجازات المدفوعة', 'القيمة': 'بلا خصم' },
     { 'البند': 'إجازة بدون راتب', 'القيمة': 'خصم يوم كامل' },
-    { 'البند': 'الاستئذان المعتمد', 'القيمة': 'معفى من الخصم' },
+    { 'البند': 'الاستئذان المعتمد', 'القيمة': 'الفترة المعتمدة تُضم إلى الوقت المحتسب داخل الوردية بلا تكرار، مع إبقاء البصمات الفعلية' },
     { 'البند': 'مصدر الحضور', 'القيمة': payrollSourceLabel(cfg) },
     { 'البند': 'تاريخ إصدار المسير', 'القيمة': fmtDate(new Date()) }
   ];

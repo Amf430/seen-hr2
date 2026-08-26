@@ -40,8 +40,9 @@ function slimRow(r) {
     workDays: r.workDays, presentDays: r.presentDays, lateDays: r.lateDays,
     absentDays: r.absentDays, unpaidDays: r.unpaidDays, paidLeaveDays: r.paidLeaveDays,
     missingOut: r.missingOut,
-    lateMin: r.lateMin, earlyMin: r.earlyMin, exemptMin: r.exemptMin,
+    lateMin: r.lateMin, earlyMin: r.earlyMin, gapMin: r.gapMin || 0, exemptMin: r.exemptMin,
     reqH: +r.reqH.toFixed(2), workH: +r.workH.toFixed(2),
+    recordedWorkH: +(Number.isFinite(r.recordedWorkH) ? r.recordedWorkH : r.workH).toFixed(2),
     dedHours: +r.dedHours.toFixed(2), dedAbsent: +r.dedAbsent.toFixed(2),
     dedUnpaid: +r.dedUnpaid.toFixed(2),
     total: +r.total.toFixed(2), net: +r.net.toFixed(2)
@@ -54,9 +55,10 @@ export async function approveRun(cyc, rows, config = payrollConfig()) {
   const totals = slim.reduce((a, r) => ({
     salary: a.salary + r.salary, total: a.total + r.total, net: a.net + r.net,
     absentDays: a.absentDays + r.absentDays, lateMin: a.lateMin + r.lateMin,
-    earlyMin: a.earlyMin + r.earlyMin, missingOut: a.missingOut + r.missingOut,
+    earlyMin: a.earlyMin + r.earlyMin, gapMin: a.gapMin + (r.gapMin || 0),
+    missingOut: a.missingOut + r.missingOut,
     headcount: a.headcount + 1
-  }), { salary: 0, total: 0, net: 0, absentDays: 0, lateMin: 0, earlyMin: 0, missingOut: 0, headcount: 0 });
+  }), { salary: 0, total: 0, net: 0, absentDays: 0, lateMin: 0, earlyMin: 0, gapMin: 0, missingOut: 0, headcount: 0 });
 
   await setDoc(doc(db, 'payrollRuns', cyc.key), {
     cycleKey: cyc.key,

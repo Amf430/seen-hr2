@@ -28,6 +28,10 @@ import { setSettings } from '../../js/lib/state.js';
 import { cycleOf, ymd } from '../../js/lib/dates.js';
 import { computePayroll, isUnpaidLeave, payrollConfig } from '../../js/lib/payroll.js';
 import { buildDailyStatus, sessionsOf, workedSecs, lastOutOf, dayBounds } from '../../js/lib/attendance.js';
+import { attendanceExport, payrollExport } from '../../js/lib/excel.js';
+import { teamSummaryOf, teamExportRows } from '../../js/lib/team-stats.js';
+import { payrollTotals } from '../../js/lib/payroll-view.js';
+import { dayWork } from '../../js/pages/attend.js';
 import { compress } from '../../js/lib/photo.js';
 import { permWindowOpen, permOldestDate } from '../../js/lib/requests.js';
 import { mergeAttendanceSources, selectPayrollAttendance } from '../../js/lib/attendance-sources.js';
@@ -228,11 +232,13 @@ const permOn = (date, cat, status='approved', over={}) => ({
   /* ⚠️ النوع يقرّر أي دقائق تُعفى — «خروج مبكر» لا يمحو تأخير الصباح */
   eq('واستئذان «خروج مبكر» لا يُعفي تأخير الدخول',
      30, runPayroll(fullMonth(late), [permOn('2026-06-01','خروج مبكر')]).lateMin);
-  const semantic = permOn('2026-06-01','تصنيف تغيّر', 'approved', { id:'stable-request', permissionKind:'late' });
+  const semantic = permOn('2026-06-01','تأخير عن الدوام', 'approved', { id:'stable-request', permissionKind:'late' });
   const semanticPay = runPayroll(fullMonth(late), [semantic]);
-  eq('الحقل الدلالي يعفي ولو تغيّر نص التصنيف', 0, semanticPay.lateMin);
+  eq('الحقل الدلالي المتوافق مع الفئة يعفي', 0, semanticPay.lateMin);
   eq('تفصيل المسير يحتفظ بمعرّف الطلب الأصلي', 'stable-request',
      semanticPay.details.find((d) => d.dateStr === '2026-06-01').permissions[0].id);
+  eq('permissionKind متناقض مع الفئة يفشل مغلقاً', 30,
+     runPayroll(fullMonth(late), [permOn('2026-06-01','خروج مبكر','approved', { permissionKind:'late' })]).lateMin);
 }
 {
   const early = { '2026-06-01': rec('2026-06-01','08:00','15:00') };
@@ -242,6 +248,178 @@ const permOn = (date, cat, status='approved', over={}) => ({
               return { early:r.earlyMin, exempt:r.exemptMin, ded:+r.total.toFixed(2) }; })());
   eq('واستئذان «تأخير» لا يُعفي الخروج المبكر',
      60, runPayroll(fullMonth(early), [permOn('2026-06-01','تأخير عن الدوام')]).earlyMin);
+}
+
+/* الشكل الجديد يحمل فترة صريحة. Legacy أعلاه يبقى مقصوداً لإثبات عدم
+   الحاجة إلى Migration، بينما هذه الحالات تمسك التغطية الجزئية وMid. */
+const INTERVAL_KIND = {
+  'تأخير عن الدوام':'late', 'خروج مبكر':'early', 'استئذان أثناء الدوام':'mid'
+};
+const intervalPerm = (date, category, startTime, endTime, status='approved', over={}) => ({
+  id:`ip-${date}-${category}-${startTime}`, type:'permission', status, employeeUid:'e1', date,
+  category, categoryLabel:category, permissionKind:INTERVAL_KIND[category], startTime, endTime,
+  reasonLabel:'مهمة عمل', note:'زيارة عميل', ...over
+});
+const multiRec = (date, pairs) => ({ employeeUid:'e1', date,
+  sessions:pairs.map(([i,o,endDate=date]) => ({ in:at(date,i), out:o ? at(endDate,o) : null })) });
+const featureDay = (record, permissions=[]) => buildDailyStatus(CYC, [EMP], permissions,
+  fullMonth({ '2026-06-01':record })).find((r) => r.dateStr === '2026-06-01');
+
+{
+  const D='2026-06-01', lateRec=rec(D,'08:30','16:00');
+  const full=intervalPerm(D,'تأخير عن الدوام','08:00','08:30');
+  const partial=intervalPerm(D,'تأخير عن الدوام','08:00','08:15');
+  eq('Late صريح كامل يعوّض الدقائق المغطاة فقط', { late:0, exempt:30, hours:8, ded:0 },
+     (() => { const r=runPayroll(fullMonth({[D]:lateRec}),[full]); const d=r.details.find(x=>x.dateStr===D);
+       return { late:r.lateMin, exempt:r.exemptMin, hours:d.effectiveSecs/3600, ded:r.dedHours }; })());
+  eq('Late صريح جزئي يبقي النقص خارجه', { late:15, exempt:15, hours:7.75, ded:9.38 },
+     (() => { const r=runPayroll(fullMonth({[D]:lateRec}),[partial]); const d=r.details.find(x=>x.dateStr===D);
+       return { late:r.lateMin, exempt:r.exemptMin, hours:d.effectiveSecs/3600,
+         ded:+r.dedHours.toFixed(2) }; })());
+}
+{
+  const D='2026-06-01', earlyRec=rec(D,'08:00','15:00');
+  const full=intervalPerm(D,'خروج مبكر','15:00','16:00');
+  const partial=intervalPerm(D,'خروج مبكر','15:30','16:00');
+  const day=featureDay(earlyRec,[full]);
+  const pay=runPayroll(fullMonth({[D]:earlyRec}),[full]);
+  eq('Early صريح كامل يحتسب نهاية الوردية ويحفظ الخروج الفعلي',
+     { actual:'15:00', effective:'16:00', actualH:7, effectiveH:8, early:0 }, {
+       actual:day.lastOut.toTimeString().slice(0,5), effective:day.effectiveOut.toTimeString().slice(0,5),
+       actualH:day.actualSecs/3600, effectiveH:day.secs/3600, early:pay.earlyMin
+     });
+  eq('ملاحظة Early تعرض الدليل الفعلي ونهاية الوردية', true,
+     /خروج فعلي 15:00.*استئذان خروج مبكر معتمد حتى نهاية الوردية 16:00/.test(day.note));
+  eq('Early صريح جزئي يبقي النقص خارجه', { early:30, exempt:30, hours:7.5, ded:18.75 },
+     (() => { const r=runPayroll(fullMonth({[D]:earlyRec}),[partial]); const d=r.details.find(x=>x.dateStr===D);
+       return { early:r.earlyMin, exempt:r.exemptMin, hours:d.effectiveSecs/3600, ded:r.dedHours }; })());
+}
+{
+  const D='2026-06-01';
+  const split=multiRec(D,[['08:00','12:00'],['13:00','16:00']]);
+  const full=intervalPerm(D,'استئذان أثناء الدوام','12:00','13:00');
+  const partial=intervalPerm(D,'استئذان أثناء الدوام','12:00','12:30');
+  const fullDay=featureDay(split,[full]);
+  const fullPay=runPayroll(fullMonth({[D]:split}),[full]);
+  eq('Mid كامل: اتحاد الجلسات والاستئذان يعطي ٨ ساعات',
+     { actual:7, effective:8, gap:0, exempt:60 }, {
+       actual:fullDay.actualSecs/3600, effective:fullDay.secs/3600,
+       gap:fullPay.gapMin, exempt:fullPay.exemptMin
+     });
+  eq('سجل الموظف يطبق Mid المعتمد', 8, dayWork(split,EMP.department,EMP,[full]).secs/3600);
+  eq('بلا Mid Approved لا يتغير تعريف ساعات سجل الموظف', 7,
+     dayWork(split,EMP.department,EMP,[]).secs/3600);
+  const partialDay=featureDay(split,[partial]);
+  const partialPay=runPayroll(fullMonth({[D]:split}),[partial]);
+  eq('Mid جزئي يبقي الجزء غير المغطى نقصاً',
+     { actual:7, effective:7.5, gap:30, exempt:30, ded:18.75 }, {
+       actual:partialDay.actualSecs/3600, effective:partialDay.secs/3600,
+       gap:partialPay.gapMin, exempt:partialPay.exemptMin, ded:partialPay.dedHours
+     });
+  eq('Mid جزئي غير المغطى يبقى مخالفة Commitment', 0,
+     attendanceMetrics([partialDay]).commitmentRate);
+
+  const overlap=[partial,intervalPerm(D,'استئذان أثناء الدوام','12:20','13:00','approved',{id:'mid-2'})];
+  const overlapDay=featureDay(split,overlap);
+  eq('استئذانان متداخلان لا يضاعفان التعويض', { credit:60, hours:8, intervals:'12:00–13:00' }, {
+    credit:overlapDay.creditedSecs/60, hours:overlapDay.secs/3600,
+    intervals:overlapDay.permissionIntervalsLabel
+  });
+  const overlapsWork=multiRec(D,[['08:00','12:30'],['13:00','16:00']]);
+  const workDay=featureDay(overlapsWork,[full]);
+  eq('تداخل Permission مع العمل لا يعوّض مرتين', { actual:7.5, credit:.5, effective:8 }, {
+    actual:workDay.actualSecs/3600, credit:workDay.creditedSecs/3600, effective:workDay.secs/3600
+  });
+  eq('بلا Mid Approved يبقى span الرسمي القديم ولا تُنشأ فجوة', { hours:8, gap:0 },
+     (() => { const r=runPayroll(fullMonth({[D]:split})); const d=r.details.find(x=>x.dateStr===D);
+       return { hours:d.effectiveSecs/3600, gap:r.gapMin }; })());
+  eq('Pending وRejected Mid صفر تأثير', [{hours:8,gap:0},{hours:8,gap:0}],
+     ['pending','rejected'].map(status => { const d=featureDay(split,[intervalPerm(D,'استئذان أثناء الدوام','12:00','13:00',status)]);
+       return { hours:d.secs/3600, gap:d.midGapMin }; }));
+  eq('Mid ليوم مختلف صفر تأثير', 8,
+     featureDay(split,[intervalPerm('2026-06-02','استئذان أثناء الدوام','12:00','13:00')]).secs/3600);
+
+  const open=multiRec(D,[['08:00','12:00'],['13:00',null]]);
+  const openDay=featureDay(open,[full]);
+  eq('Open punches تستخدم fallback بلا تعويض تخميني',
+     { fallback:true, credit:0, bound:'13:00', firstOut:'12:00', openOut:null }, {
+       fallback:openDay.permissionFallback, credit:openDay.creditedSecs,
+       bound:openDay.lastOut.toTimeString().slice(0,5),
+       firstOut:open.sessions[0].out.toTimeString().slice(0,5), openOut:open.sessions[1].out
+     });
+  const ambiguous={ employeeUid:'e1', date:D, sessions:[
+    {in:at(D,'08:00'),out:at(D,'13:00')},{in:at(D,'12:00'),out:at(D,'16:00')}
+  ] };
+  const ambiguousDay=featureDay(ambiguous,[full]);
+  eq('Overlapping punches تستخدم span fallback بلا Mid credit',
+     { fallback:true, credit:0, hours:8 }, {
+       fallback:ambiguousDay.permissionFallback, credit:ambiguousDay.creditedSecs,
+       hours:ambiguousDay.secs/3600
+     });
+
+  eq('Commitment كامل مع Late/Early/Mid المغطاة', [100,100,100], [
+    attendanceMetrics([featureDay(rec(D,'08:30','16:00'),[intervalPerm(D,'تأخير عن الدوام','08:00','08:30')])]).commitmentRate,
+    attendanceMetrics([featureDay(rec(D,'08:00','15:00'),[intervalPerm(D,'خروج مبكر','15:00','16:00')])]).commitmentRate,
+    attendanceMetrics([fullDay]).commitmentRate
+  ]);
+  const otherViolation=featureDay(rec(D,'08:30','15:00'),[intervalPerm(D,'خروج مبكر','15:00','16:00')]);
+  eq('Early Approved لا يمحو Late غير المغطاة', { late:30, commitment:0 }, {
+    late:otherViolation.punctualityLateMin,
+    commitment:attendanceMetrics([otherViolation]).commitmentRate
+  });
+  const summary=teamSummaryOf([fullDay]);
+  eq('Performance وتصديره يستخدمان الساعات المحتسبة', { metric:8, excel:8, commitment:100 }, {
+    metric:summary.employees[0].secs/3600,
+    excel:teamExportRows(summary)[0]['ساعات العمل'],
+    commitment:summary.employees[0].commitmentRate
+  });
+  eq('Payroll totals يحمل نقص Mid', 30, payrollTotals([partialPay]).gapMin);
+
+  const saved=[];
+  window.XLSX={ utils:{ book_new:()=>({sheets:{}}), json_to_sheet:(rows)=>rows,
+    book_append_sheet:(book,sheet,name)=>{book.sheets[name]=sheet;} },
+    writeFile:(book,filename)=>saved.push({book,filename}) };
+  attendanceExport(CYC,{isDevice:true},[featureDay(rec(D,'08:00','15:00'),
+    [intervalPerm(D,'خروج مبكر','15:00','16:00')])],[{r:rec(D,'08:00','15:00'),idx:0,s:rec(D,'08:00','15:00').sessions[0]}]);
+  const att=saved.pop().book.sheets;
+  eq('Excel الحضور يبقي الخروج الفعلي ويفصل المحتسب',
+     { actual:'15:00', effective:'16:00', actualH:'7.00', effectiveH:'8.00' },
+     (() => { const x=att['التقرير اليومي'][0]; return { actual:x['خروج'], effective:x['خروج محتسب'],
+       actualH:x['ساعات فعلية'], effectiveH:x['ساعات العمل'] }; })());
+  eq('Excel الجلسات الخام يبقى سبع ساعات', '7.00', att['الجلسات التفصيلية'][0]['ساعات العمل']);
+  payrollExport(CYC,[partialPay]);
+  const pay=saved.pop().book.sheets;
+  eq('Excel المسير يفصل الفعلي والمحتسب ونقص Mid', {
+    actual:+partialPay.recordedWorkH.toFixed(2), effective:+partialPay.workH.toFixed(2), gap:30
+  }, (() => { const x=pay['مسير الرواتب'][0]; return { actual:x['ساعات فعلية'],
+    effective:x['ساعات محتسبة بعد الاستئذانات'], gap:x['دقائق نقص أثناء الوردية'] }; })());
+  const detail=pay['تفصيل الأيام'].find((x)=>x['التاريخ']===D);
+  eq('Excel التفصيلي يحمل فترة Mid والائتمان والنقص',
+     { interval:'12:00–12:30', credit:30, gap:30 }, {
+       interval:detail['فترات استئذان محتسبة'], credit:detail['دقائق استئذان محتسبة'],
+       gap:detail['دقائق نقص أثناء الوردية']
+     });
+}
+
+/* الاثنين وردية ليلية ٢٢:٠٠–٠٦:٠٠؛ لا مقارنة نصية بين الوقتين. */
+{
+  settings({ shifts:{ ...WEEK, 1:{type:'evening',start:'22:00',end:'06:00'} } });
+  const D='2026-06-01';
+  const record={employeeUid:'e1',date:D,sessions:[{in:at(D,'22:00'),out:at('2026-06-02','03:30')}]};
+  const day=buildDailyStatus(CYC,[EMP],[intervalPerm(D,'خروج مبكر','03:30','06:00')],[record])
+    .find((r)=>r.dateStr===D);
+  eq('Overnight يربط Early بنهاية الوردية في اليوم التالي', {out:'2026-06-02T06:00',hours:8}, {
+    out:`${ymd(day.effectiveOut)}T${day.effectiveOut.toTimeString().slice(0,5)}`, hours:day.secs/3600
+  });
+  const nightSplit={employeeUid:'e1',date:D,sessions:[
+    {in:at(D,'22:00'),out:at(D,'23:00')},{in:at('2026-06-02','01:00'),out:at('2026-06-02','06:00')}
+  ]};
+  const mid=buildDailyStatus(CYC,[EMP],[intervalPerm(D,'استئذان أثناء الدوام','23:00','01:00')],[nightSplit])
+    .find((r)=>r.dateStr===D);
+  eq('Overnight يطبّع Mid 23:00→01:00', {interval:'23:00–01:00',hours:8}, {
+    interval:mid.permissionIntervalsLabel,hours:mid.secs/3600
+  });
+  settings();
 }
 
 /* ══════════════════ ٤. الغياب والإجازات ══════════════════ */
