@@ -366,10 +366,8 @@ service cloud.firestore {
     }
 
     /* ───────────── permission: no rewriting the past ─────────────
-       `category` decides the payroll exemption:
-           latePerm  = category contains 'تأخير'  → late minutes waived
-           earlyPerm = category contains 'خروج'   → early-out minutes waived
-       It was an unvalidated client string on an unvalidated date, so an
+       الفترة المعتمدة هي التي تحدد دقائق الإعفاء، والفئة تشرح موضعها. كانت
+       الفئة والوقت نصوصاً غير متحقق منها على تاريخ غير متحقق منه، لذلك كان
        employee could file a permission dated last month and a department
        manager (who may approve permissions) could approve it — erasing a
        deduction already earned, with nothing in the audit log tying the two.
@@ -443,10 +441,26 @@ service cloud.firestore {
       );
     }
 
+    function permissionTimeOk(v) {
+      return v is string && v.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+    }
+
     function permOk() {
       return isYmd(d().date)
           && d().date >= ymd(ksa() - duration.value(3, 'd'))
-          && d().category in ['تأخير عن الدوام', 'خروج مبكر'];
+          && d().category in ['تأخير عن الدوام', 'خروج مبكر', 'استئذان أثناء الدوام']
+          && (
+            /* الشكل الجديد: فترة صريحة ثابتة بعد التقديم. ترتيب الوقتين لا
+               يُفرض هنا لأن 23:00→01:00 فترة صحيحة في وردية ليلية. */
+            ('startTime' in d() && 'endTime' in d() && !('time' in d())
+              && permissionTimeOk(d().startTime) && permissionTimeOk(d().endTime)
+              && d().startTime != d().endTime)
+            ||
+            /* الطلبات القديمة بلا ترحيل: time وحده يبقى للفئتين القديمتين. */
+            (!('startTime' in d()) && !('endTime' in d())
+              && d().category in ['تأخير عن الدوام', 'خروج مبكر']
+              && permissionTimeOk(d().time))
+          );
     }
 
     /* ───────────── attendanceFix: employee-raised punch correction ─────────

@@ -76,7 +76,7 @@ const susp     = env.authenticatedContext('suspU').firestore();
 const anon     = env.unauthenticatedContext().firestore();
 
 /* ⚠️ تواريخ نسبية لا ثابتة. القواعد الجديدة تقارن التاريخ بـ request.time
-   (استئذان لا يسبق اليوم بأكثر من ١٤ يوماً)، فتاريخ مكتوب بنصّه يجعل مجموعة
+   (استئذان لا يسبق اليوم بأكثر من ٣ أيام)، فتاريخ مكتوب بنصّه يجعل مجموعة
    الاختبارات تنجح اليوم وتفشل بعد شهر بلا أن يتغيّر شيء في القواعد. */
 const dRel = (n) => ymdKsa(new Date(ksaNow().getTime() + n * 86400000));
 
@@ -86,6 +86,11 @@ const validRequest = (over = {}) => ({
   date: dRel(0), time: '09:30', status: 'pending',
   reviewedBy: '', reviewedAt: null, rejectReason: '', createdAt: serverTimestamp(), ...over
 });
+const intervalRequest = (over = {}) => {
+  const r = validRequest({ startTime: '12:00', endTime: '13:00', ...over });
+  delete r.time;
+  return r;
+};
 
 /* إجازة سليمة: ٣ أيام على مدى ٣ أيام تقويمية */
 const validLeave = (over = {}) => ({
@@ -241,11 +246,28 @@ await check('PERM: forged category (fake exemption)', false, () =>
   addDoc(collection(emp, 'requests'), validRequest({ category: 'تأخير مختلق يعفيني' })));
 await check('PERM: malformed date',                   false, () =>
   addDoc(collection(emp, 'requests'), validRequest({ date: '2026-8-5' })));
+await check('PERM: malformed legacy time',            false, () =>
+  addDoc(collection(emp, 'requests'), validRequest({ time: '25:00' })));
+await check('PERM: malformed startTime',              false, () =>
+  addDoc(collection(emp, 'requests'), intervalRequest({ startTime: '9:00' })));
+await check('PERM: missing endTime',                  false, () => {
+  const r = intervalRequest(); delete r.endTime;
+  return addDoc(collection(emp, 'requests'), r);
+});
+await check('PERM: equal interval endpoints',         false, () =>
+  addDoc(collection(emp, 'requests'), intervalRequest({ startTime: '12:00', endTime: '12:00' })));
+await check('PERM: new interval smuggles legacy time',false, () => {
+  const r = intervalRequest(); r.time = '12:00';
+  return addDoc(collection(emp, 'requests'), r);
+});
+await check('PERM: legacy mid-shift has no interval', false, () =>
+  addDoc(collection(emp, 'requests'), validRequest({ category: 'استئذان أثناء الدوام' })));
 await check('request pre-approved by its author',     false, () => addDoc(collection(emp, 'requests'), { ...validRequest(), status: 'approved' }));
 await check('employee approves own pending request',  false, () => updateDoc(doc(emp, 'requests/permOfEmp'), { status: 'approved', reviewedBy: 'سالم', reviewedAt: serverTimestamp(), rejectReason: '' }));
 await check('employee approves a colleague request',  false, () => updateDoc(doc(emp2, 'requests/permOfEmp'), { status: 'approved', reviewedBy: 'خالد', reviewedAt: serverTimestamp(), rejectReason: '' }));
 await check('manager approves LEAVE (balances)',      false, () => updateDoc(doc(mgr, 'requests/leaveOfEmp'), { status: 'approved', reviewedBy: 'فهد', reviewedAt: serverTimestamp(), rejectReason: '' }));
 await check('manager rewrites permission time',       false, () => updateDoc(doc(mgr, 'requests/permOfEmp'), { status: 'approved', reviewedBy: 'فهد', reviewedAt: serverTimestamp(), rejectReason: '', time: '13:00' }));
+await check('manager rewrites permission interval',   false, () => updateDoc(doc(mgr, 'requests/permOfEmp'), { status: 'approved', reviewedBy: 'فهد', reviewedAt: serverTimestamp(), rejectReason: '', startTime: '12:00', endTime: '13:00' }));
 await check('manager attributes decision to admin',   false, () => updateDoc(doc(mgr, 'requests/permOfEmp'), { status: 'approved', reviewedBy: 'المدير', reviewedAt: serverTimestamp(), rejectReason: '' }));
 await check('manager approves a WITHDRAWN request',   false, async () => {
   await env.withSecurityRulesDisabled(async (c) => setDoc(doc(c.firestore(), 'requests/withdrawnReq'), {
@@ -473,6 +495,9 @@ await check('employee reads own profile',             true,  () => getDoc(doc(em
 await check('employee reads settings',                true,  () => getDoc(doc(emp, 'settings/config')));
 await check('employee submits a permission',          true,  () => addDoc(collection(emp, 'requests'), validRequest()));
 await check('permission for an early-out',            true,  () => addDoc(collection(emp, 'requests'), validRequest({ category: 'خروج مبكر' })));
+await check('permission with an explicit interval',   true,  () => addDoc(collection(emp, 'requests'), intervalRequest()));
+await check('permission during the shift',            true,  () => addDoc(collection(emp, 'requests'), intervalRequest({ category: 'استئذان أثناء الدوام', categoryLabel: 'استئذان أثناء الدوام' })));
+await check('overnight permission interval',          true,  () => addDoc(collection(emp, 'requests'), intervalRequest({ startTime: '23:00', endTime: '01:00' })));
 /* حافّة النافذة من الداخل — آخر يوم مقبول. لو ضاقت النافذة يوماً سقط هذا. */
 await check('permission filed 3 days late (edge)',    true,  () => addDoc(collection(emp, 'requests'), validRequest({ date: dRel(-3) })));
 await check('permission filed 1 day late',            true,  () => addDoc(collection(emp, 'requests'), validRequest({ date: dRel(-1) })));

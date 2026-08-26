@@ -10,6 +10,10 @@ import { canApproveType } from '../lib/perms.js';
 import { openReject, openRevoke, openWithdraw } from './review-modals.js';
 import { approve, hasChain, chainStep, ownsCurrentStep, chainRoleAr } from '../lib/requests.js';
 
+const permissionPeriod = (r) => r.startTime && r.endTime
+  ? `${r.startTime}–${r.endTime}`
+  : (r.time || '—');
+
 export function requestCard(r, forAdmin) {
   const c = el('div', 'card request-card');
   const isPerm = r.type === 'permission';
@@ -34,7 +38,7 @@ export function requestCard(r, forAdmin) {
   c.appendChild(el('div', 'detail-list', `
     ${isPerm ? `
       <div class="detail-line"><span class="k">التاريخ</span><span class="v">${fmtDate(r.date)}</span></div>
-      <div class="detail-line"><span class="k">الوقت</span><span class="v num">${esc(r.time || '—')}</span></div>
+      <div class="detail-line"><span class="k">الفترة</span><span class="v num">${esc(permissionPeriod(r))}</span></div>
       <div class="detail-line"><span class="k">السبب</span><span class="v">${esc(r.reasonLabel || '—')}</span></div>
     ` : `
       <div class="detail-line"><span class="k">من تاريخ</span><span class="v">${fmtDate(r.startDate)}</span></div>
@@ -122,7 +126,7 @@ export function approvalRow(r, onDone) {
   const when = r.type === 'permission'
     ? fmtDate(r.date)
     : `${fmtDate(r.startDate)} ← ${fmtDate(r.endDate)}`;
-  const dur = r.type === 'permission' ? 'استئذان' : `${r.days || 1} يوم`;
+  const dur = r.type === 'permission' ? `استئذان ${permissionPeriod(r)}` : `${r.days || 1} يوم`;
 
   row.appendChild(avatar(who, 34));
   const body = el('div', 'approw__body',
@@ -151,7 +155,7 @@ export function miniRow(r) {
     <div>
       <b>${r.type === 'permission' ? 'استئذان' : 'إجازة'}</b> — ${esc(r.categoryLabel)}
       <div class="list-row__sub">${r.type === 'permission'
-        ? fmtDate(r.date)
+        ? `${fmtDate(r.date)} · ${esc(permissionPeriod(r))}`
         : fmtDate(r.startDate) + ' ← ' + fmtDate(r.endDate)}</div>
     </div>
     <span class="pill pill--dot ${esc(r.status)}">${esc(STATUS_AR[r.status] || r.status)}</span>`;

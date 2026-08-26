@@ -17,6 +17,7 @@ import { resolveShift, shiftWindowFor, compensableMin,
 import { permWindowOpen } from './requests.js';
 import { hmToDate } from './dates.js';
 import { hm } from './format.js';
+import { permissionWorkTime, permissionIntervalsLabel } from './permission-work-time.js';
 
 /* ═══ كل معرّفات الموظف — الحالي وما سبقه ═══
 
@@ -188,6 +189,28 @@ export function flattenSessions(recs) {
   return rows;
 }
 
+/* الملاحظة تعرض الدليل الفعلي والفترات المحتسبة معاً، بدلاً من أن تتغيّر
+   الساعات بصمت. وعند غموض جلسات استئذان منتصف الوردية نصرّح بالـfallback
+   ولا ننسب للنظام وقتاً لا تثبته البصمات. */
+export function permissionAuditNote(effect, firstIn, lastOut) {
+  if (!effect?.approved?.length) return '';
+  const actual = [firstIn ? `دخول فعلي ${hm(firstIn)}` : '', lastOut ? `خروج فعلي ${hm(lastOut)}` : '']
+    .filter(Boolean).join(' — ');
+  if (effect.midFallback) {
+    return `${actual ? actual + ' — ' : ''}استئذان أثناء الدوام معتمد، ولم يُطبّق على الساعات لعدم اكتمال أو وضوح الجلسات`;
+  }
+  const periods = permissionIntervalsLabel(effect.coveredIntervals);
+  if (!periods) return `${actual ? actual + ' — ' : ''}استئذان معتمد، وتعذّر تحديد الفترة المحتسبة`;
+  const creditedMin = Math.round((effect.creditedSecs || 0) / 60);
+  const categories = [...new Set(effect.approved.map((r) => r.category).filter(Boolean))];
+  const permissionLabel = categories.length === 1 ? `استئذان ${categories[0]} معتمد` : 'استئذانات معتمدة';
+  const throughShiftEnd = effect.actualOut && effect.effectiveOut && effect.effectiveOut > effect.actualOut &&
+    effect.earlyCoveredSecs > 0 && effect.earlyUncoveredSecs === 0
+    ? ` حتى نهاية الوردية ${hm(effect.effectiveOut)}` : ` ${periods}`;
+  return `${actual ? actual + ' — ' : ''}${permissionLabel}${throughShiftEnd}` +
+    (creditedMin ? ` — احتُسب ${creditedMin} د` : ' — لا تعويض إضافي لتداخل الفترة مع وقت العمل');
+}
+
 /* ═══ الحالة اليومية (حاضر/متأخر/غائب/إجازة) مع ربط الاستئذان — منقولة حرفياً ═══
 
    ⚠️ opts.compensate: تعويض التأخير ببقاء الموظف بعد الوردية. مُطفأ افتراضياً
@@ -213,19 +236,30 @@ export function buildDailyStatus(cyc, users, requests, recs, opts = {}) {
       if (!shift || shift.type === 'off') continue;   /* راحة أو عطلة رسمية → لا يُحاسب عليها */
       const leave = requests.find((r) => r.type === 'leave' && r.status === 'approved' &&
         r.employeeUid === u.id && r.startDate <= dateStr && r.endDate >= dateStr);
-      const perms = requests.filter((r) => r.type === 'permission' && r.status === 'approved' &&
-        r.employeeUid === u.id && r.date === dateStr);
-      const latePerm = perms.find((p) => (p.category || '').includes('تأخير'));
-      const earlyPerm = perms.find((p) => (p.category || '').includes('خروج'));
       const rec = recFor(recMap, u, dateStr);
       const sessions = sessionsOf(rec);
       /* اليوم بحدّيه لا بمزاوجة الجلسات — انظر dayBounds */
       const { firstIn, lastOut, spanSecs } = dayBounds(sessions);
       const openSess = !!firstIn && !lastOut;
       const win = shiftWindowFor(d, shift);
+      const permissionEffect = permissionWorkTime({
+        requests,
+        employeeUid: u.id,
+        dateStr,
+        sessions,
+        firstIn,
+        lastOut,
+        baseSecs: spanSecs,
+        shiftStart: win ? win.start : null,
+        shiftEnd: win ? win.end : null,
+        /* السماح يقرر هل اليوم متأخر، لكنه لا يُطرح من الرقم إذا تجاوزه:
+           08:30 مع سماح 10 كان يُسجّل 30 دقيقة لا 20. */
+        lateGraceMinutes: 0
+      });
       /* المدى من أول بصمة لآخرها. وبلا بصمة خروج تُقصّ الجلسة المفتوحة عند
-         نهاية الوردية بدل أن تعدّ حتى الآن. */
-      const secs = lastOut ? spanSecs
+         نهاية الوردية بدل أن تعدّ حتى الآن. استئذان الخروج المعتمد يغيّر
+         الحدّ المحتسب في الذاكرة فقط، ويبقى lastOut هو الخروج الفعلي. */
+      const secs = lastOut ? permissionEffect.effectiveSecs
                            : workedSecs(sessions, win ? win.end.getTime() : null).secs;
       let status, cls, note = '', lateMin = 0, compMin = 0, excusable = false;
       if (leave) { status = 'إجازة: ' + (leave.categoryLabel || ''); cls = 'leave'; }
@@ -235,32 +269,29 @@ export function buildDailyStatus(cyc, users, requests, recs, opts = {}) {
           status = 'نسيان بصمة الخروج'; cls = 'missing';
           note = `دخل ${hm(firstIn)} ولم يسجّل انصراف — مضى أكثر من ساعتين على نهاية الوردية`;
         } else {
-          const allowedStr = (latePerm && latePerm.time) ? latePerm.time : (shift.start || '');
-          const allowedBase = hmToDate(d, allowedStr);
+          const allowedBase = hmToDate(d, shift.start || '');
           if (allowedBase) {
             const grace = new Date(allowedBase.getTime() + LATE_GRACE_MIN * 60000);
             if (firstIn > grace) {
-              const rawLate = Math.round((firstIn - allowedBase) / 60000);
-              compMin = compensate ? compensableMin(rawLate, lastOut, win) : 0;
-              lateMin = rawLate - compMin;
+              const uncoveredLate = Math.max(0, Math.round(permissionEffect.lateUncoveredSecs / 60));
+              compMin = compensate ? compensableMin(uncoveredLate, lastOut, win) : 0;
+              lateMin = uncoveredLate - compMin;
               if (lateMin > 0) {
                 status = 'متأخر'; cls = 'late';
                 note = compMin ? `تأخر ${lateMin} د بعد تعويض ${compMin} د` : `تأخر ${lateMin} د`;
               } else {
-                /* التعويض غطّى التأخير كاملاً — يوم حاضر، والملاحظة للأدمن وحده */
+                /* التعويض أو فترة الاستئذان غطّيا التأخير كاملاً. */
                 status = 'حاضر'; cls = 'present';
-                note = `عوّض تأخير ${rawLate} د ببقائه بعد الدوام`;
+                if (compMin) note = `عوّض تأخير ${uncoveredLate} د ببقائه بعد الدوام`;
               }
             } else { status = 'حاضر'; cls = 'present'; }
           } else { status = 'حاضر'; cls = 'present'; }
         }
-        if (latePerm)  note = (note ? note + ' · ' : '') + `استئذان تأخير حتى ${latePerm.time || ''}`;
-        if (earlyPerm) note = (note ? note + ' · ' : '') + `استئذان خروج مبكر ${earlyPerm.time || ''}`;
         /* ── نافذة الاستئذان ──
            يوم متأخر بلا استئذان معتمد: إمّا النافذة ما زالت مفتوحة فيُقال
            للموظف كم بقي له، أو أُغلقت فيُعتمد التأخير «بدون عذر» ويبقى في
            الخصم. الرقم كان يظهر عارياً بلا إشارة إلى أن له مخرجاً في وقته. */
-        if (cls === 'late' && !latePerm) {
+        if (cls === 'late' && !permissionEffect.lateCoveredSecs) {
           excusable = permWindowOpen(dateStr);
           note += excusable ? ' · يمكن تقديم استئذان عنه' : ' · بدون عذر';
         }
@@ -278,12 +309,24 @@ export function buildDailyStatus(cyc, users, requests, recs, opts = {}) {
         if (permWindowOpen(dateStr)) note += ' · النافذة ما زالت مفتوحة';
       } else {
         status = 'غائب'; cls = 'absent';
-        if (latePerm)       note = `استئذان تأخير حتى ${latePerm.time || ''}`;
-        else if (earlyPerm) note = `استئذان خروج مبكر ${earlyPerm.time || ''}`;
       }
+      const permissionNote = permissionAuditNote(permissionEffect, firstIn, lastOut);
+      if (permissionNote) note = (note ? note + ' · ' : '') + permissionNote;
       if (shift.src === 'exception' && shift.exLabel) note = (note ? note + ' · ' : '') + shift.exLabel;
       else if (shift.src === 'dept')                  note = (note ? note + ' · ' : '') + 'وردية القسم';
-      rows.push({ u, dateStr, dow, shift, status, cls, note, firstIn, lastOut, secs, rec, openSess, lateMin, compMin, excusable });
+      rows.push({
+        u, dateStr, dow, shift, status, cls, note, firstIn, lastOut,
+        effectiveOut: permissionEffect.effectiveOut,
+        actualSecs: lastOut ? permissionEffect.actualSecs : secs,
+        secs,
+        creditedSecs: permissionEffect.creditedSecs,
+        permissionIntervals: permissionEffect.coveredIntervals,
+        permissionIntervalsLabel: permissionIntervalsLabel(permissionEffect.coveredIntervals),
+        midGapMin: Math.round(permissionEffect.midUncoveredSecs / 60),
+        permissionFallback: permissionEffect.midFallback,
+        requiredSecs: win ? Math.max(0, (win.end - win.start) / 1000) : 0,
+        rec, openSess, lateMin, compMin, excusable
+      });
     }
   });
   rows.sort((a, b) => (a.u.name || '').localeCompare(b.u.name || '') || (a.dateStr > b.dateStr ? 1 : -1));
