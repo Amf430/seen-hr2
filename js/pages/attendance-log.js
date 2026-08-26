@@ -18,6 +18,7 @@ import { card, empty, tableWrap, sectionHead, button, callout, pageHead } from '
 import { requestCard } from '../components/request-card.js';
 import { readBridgeStatus } from '../lib/bridge-status.js';
 import { attendanceDerivedSourcesReady, attendanceExportAvailable } from '../lib/attendance-export-state.js';
+import { attendancePresentation } from '../lib/attendance-presentation.js';
 
 /* المصدران — تعريف واحد يُشتقّ منه كل شيء */
 const SOURCES = [
@@ -233,27 +234,42 @@ export async function render(view, token, opt) {
       };
       const wrap = tableWrap(`
         <table>
-          <thead><tr><th>الموظف</th><th class="num">الرقم الوظيفي</th><th class="num">التاريخ</th><th>اليوم</th><th>الحالة</th><th class="num">دخول</th><th class="num">خروج</th><th class="num">الساعات</th><th>ملاحظة</th></tr></thead>
+          <thead><tr><th>الموظف</th><th class="num">الرقم الوظيفي</th><th class="num">التاريخ</th><th>اليوم</th><th>الحالة</th><th class="num">الدخول الرسمي</th><th class="num">الخروج الرسمي</th><th class="num">الساعات</th><th>ملاحظة</th><th>إجراء</th></tr></thead>
           <tbody>${rows.map((r, i) => {
             const can = sessionsOf(r.rec).length > 0;
+            const p = attendancePresentation(r);
             return `<tr${can ? ` data-daily="${i}" class="is-clickable"` : ''}>
             <td><b>${esc(r.u.name)}</b></td><td class="num">${esc(r.u.empId || '—')}</td>
             <td class="num">${esc(r.dateStr)}</td><td>${AR_DAYS[r.dow]}</td>
             <td><span class="pill pill--dot ${esc(r.cls)}">${esc(r.status)}</span></td>
-            <td class="num text-green">${r.firstIn ? hm(r.firstIn) : '—'}</td>
-            <td class="num text-red">${r.lastOut ? hm(r.lastOut) : '—'}</td>
+            <td class="num text-green">${p.officialIn ? hm(p.officialIn) : '—'}</td>
+            <td class="num text-red">${p.officialOut ? hm(p.officialOut) : '—'}</td>
             <td class="num">${r.secs > 0 ? fmtDur(r.secs) : '—'}</td>
-            <td class="cell-sub">${esc(r.note || '')}${r.permissions?.length
-              ? `<div><button class="btn ghost sm" type="button" data-permission="${i}">تفاصيل الاستئذان</button></div>`
-              : ''}</td></tr>`;
+            <td class="cell-note"><div class="truncate" title="${esc(p.note)}">${esc(p.note)}</div></td>
+            <td>${p.hasApproved ? `<div class="actions-cell" style="flex-wrap:wrap">
+              <span class="pill pill--dot present">استئذان معتمد</span>
+              ${p.uncoveredMin ? `<span class="pill pill--dot missing">${p.uncoveredMin} د غير مغطاة</span>` : ''}
+              <button class="btn ghost sm" type="button" data-permission="${i}" aria-label="تفاصيل الاستئذان">التفاصيل</button>
+            </div>` : '<span class="muted">—</span>'}</td></tr>`;
           }).join('')}</tbody>
         </table>`);
       wrap.querySelectorAll('button[data-permission]').forEach((b) => {
         b.onclick = (e) => {
           e.stopPropagation();
           const r = rows[+b.dataset.permission];
+          const p = attendancePresentation(r);
           const m = openModal('<h3>الاستئذان المرتبط بسجل الحضور</h3>');
           const body = m.modal.querySelector('.modal__body');
+          const times = el('p', 'desc');
+          times.textContent = `البصمات الفعلية: ${p.actualIn ? hm(p.actualIn) : '—'} ← ${p.actualOut ? hm(p.actualOut) : '—'} · ` +
+            `الوقت الرسمي: ${p.officialIn ? hm(p.officialIn) : '—'} ← ${p.officialOut ? hm(p.officialOut) : '—'} · ` +
+            `الساعات المحتسبة: ${r.secs > 0 ? fmtDur(r.secs) : '—'}`;
+          body.appendChild(times);
+          if (r.note) {
+            const audit = el('p', 'help');
+            audit.textContent = r.note;
+            body.appendChild(audit);
+          }
           r.permissions.forEach((p) => body.appendChild(requestCard(p, false)));
         };
       });

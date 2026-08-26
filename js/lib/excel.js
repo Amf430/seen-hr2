@@ -16,6 +16,7 @@ import { requestsInCycle } from './dates.js';
 import { payrollConfig } from './payroll.js';
 import { permissionExportFields } from './permission-link.js';
 import { payrollSourceLabel } from './attendance-sources.js';
+import { attendancePresentation } from './attendance-presentation.js';
 
 const X = () => window.XLSX;
 const permissionPeriod = (r) => r.startTime && r.endTime
@@ -129,22 +130,19 @@ export function attendanceExport(cyc, opt, dailyRowsList, sessRowsList) {
   const sheets = [];
   if (dailyRowsList) {
     sheets.push(['التقرير اليومي', dailyRowsList.map((r) => {
-      const p = permissionExportFields(r.permissions);
+      const p = attendancePresentation(r);
       return ({
       'الموظف': r.u.name, 'الرقم الوظيفي': r.u.empId || '', 'القسم': r.u.department || '',
       'التاريخ': r.dateStr, 'اليوم': AR_DAYS[r.dow],
       'الوردية': r.shift ? ((r.shift.type === 'evening' ? 'مسائي ' : 'صباحي ') + (r.shift.start || '') + '–' + (r.shift.end || '')) : '',
-      'الحالة': r.status, 'دخول': r.firstIn ? hm(r.firstIn) : '', 'خروج': r.lastOut ? hm(r.lastOut) : '',
-      'ساعات العمل': r.secs > 0 ? (r.secs / 3600).toFixed(2) : '', 'ملاحظة': r.note || '',
-      'يوجد استئذان معتمد': p.exists, 'معرف طلب الاستئذان': p.ids,
-      'نوع الاستئذان': p.types, 'سبب الاستئذان': p.reasons, 'تفاصيل الاستئذان': p.details,
-      /* «خروج» أعلاه يبقى الفعلي للتدقيق، وهذه الأعمدة الجديدة في النهاية
-         تصرّح بما استعملته الحسبة من دون زحزحة أعمدة الملفات القائمة. */
-      'خروج محتسب': r.effectiveOut ? hm(r.effectiveOut) : '',
-      'ساعات فعلية': r.actualSecs > 0 ? (r.actualSecs / 3600).toFixed(2) : '',
-      'فترات استئذان محتسبة': r.permissionIntervalsLabel || '',
-      'دقائق استئذان محتسبة': r.creditedSecs > 0 ? Math.round(r.creditedSecs / 60) : 0,
-      'دقائق نقص أثناء الوردية': r.midGapMin || 0
+      'الحالة': r.status,
+      'الدخول الرسمي': p.officialIn ? hm(p.officialIn) : '',
+      'الخروج الرسمي': p.officialOut ? hm(p.officialOut) : '',
+      'ساعات العمل المحتسبة': r.secs > 0 ? (r.secs / 3600).toFixed(2) : '',
+      'نوع الاستئذان': p.permissionType,
+      /* التقرير الرئيسي موجز؛ البصمات الفعلية تبقى في سجل الجلسات، وتظهر
+         هنا فقط حين تختلف عن الوقت الرسمي بسبب استئذان معتمد. */
+      'ملاحظة': p.hasApproved ? p.note : (r.note || '')
     }); })]);
   }
   if (sessRowsList) {
