@@ -39,6 +39,8 @@ import { attendanceMetrics } from '../../js/lib/attendance-metrics.js';
 import { applyAll, adjustedUnifiedAttendance, adjustedPayrollAttendance } from '../../js/lib/adjustments.js';
 import { todayAttendance, payrollSummary } from '../../js/lib/hr-stats.js';
 import { attendancePresentation } from '../../js/lib/attendance-presentation.js';
+import { clearApprovedRosterEntries, setApprovedRosterEntries } from '../../js/lib/weekly-roster.js';
+import { rosterTimeRangeHtml, rosterTimeRangeText } from '../../js/pages/weekly-roster.js';
 
 const out = document.getElementById('out');
 let pass = 0, fail = 0;
@@ -472,6 +474,86 @@ const featureDay = (record, permissions=[]) => buildDailyStatus(CYC, [EMP], perm
   eq('Overnight يطبّع Mid 23:00→01:00', {interval:'23:00–01:00',hours:8}, {
     interval:mid.permissionIntervalsLabel,hours:mid.secs/3600
   });
+  settings();
+}
+
+/* ══════════════════ ٣-ج. Department Weekly Roster ══════════════════ */
+group('٣-ج. جدول المناوبات الأسبوعي المعتمد');
+{
+  settings();
+  const isolatedRange=rosterTimeRangeText('09:00','18:00');
+  eq('Select يعزل نطاق الوقت من اتجاه RTL بلا عكس القيم', [0x2066,'09:00–18:00',0x2069],
+    [isolatedRange.codePointAt(0),isolatedRange.slice(1,-1),isolatedRange.codePointAt(isolatedRange.length-1)]);
+  const rangeHost=document.createElement('div'); rangeHost.innerHTML=rosterTimeRangeHtml('14:00','23:00');
+  eq('خلايا الجدول تعرض نطاق الوقت داخل bdi باتجاه LTR', ['ltr','14:00–23:00'],
+    [rangeHost.firstElementChild.dir,rangeHost.firstElementChild.textContent]);
+  const D='2026-06-01';                 /* الاثنين، أسبوعه يبدأ 2026-05-31 */
+  setApprovedRosterEntries([{
+    departmentId:'sales', department:'المبيعات',
+    weekStart:'2026-05-31', employeeUid:'e1', approvedDays:{
+      1:{kind:'shift',shiftPlanId:'plan_pm',planName:'مسائي',type:'evening',start:'14:00',end:'23:00'},
+      2:{kind:'rest'},
+      5:{kind:'shift',shiftPlanId:'plan_am',planName:'صباحي',type:'morning',start:'09:00',end:'18:00'}
+    }
+  }]);
+  const rosterRecords=fullMonth({
+    [D]:rec(D,'14:00','23:00'),
+    '2026-06-02':null
+  });
+  rosterRecords.push(rec('2026-06-05','09:00','18:00'));
+  const rows=buildDailyStatus(CYC,[EMP],[],rosterRecords);
+  const eveningDay=rows.find((r)=>r.dateStr===D);
+  eq('Approved Evening يحدد نافذة Attendance', {
+    shift:['evening','14:00','23:00','weeklyRoster'], hours:9, late:0, early:0
+  }, {
+    shift:[eveningDay.shift.type,eveningDay.shift.start,eveningDay.shift.end,eveningDay.shift.src],
+    hours:eveningDay.secs/3600, late:eveningDay.punctualityLateMin,
+    early:eveningDay.punctualityEarlyMin
+  });
+  const rosterViolation=buildDailyStatus(CYC,[EMP],[],fullMonth({
+    [D]:rec(D,'14:30','22:30'),'2026-06-02':null
+  }).concat([rec('2026-06-05','09:00','18:00')])).find((r)=>r.dateStr===D);
+  eq('Late/Early يُقاسان على شفت Roster المعتمد', { late:30, early:30 }, {
+    late:rosterViolation.punctualityLateMin, early:rosterViolation.punctualityEarlyMin
+  });
+  eq('Alternate rest لا ينتج صف غياب', false, rows.some((r)=>r.dateStr==='2026-06-02'));
+  eq('Friday assignment يحول الجمعة إلى يوم عمل', ['present','09:00','18:00'],
+    (()=>{const r=rows.find((x)=>x.dateStr==='2026-06-05');return [r.cls,r.shift.start,r.shift.end];})());
+  eq('اليوم بلا Assignment يبقى على الشفت الأساسي', ['08:00','16:00','company'],
+    (()=>{const r=rows.find((x)=>x.dateStr==='2026-06-03');return [r.shift.start,r.shift.end,r.shift.src];})());
+  eq('Commitment يقيس الشفت المعتمد', 100, attendanceMetrics([eveningDay]).commitmentRate);
+  const perf=teamSummaryOf([eveningDay]);
+  eq('Performance يستهلك ساعات Roster من المصدر المركزي', 9, perf.employees[0].secs/3600);
+
+  const pay=computePayroll(CYC,[EMP],[],rosterRecords)[0];
+  eq('Payroll يستخدم Evening + Friday work + alternate rest', {
+    workDays:23, required:186, late:0, early:0, absent:0
+  }, { workDays:pay.workDays, required:pay.reqH, late:pay.lateMin, early:pay.earlyMin, absent:pay.absentDays });
+  eq('تفصيل Payroll يحتفظ بشفت التسع ساعات', 9,
+    pay.details.find((d)=>d.dateStr===D).need);
+
+  const permitted=buildDailyStatus(CYC,[EMP],[
+    intervalPerm(D,'تأخير عن الدوام','14:00','14:30')
+  ],fullMonth({[D]:rec(D,'14:30','23:00'),'2026-06-02':null}).concat([
+    rec('2026-06-05','09:00','18:00')
+  ])).find((r)=>r.dateStr===D);
+  eq('Approved Permission تستخدم بداية شفت Roster لا Default', {
+    cls:'present',late:0,credit:30,commitment:100
+  }, { cls:permitted.cls,late:permitted.punctualityLateMin,
+    credit:permitted.creditedSecs/60,commitment:attendanceMetrics([permitted]).commitmentRate });
+
+  const rosterSaved=[];
+  window.XLSX={utils:{book_new:()=>({sheets:{}}),json_to_sheet:(x)=>x,
+    book_append_sheet:(b,s,n)=>{b.sheets[n]=s;}},writeFile:(b)=>rosterSaved.push(b)};
+  attendanceExport(CYC,{isDevice:true},[eveningDay],null);
+  const exportRow=rosterSaved[0].sheets['التقرير اليومي'][0];
+  eq('Reports/Excel يعرضان شفت Roster الصحيح', ['مسائي 14:00–23:00','9.00'],
+    [exportRow['الوردية'],exportRow['ساعات العمل المحتسبة']]);
+
+  clearApprovedRosterEntries();
+  const fallback=buildDailyStatus(CYC,[EMP],[],fullMonth()).find((r)=>r.dateStr===D);
+  eq('إزالة Approved Roster تعيد الحساب الحالي بلا تغيير', ['08:00','16:00','company'],
+    [fallback.shift.start,fallback.shift.end,fallback.shift.src]);
   settings();
 }
 
