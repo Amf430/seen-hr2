@@ -14,6 +14,7 @@
 
 import { getSettings, getMe } from './state.js';
 import { ymd, hmToDate } from './dates.js';
+import { resolveRosterDay } from './weekly-roster.js';
 
 /* بعد ساعتين من نهاية الوردية → يُعتبر نسيان بصمة خروج */
 export const MISSING_OUT_AFTER_MIN = 120;
@@ -101,17 +102,26 @@ const fromPlan = (s, plan, src) => ({
 
 /* ═══ حلّ الوردية ═══
 
-   ترتيب الأولوية (الطبقتان ٢ و٣ جديدتان):
-     ١) استثناء التاريخ            — عطلة رسمية أو دوام خاص للشركة كلها
-     ٢) خطة شفت الموظف             emp.shiftPlanId
-     ٣) خطة شفت القسم              department.shiftPlanId
-     ٤) ورديات القسم القديمة        department.shifts[dow]   ← توافق خلفي
-     ٥) الخطة الافتراضية / settings.shifts[dow]
+   ترتيب الأولوية:
+     ١) جدول أسبوعي معتمد للموظف   — لقطة تاريخية أو راحة بديلة
+     ٢) استثناء التاريخ            — عطلة رسمية أو دوام خاص للشركة كلها
+     ٣) خطة شفت الموظف             emp.shiftPlanId
+     ٤) خطة شفت القسم              department.shiftPlanId
+     ٥) ورديات القسم القديمة        department.shifts[dow]   ← توافق خلفي
+     ٦) الخطة الافتراضية / settings.shifts[dow]
 
    ⚠️ المعامل الرابع `emp` اختياري بالكامل. كل نداء قديم بلا تمريره
    (attendance.js · hr-stats.js · payroll.js · pages/attend.js) لازم يعطي
    نفس النتيجة السابقة بالحرف — وهذا مُغطّى باختبارات في core.test.mjs. */
 export function resolveShift(dateStr, dow, deptName, emp) {
+  /* الـRoster لا يغيّر fallback: غيابه أو فساد لقطته يعيدان null، ثم يمر
+     التنفيذ بالحرف في الطبقات القديمة أدناه. Draft/Submitted/Returned لا
+     تدخل الكاش أصلاً، فلا يمكن أن تؤثر في حساب يوم. */
+  const roster = emp ? resolveRosterDay({ ...emp, department: emp.department || deptName }, dateStr) : null;
+  if (roster?.kind === 'rest')
+    return { type: 'off', start: '', end: '', src: 'weeklyRoster', exLabel: 'راحة أسبوعية بديلة' };
+  if (roster?.kind === 'shift') return roster.shift;
+
   const ex = dateException(dateStr);
   if (ex) {
     if (ex.type === 'off')

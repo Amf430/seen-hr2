@@ -1,6 +1,6 @@
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, addDoc, getDocs,
-         query, where, orderBy, limit, serverTimestamp, Timestamp } from 'firebase/firestore';
+         query, where, orderBy, limit, serverTimestamp, Timestamp, writeBatch } from 'firebase/firestore';
 import fs from 'fs';
 
 const PROJECT = process.env.FIREBASE_RULES_TEST_PROJECT_ID || 'demo-seen-hr2-rc';
@@ -37,9 +37,15 @@ await env.withSecurityRulesDisabled(async (ctx) => {
   await setDoc(doc(db, 'users/empU'),   { name: 'سالم', role: 'employee', status: 'active', department: 'المبيعات', empId: '101', salary: 6000, balances: { annual: 21 }, previousUids: ['oldEmpU', 'olderEmpU'] });
   await setDoc(doc(db, 'users/emp2U'),  { name: 'خالد', role: 'employee', status: 'active', department: 'المبيعات', empId: '102', salary: 5000, previousUids: ['oldEmp2U'] });
   await setDoc(doc(db, 'users/mgrU'),   { name: 'فهد', role: 'manager', status: 'active', department: 'المبيعات', empId: '103', previousUids: ['oldMgrU'] });
+  await setDoc(doc(db, 'users/mgr2U'),  { name: 'ماجد', role: 'manager', status: 'active', department: 'المبيعات', empId: '106' });
+  await setDoc(doc(db, 'users/finMgrU'),{ name: 'نورة', role: 'manager', status: 'active', department: 'المالية', empId: '107' });
   await setDoc(doc(db, 'users/finU'),   { name: 'ناصر', role: 'employee', status: 'active', department: 'المالية', empId: '105' });
   await setDoc(doc(db, 'users/suspU'),  { name: 'معلّق', role: 'employee', status: 'suspended', department: 'المبيعات', empId: '104' });
-  await setDoc(doc(db, 'settings/config'), { branches: [], leaveTypes: [], company: { lat: 21.5, lng: 39.1, radius: 500 } });
+  await setDoc(doc(db, 'settings/config'), { branches: [], leaveTypes: [], company: { lat: 21.5, lng: 39.1, radius: 500 },
+    departments: [
+      { id: 'sales', name: 'المبيعات', managerUid: 'mgrU' },
+      { id: 'finance', name: 'المالية', managerUid: 'finMgrU' }
+    ] });
   await setDoc(doc(db, 'zkAttendance/empU_2026-07-01'), { employeeUid: 'empU', date: '2026-07-01', sessions: [] });
   /* ── history left under a previous uid, after an access restore ──
      empU carries oldEmpU in previousUids; emp2U carries nothing. Both try to
@@ -90,6 +96,9 @@ const stranger = env.authenticatedContext('strangerU').firestore();  // signed u
 const emp      = env.authenticatedContext('empU').firestore();
 const emp2     = env.authenticatedContext('emp2U').firestore();
 const mgr      = env.authenticatedContext('mgrU').firestore();
+const mgr2     = env.authenticatedContext('mgr2U').firestore();
+const finMgr   = env.authenticatedContext('finMgrU').firestore();
+const fin      = env.authenticatedContext('finU').firestore();
 const admin    = env.authenticatedContext('adminU').firestore();
 const susp     = env.authenticatedContext('suspU').firestore();
 const anon     = env.unauthenticatedContext().firestore();
@@ -1459,6 +1468,198 @@ await check('⚠️ a client-chosen updatedAt',             false,
   () => setDoc(doc(emp, todoPath), { items: [], updatedAt: Timestamp.fromMillis(0) }));
 await check('no updatedAt at all',                     false,
   () => setDoc(doc(emp, todoPath), { items: [] }));
+
+
+/* ═══ جدول المناوبات الأسبوعي للأقسام ═══ */
+console.log('\n\x1b[1m═══ 16. DEPARTMENT WEEKLY ROSTER ═══\x1b[0m');
+
+const nextSundayIn = 7 - ksaNow().getUTCDay();
+const rosterWeek = dRel(nextSundayIn);
+const rosterEnd = dRel(nextSundayIn + 6);
+const rosterPath = `weeklyRosters/sales_${rosterWeek}`;
+const financeRosterPath = `weeklyRosters/finance_${rosterWeek}`;
+const rosterDoc = (over = {}) => ({
+  weekStart: rosterWeek, weekEnd: rosterEnd,
+  departmentId: 'sales', departmentIndex: 0, department: 'المبيعات', status: 'draft',
+  createdByUid: 'mgrU', createdByName: 'فهد', createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  submittedByUid: '', submittedAt: null,
+  reviewedByUid: '', reviewedByName: '', reviewedAt: null, returnNote: '', ...over
+});
+const financeRosterDoc = (over = {}) => rosterDoc({
+  departmentId: 'finance', departmentIndex: 1, department: 'المالية',
+  createdByUid: 'finMgrU', createdByName: 'نورة', ...over
+});
+const rosterEntry = (uid, name, over = {}) => ({
+  employeeUid: uid, employeeName: name, department: 'المبيعات',
+  days: { 0: 'plan_am', 1: 'plan_pm', 2: 'rest', 3: '', 4: '', 5: 'plan_pm' },
+  updatedAt: serverTimestamp(), ...over
+});
+const approvedDays = {
+  0: { kind: 'shift', shiftPlanId: 'plan_am', planName: 'صباحي', type: 'morning', start: '09:00', end: '18:00' },
+  1: { kind: 'shift', shiftPlanId: 'plan_pm', planName: 'مسائي', type: 'evening', start: '14:00', end: '23:00' },
+  2: { kind: 'rest' },
+  5: { kind: 'shift', shiftPlanId: 'plan_pm', planName: 'مسائي', type: 'evening', start: '14:00', end: '23:00' }
+};
+
+await check('designated manager creates next-week draft', true,
+  () => setDoc(doc(mgr, rosterPath), rosterDoc()));
+await check('manager may query an empty week for own department', true,
+  () => getDocs(query(collection(mgr, 'weeklyRosters'),
+    where('department', '==', 'المبيعات'), where('weekStart', '==', dRel(nextSundayIn + 14)))));
+await check('second department manager creates its own draft', true,
+  () => setDoc(doc(finMgr, financeRosterPath), financeRosterDoc()));
+await check('another manager in sales cannot create its roster', false,
+  () => setDoc(doc(mgr2, `weeklyRosters/sales_${dRel(nextSundayIn + 7)}`),
+    rosterDoc({ weekStart: dRel(nextSundayIn + 7), weekEnd: dRel(nextSundayIn + 13),
+      createdByUid: 'mgr2U', createdByName: 'ماجد' })));
+await check('sales manager cannot create finance roster', false,
+  () => setDoc(doc(mgr, `weeklyRosters/finance_${dRel(nextSundayIn + 7)}`),
+    financeRosterDoc({ weekStart: dRel(nextSundayIn + 7), weekEnd: dRel(nextSundayIn + 13),
+      createdByUid: 'mgrU', createdByName: 'فهد' })));
+await check('employee cannot create a roster', false,
+  () => setDoc(doc(emp, `weeklyRosters/sales_${dRel(nextSundayIn + 7)}`),
+    rosterDoc({ weekStart: dRel(nextSundayIn + 7), weekEnd: dRel(nextSundayIn + 13),
+      createdByUid: 'empU', createdByName: 'سالم' })));
+
+await check('designated manager writes employee entry', true,
+  () => setDoc(doc(mgr, `${rosterPath}/entries/empU`), rosterEntry('empU', 'سالم')));
+await check('second department manager writes its employee entry', true,
+  () => setDoc(doc(finMgr, `${financeRosterPath}/entries/finU`),
+    rosterEntry('finU', 'ناصر', { department: 'المالية', days: { 0: 'plan_am' } })));
+await check('manager cannot write an entry in another department', false,
+  () => updateDoc(doc(mgr, `${financeRosterPath}/entries/finU`), {
+    days: { 0: 'rest' }, updatedAt: serverTimestamp()
+  }));
+await check('multiple evening employees are allowed', true,
+  () => setDoc(doc(mgr, `${rosterPath}/entries/emp2U`), rosterEntry('emp2U', 'خالد', {
+    days: { 0: 'plan_pm', 1: 'plan_pm', 2: '', 3: '', 4: '', 5: '' }
+  })));
+await check('zero-evening shape is allowed', true,
+  () => updateDoc(doc(mgr, `${rosterPath}/entries/emp2U`), {
+    days: { 0: 'plan_am', 1: '', 2: '', 3: '', 4: '', 5: '' }, updatedAt: serverTimestamp()
+  }));
+
+const reorderedDepartments = [
+  { id: 'finance', name: 'المالية', managerUid: 'finMgrU' },
+  { id: 'sales', name: 'المبيعات', managerUid: 'mgrU' }
+];
+await check('manager cannot reorder department settings', false,
+  () => updateDoc(doc(mgr, 'settings/config'), { departments: reorderedDepartments }));
+await check('admin may reorder departments', true,
+  () => updateDoc(doc(admin, 'settings/config'), { departments: reorderedDepartments }));
+await check('stale index fails closed after department reorder', false,
+  () => updateDoc(doc(mgr, rosterPath), { updatedAt: serverTimestamp() }));
+await check('matching departmentId at its new index restores the real manager', true,
+  () => updateDoc(doc(mgr, rosterPath), {
+    departmentIndex: 1, department: 'المبيعات', updatedAt: serverTimestamp()
+  }));
+await check('old index cannot grant sales manager access to finance', false,
+  () => updateDoc(doc(mgr, financeRosterPath), {
+    departmentIndex: 1, department: 'المالية', updatedAt: serverTimestamp()
+  }));
+await check('finance manager refreshes its own matching index', true,
+  () => updateDoc(doc(finMgr, financeRosterPath), {
+    departmentIndex: 0, department: 'المالية', updatedAt: serverTimestamp()
+  }));
+await check('employee cannot read Draft roster', false, () => getDoc(doc(emp, rosterPath)));
+await check('employee cannot read Draft entry', false, () => getDoc(doc(emp, `${rosterPath}/entries/empU`)));
+await check('same-department manager may view Draft but still cannot write it', true,
+  () => getDoc(doc(mgr2, `${rosterPath}/entries/empU`)));
+await check('same-department non-owner cannot edit Draft entry', false,
+  () => updateDoc(doc(mgr2, `${rosterPath}/entries/empU`), {
+    days: { 0: 'rest' }, updatedAt: serverTimestamp()
+  }));
+await check('employee cannot write own roster entry', false,
+  () => updateDoc(doc(emp, `${rosterPath}/entries/empU`), { days: { 0: 'rest' }, updatedAt: serverTimestamp() }));
+await check('entry rejects an unbounded shift reference', false,
+  () => updateDoc(doc(mgr, `${rosterPath}/entries/empU`), { days: { 0: 'x'.repeat(81) }, updatedAt: serverTimestamp() }));
+
+await check('designated manager submits roster', true,
+  () => updateDoc(doc(mgr, rosterPath), {
+    status: 'submitted', submittedByUid: 'mgrU', submittedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(), returnNote: ''
+  }));
+await check('department roster allows zero assignments', true,
+  () => updateDoc(doc(finMgr, `${financeRosterPath}/entries/finU`), {
+    days: {}, updatedAt: serverTimestamp()
+  }));
+await check('second department manager submits its roster', true,
+  () => updateDoc(doc(finMgr, financeRosterPath), {
+    status: 'submitted', submittedByUid: 'finMgrU', submittedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(), returnNote: ''
+  }));
+await check('HR returns second department Submitted roster', true,
+  () => updateDoc(doc(admin, financeRosterPath), {
+    status: 'returned', returnNote: 'راجع الجدول', reviewedByUid: 'adminU', reviewedByName: 'المدير',
+    reviewedAt: serverTimestamp(), updatedAt: serverTimestamp()
+  }));
+await check('Submitted roster cannot edit assignments', false,
+  () => updateDoc(doc(mgr, `${rosterPath}/entries/empU`), { days: { 0: 'rest' }, updatedAt: serverTimestamp() }));
+await check('Submitted roster still does not expose employee entry', false,
+  () => getDoc(doc(emp, `${rosterPath}/entries/empU`)));
+await check('manager cannot self-approve roster', false,
+  () => updateDoc(doc(mgr, rosterPath), {
+    status: 'approved', reviewedByUid: 'mgrU', reviewedByName: 'فهد',
+    reviewedAt: serverTimestamp(), updatedAt: serverTimestamp(), returnNote: ''
+  }));
+
+await check('HR approves parent and historical snapshots atomically', true, () => {
+  const batch = writeBatch(admin);
+  batch.update(doc(admin, `${rosterPath}/entries/empU`), { approvedDays, updatedAt: serverTimestamp() });
+  batch.update(doc(admin, `${rosterPath}/entries/emp2U`), {
+    approvedDays: { 0: approvedDays[0] }, updatedAt: serverTimestamp()
+  });
+  batch.update(doc(admin, rosterPath), {
+    status: 'approved', reviewedByUid: 'adminU', reviewedByName: 'المدير',
+    reviewedAt: serverTimestamp(), updatedAt: serverTimestamp(), returnNote: ''
+  });
+  return batch.commit();
+});
+await check('employee reads Approved parent', true, () => getDoc(doc(emp, rosterPath)));
+await check('employee reads only Approved rosters constrained to own department', true,
+  () => getDocs(query(collection(emp, 'weeklyRosters'),
+    where('status', '==', 'approved'), where('department', '==', 'المبيعات'))));
+await check('Approved query without department constraint is blocked', false,
+  () => getDocs(query(collection(emp, 'weeklyRosters'), where('status', '==', 'approved'))));
+await check('employee cannot read another department Approved parent', false,
+  () => getDoc(doc(fin, rosterPath)));
+await check('another department manager cannot read sales roster', false,
+  () => getDoc(doc(finMgr, rosterPath)));
+await check('employee reads own Approved entry', true, () => getDoc(doc(emp, `${rosterPath}/entries/empU`)));
+await check('employee cannot read peer Approved entry', false, () => getDoc(doc(emp, `${rosterPath}/entries/emp2U`)));
+await check('sales manager reads team Approved entry', true, () => getDoc(doc(mgr2, `${rosterPath}/entries/empU`)));
+await check('Approved snapshot cannot be rewritten', false,
+  () => updateDoc(doc(admin, `${rosterPath}/entries/empU`), {
+    approvedDays: { 0: { ...approvedDays[0], start: '10:00' } }, updatedAt: serverTimestamp()
+  }));
+
+await check('HR returns Approved roster before weekStart', true,
+  () => updateDoc(doc(admin, rosterPath), {
+    status: 'returned', returnNote: 'عدّل مناوبة الثلاثاء', reviewedByUid: 'adminU', reviewedByName: 'المدير',
+    reviewedAt: serverTimestamp(), updatedAt: serverTimestamp()
+  }));
+await check('designated manager edits Returned roster', true,
+  () => updateDoc(doc(mgr, `${rosterPath}/entries/empU`), {
+    days: { 0: 'plan_pm', 1: '', 2: 'rest', 3: '', 4: '', 5: 'plan_am' }, updatedAt: serverTimestamp()
+  }));
+
+const currentWeekStart = dRel(-ksaNow().getUTCDay());
+const currentWeekEnd = dRel(6 - ksaNow().getUTCDay());
+const currentRosterPath = `weeklyRosters/sales_${currentWeekStart}`;
+await env.withSecurityRulesDisabled(async (ctx) => {
+  await setDoc(doc(ctx.firestore(), currentRosterPath), {
+    weekStart: currentWeekStart, weekEnd: currentWeekEnd,
+    departmentId: 'sales', departmentIndex: 1, department: 'المبيعات', status: 'approved',
+    createdByUid: 'mgrU', createdByName: 'فهد', createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+    submittedByUid: 'mgrU', submittedAt: Timestamp.now(), reviewedByUid: 'adminU', reviewedByName: 'المدير',
+    reviewedAt: Timestamp.now(), returnNote: ''
+  });
+});
+await check('Approved roster cannot return after weekStart', false,
+  () => updateDoc(doc(admin, currentRosterPath), {
+    status: 'returned', returnNote: 'تعديل متأخر', reviewedByUid: 'adminU', reviewedByName: 'المدير',
+    reviewedAt: serverTimestamp(), updatedAt: serverTimestamp()
+  }));
 
 
 /* ═══ انصرافٌ بلا دخول — قرار المالك ٢٠٢٦-٠٨-١٣ ═══
