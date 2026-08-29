@@ -1,7 +1,7 @@
 import {
   PAYROLL_ATTENDANCE_SOURCE, mergeAttendanceSources, payrollAttendanceSource,
   payrollConfigForRun, selectPayrollAttendance, liveAttendanceInfo, sourceRecordUid,
-  loadRequiredAttendanceSources
+  loadRequiredAttendanceSources, attendanceBoundarySources, attendanceSourceLabel
 } from '../js/lib/attendance-sources.js';
 import {
   applyAllAttendanceAdjustments, adjustedPayrollAttendance
@@ -57,6 +57,26 @@ eq('الدخول الأبكر والخروج الأحدث يكتملان من ا
    [out[0].sessions[0].in.toTimeString().slice(0, 5), out[0].sessions[0].out.toTimeString().slice(0, 5)]);
 eq('هوية المصدر المركبة معلنة', ['zkAttendance', 'attendance'], out[0].__sources);
 eq('السجلات الخام محفوظة للتدقيق', 2, out[0].__sourceRecords.length);
+eq('التقرير يحفظ مصدر الدخول الأبكر والخروج الأحدث كلٌ على حدة',
+   { inSource:'physical', outSource:'mobile' }, attendanceBoundarySources(out[0]));
+eq('تسميات مصادر التقرير إدارية وواضحة', ['جهاز البصمة','الجوال'],
+   ['physical','mobile'].map(attendanceSourceLabel));
+
+out = mergeAttendanceSources(users, [
+  { coll: 'zkAttendance', records: [rec('newUid', 'device', [{ in: at('08:10'), out: at('17:10') }])] },
+  { coll: 'attendance', records: [rec('newUid', 'web', [{ in: at('08:00'), out: at('17:00') }])] }
+]);
+eq('الدخول من الجوال والخروج من الجهاز يُنسبان إلى مصدريهما',
+   { inSource:'mobile', outSource:'physical' }, attendanceBoundarySources(out[0]));
+
+out = mergeAttendanceSources(users, [
+  { coll: 'zkAttendance', records: [rec('newUid', 'device', [{ in: at('08:00'), out: at('17:00') }])] },
+  { coll: 'attendance', records: [rec('newUid', 'web', [{ in: at('08:00'), out: at('17:00') }])] }
+]);
+eq('تطابق الوقت لا يكرر اليوم ويثبت المصدرين للحدين',
+   { rows:1, inSource:'both', outSource:'both' }, {
+     rows:out.length, ...attendanceBoundarySources(out[0])
+   });
 
 out = mergeAttendanceSources(users, [
   { coll: 'zkAttendance', records: [rec('oldUid', 'device', [{ in: at('08:00'), out: null }])] },

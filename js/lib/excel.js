@@ -169,6 +169,32 @@ export function attendanceExport(cyc, opt, dailyRowsList, sessRowsList) {
   toast('تم تصدير المعروض', 'ok');
 }
 
+/* ═══ صفحة تقارير الحضور والانصراف ═══
+   الصفوف جاهزة من attendance-report.js؛ لا نعيد حساب وقت أو حالة هنا.
+   وبذلك يبقى ملف Excel مطابقاً للجدول المعروض وللمسير في الوقت نفسه. */
+export function attendanceReportExport(rows, opts = {}) {
+  if (!rows?.length) { toast('لا بيانات للتصدير', 'err'); return; }
+  const data = rows.map((r) => ({
+    'الموظف': r.employee,
+    'الرقم الوظيفي': r.employeeId,
+    'القسم': r.department,
+    'التاريخ': r.date,
+    'اليوم': r.day,
+    'الوردية': r.shift,
+    'الدخول': r.officialIn ? hm(r.officialIn) : '',
+    'مصدر الدخول': r.inSource,
+    'الخروج': r.officialOut ? hm(r.officialOut) : '',
+    'مصدر الخروج': r.outSource,
+    'ساعات العمل': r.workedHours,
+    'الحالة': r.status,
+    'الاستئذان': r.permission,
+    'الملاحظة': r.note
+  }));
+  const from = opts.fromDate || 'من', to = opts.toDate || 'إلى';
+  saveBook([['الحضور والانصراف', data]], `تقرير_الحضور_${from}_${to}.xlsx`);
+  toast('تم تصدير تقرير الحضور', 'ok');
+}
+
 /* ═══ مسير الرواتب ═══ */
 export function payrollExport(cyc, rowsPay) {
   const cfg = rowsPay[0]?.cfg || payrollConfig();
