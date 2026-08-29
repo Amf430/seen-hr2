@@ -26,9 +26,10 @@
 <script type="module">
 import { setSettings } from '../../js/lib/state.js';
 import { cycleOf, ymd } from '../../js/lib/dates.js';
+import { hm } from '../../js/lib/format.js';
 import { computePayroll, isUnpaidLeave, payrollConfig } from '../../js/lib/payroll.js';
 import { buildDailyStatus, sessionsOf, workedSecs, lastOutOf, dayBounds } from '../../js/lib/attendance.js';
-import { attendanceExport, payrollExport, teamPerfExport } from '../../js/lib/excel.js';
+import { attendanceExport, attendanceReportExport, payrollExport, teamPerfExport } from '../../js/lib/excel.js';
 import { teamSummaryOf, teamExportRows } from '../../js/lib/team-stats.js';
 import { payrollTotals } from '../../js/lib/payroll-view.js';
 import { dayWork } from '../../js/pages/attend.js';
@@ -39,8 +40,12 @@ import { attendanceMetrics } from '../../js/lib/attendance-metrics.js';
 import { applyAll, adjustedUnifiedAttendance, adjustedPayrollAttendance } from '../../js/lib/adjustments.js';
 import { todayAttendance, payrollSummary } from '../../js/lib/hr-stats.js';
 import { attendancePresentation } from '../../js/lib/attendance-presentation.js';
+import {
+  ATTENDANCE_REPORT_SOURCE, attendanceReportRows, reportPayrollSource
+} from '../../js/lib/attendance-report.js';
 import { clearApprovedRosterEntries, setApprovedRosterEntries } from '../../js/lib/weekly-roster.js';
 import { rosterTimeRangeHtml, rosterTimeRangeText } from '../../js/pages/weekly-roster.js';
+import * as attendanceReportsPage from '../../js/pages/attendance-reports.js';
 
 const out = document.getElementById('out');
 let pass = 0, fail = 0;
@@ -498,6 +503,14 @@ const featureDay = (record, permissions=[]) => buildDailyStatus(CYC, [EMP], perm
     reportActual.sessions[0].in.toTimeString().slice(0,5),
     reportActual.sessions[0].out.toTimeString().slice(0,5)
   ]);
+  const pageReportRow=attendanceReportRows([reportDay])[0];
+  eq('صفحة التقرير الجديدة تعرض Approved effective in/out والملاحظة نفسها', {
+    in:'09:00',out:'18:00',permission:'تأخير · خروج مبكر',
+    note:'دخول فعلي 09:29 — خروج فعلي 16:49 — استئذان معتمد 09:00–09:46، 16:30–18:00'
+  }, {
+    in:hm(pageReportRow.officialIn),out:hm(pageReportRow.officialOut),
+    permission:pageReportRow.permission,note:pageReportRow.note
+  });
   settings();
 
   payrollExport(CYC,[partialPay]);
@@ -607,11 +620,73 @@ group('٣-ج. جدول المناوبات الأسبوعي المعتمد');
   const exportRow=rosterSaved[0].sheets['التقرير اليومي'][0];
   eq('Reports/Excel يعرضان شفت Roster الصحيح', ['مسائي 14:00–23:00','09:00'],
     [exportRow['الوردية'],exportRow['ساعات العمل المحتسبة']]);
+  eq('صفحة تقرير الحضور تقرأ نفس شفت Roster المركزي', 'مسائي 14:00–23:00',
+    attendanceReportRows([eveningDay])[0].shift);
 
   clearApprovedRosterEntries();
   const fallback=buildDailyStatus(CYC,[EMP],[],fullMonth()).find((r)=>r.dateStr===D);
   eq('إزالة Approved Roster تعيد الحساب الحالي بلا تغيير', ['08:00','16:00','company'],
     [fallback.shift.start,fallback.shift.end,fallback.shift.src]);
+  settings();
+}
+
+/* ══════════════════ ٣-د. صفحة تقارير الحضور ══════════════════ */
+group('٣-د. تقرير Device / Mobile / Merged');
+{
+  settings();
+  eq('صفحة تقرير الحضور قابلة للتحميل من الراوتر', 'function', typeof attendanceReportsPage.render);
+  const D='2026-06-01';
+  const device={...rec(D,'08:55','17:50'),source:'device'};
+  const mobile={...rec(D,'09:03','18:10'),source:'web'};
+  const reportFor=(reportSource,physical=[device],web=[mobile])=>{
+    const records=adjustedPayrollAttendance([EMP],
+      {attendanceSource:reportPayrollSource(reportSource)},physical,web,[]);
+    const day=buildDailyStatus(CYC,[EMP],[],records).find((r)=>r.dateStr===D);
+    return attendanceReportRows([day])[0];
+  };
+  const deviceRow=reportFor(ATTENDANCE_REPORT_SOURCE.DEVICE);
+  const mobileRow=reportFor(ATTENDANCE_REPORT_SOURCE.MOBILE);
+  const mergedRow=reportFor(ATTENDANCE_REPORT_SOURCE.MERGED);
+  eq('Device only يستخدم سجل الجهاز فقط', ['08:55','17:50','جهاز البصمة','جهاز البصمة'], [
+    hm(deviceRow.officialIn),hm(deviceRow.officialOut),deviceRow.inSource,deviceRow.outSource
+  ]);
+  eq('Mobile only يستخدم سجل الجوال فقط', ['09:03','18:10','الجوال','الجوال'], [
+    hm(mobileRow.officialIn),hm(mobileRow.officialOut),mobileRow.inSource,mobileRow.outSource
+  ]);
+  eq('Merged ينتج صفاً واحداً بأبكر دخول وآخر خروج ومصدر كل طرف', {
+    rows:1,in:'08:55',inSource:'جهاز البصمة',out:'18:10',outSource:'الجوال',hours:'09:15'
+  }, {
+    rows:attendanceReportRows([mergedRow.dayRow]).length,
+    in:hm(mergedRow.officialIn),inSource:mergedRow.inSource,
+    out:hm(mergedRow.officialOut),outSource:mergedRow.outSource,hours:mergedRow.workedHours
+  });
+
+  const reverseRow=reportFor(ATTENDANCE_REPORT_SOURCE.MERGED,
+    [{...rec(D,'09:03','18:10'),source:'device'}],
+    [{...rec(D,'08:55','17:50'),source:'web'}]);
+  eq('Merged يدعم دخول Mobile وخروج Device', ['الجوال','جهاز البصمة'],
+    [reverseRow.inSource,reverseRow.outSource]);
+
+  const tied=reportFor(ATTENDANCE_REPORT_SOURCE.MERGED,
+    [{...rec(D,'09:00','18:00'),source:'device'}],
+    [{...rec(D,'09:00','18:00'),source:'web'}]);
+  eq('الوقت المتطابق لا يكرر الصف ويثبت المصدرين',
+    ['جهاز البصمة + الجوال','جهاز البصمة + الجوال'], [tied.inSource,tied.outSource]);
+
+  const saved=[];
+  window.XLSX={utils:{book_new:()=>({sheets:{}}),json_to_sheet:(x)=>x,
+    book_append_sheet:(b,s,n)=>{b.sheets[n]=s;}},writeFile:(b,f)=>saved.push({b,f})};
+  attendanceReportExport([mergedRow],{fromDate:D,toDate:D});
+  const excelRow=saved[0].b.sheets['الحضور والانصراف'][0];
+  eq('Excel التقرير يحمل الأعمدة الأربعة عشر بالترتيب', [
+    'الموظف','الرقم الوظيفي','القسم','التاريخ','اليوم','الوردية','الدخول','مصدر الدخول',
+    'الخروج','مصدر الخروج','ساعات العمل','الحالة','الاستئذان','الملاحظة'
+  ],Object.keys(excelRow));
+  eq('Excel يعرض Merged وHH:MM دون ساعات عشرية',
+    {in:'08:55',inSource:'جهاز البصمة',out:'18:10',outSource:'الجوال',hours:'09:15'}, {
+      in:excelRow['الدخول'],inSource:excelRow['مصدر الدخول'],out:excelRow['الخروج'],
+      outSource:excelRow['مصدر الخروج'],hours:excelRow['ساعات العمل']
+    });
   settings();
 }
 

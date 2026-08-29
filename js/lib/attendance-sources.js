@@ -61,6 +61,50 @@ const sourceKindOf = (value) => {
   return '';
 };
 
+export function attendanceSourceLabel(kind) {
+  return kind === 'physical' ? 'جهاز البصمة'
+    : kind === 'mobile' ? 'الجوال'
+    : kind === 'both' ? 'جهاز البصمة + الجوال' : '';
+}
+
+/* مصدر كل حدّ لا مصدر اليوم كله. في التقرير المدموج قد يأتي الدخول الأبكر
+   من الجهاز والخروج الأحدث من الجوال، لذلك لا تكفي قيمة source='combined'.
+   نقرأ السجلات التي حفظها mergeAttendanceSources للتدقيق، بلا إعادة دمج أو
+   تغيير أي بصمة. وعند التطابق الحقيقي نذكر المصدرين بدلاً من اختيار أحدهما
+   اعتباطاً. */
+export function attendanceBoundarySources(record) {
+  if (!record) return { inSource: '', outSource: '' };
+  const raw = Array.isArray(record.__sourceRecords) && record.__sourceRecords.length
+    ? record.__sourceRecords : [{ coll: record.source || '', rec: record }];
+  let firstIn = null, lastOut = null;
+  let inKinds = new Set(), outKinds = new Set();
+
+  for (const item of raw) {
+    const rec = item?.rec;
+    if (!rec || (record.date && rec.date && rec.date !== record.date)) continue;
+    const kind = sourceKindOf(item.coll || rec.source || '');
+    if (!kind) continue;
+    for (const session of sessionsOfRecord(rec)) {
+      const inDate = tsToDate(session?.in);
+      if (inDate) {
+        const ms = inDate.getTime();
+        if (firstIn == null || ms < firstIn) { firstIn = ms; inKinds = new Set([kind]); }
+        else if (ms === firstIn) inKinds.add(kind);
+      }
+      const outDate = tsToDate(session?.out);
+      if (outDate) {
+        const ms = outDate.getTime();
+        if (lastOut == null || ms > lastOut) { lastOut = ms; outKinds = new Set([kind]); }
+        else if (ms === lastOut) outKinds.add(kind);
+      }
+    }
+  }
+
+  const kindOf = (kinds) => kinds.has('physical') && kinds.has('mobile') ? 'both'
+    : kinds.has('physical') ? 'physical' : kinds.has('mobile') ? 'mobile' : '';
+  return { inSource: kindOf(inKinds), outSource: kindOf(outKinds) };
+}
+
 /* UID السجل الخام المقصود، لا UID الوثيقة الموحّدة. الدمج يطبع employeeUid
    إلى الحالي، لكن طلب التصحيح يجب أن يبقى فوق سجل المصدر التاريخي نفسه. */
 export function sourceRecordUid(record, coll = 'zkAttendance') {
