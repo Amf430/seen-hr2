@@ -28,7 +28,7 @@ import { setSettings } from '../../js/lib/state.js';
 import { cycleOf, ymd } from '../../js/lib/dates.js';
 import { computePayroll, isUnpaidLeave, payrollConfig } from '../../js/lib/payroll.js';
 import { buildDailyStatus, sessionsOf, workedSecs, lastOutOf, dayBounds } from '../../js/lib/attendance.js';
-import { attendanceExport, payrollExport } from '../../js/lib/excel.js';
+import { attendanceExport, payrollExport, teamPerfExport } from '../../js/lib/excel.js';
 import { teamSummaryOf, teamExportRows } from '../../js/lib/team-stats.js';
 import { payrollTotals } from '../../js/lib/payroll-view.js';
 import { dayWork } from '../../js/pages/attend.js';
@@ -309,8 +309,10 @@ const featureDay = (record, permissions=[]) => buildDailyStatus(CYC, [EMP], perm
   eq('ملاحظة Early تعرض الدليل الفعلي ونهاية الوردية', true,
      /خروج فعلي 15:00.*استئذان خروج مبكر معتمد حتى نهاية الوردية 16:00/.test(day.note));
   eq('عرض Early يختصر الدليل ويعرض الخروج الرسمي', {
+    kind:'خروج مبكر', period:'استئذان معتمد 15:00–16:00',
     official:'16:00', actual:'15:00', note:'خروج فعلي 15:00 — استئذان معتمد 15:00–16:00'
   }, {
+    kind:presented.permissionType, period:presented.permissionNote,
     official:presented.officialOut.toTimeString().slice(0,5),
     actual:presented.actualOut.toTimeString().slice(0,5), note:presented.note
   });
@@ -324,6 +326,29 @@ const featureDay = (record, permissions=[]) => buildDailyStatus(CYC, [EMP], perm
   eq('Early صريح جزئي يبقي النقص خارجه', { early:30, exempt:30, hours:7.5, ded:18.75 },
      (() => { const r=runPayroll(fullMonth({[D]:earlyRec}),[partial]); const d=r.details.find(x=>x.dateStr===D);
        return { early:r.earlyMin, exempt:r.exemptMin, hours:d.effectiveSecs/3600, ded:r.dedHours }; })());
+}
+{
+  /* نفس أوقات الحالة الفعلية التي كشفت الالتباس في مراجعة الرواتب. نختبر
+     التركيبات الأربع من خرج المحرك حتى صف التقرير، لا helper معزولاً فقط. */
+  const workWeek = Object.fromEntries(Object.entries(WEEK).map(([dow, shift]) => [dow,
+    shift.type === 'off' ? shift : { ...shift, start:'09:00', end:'18:00' }]));
+  settings({ shifts:workWeek });
+  const D='2026-06-01', actual=rec(D,'09:29','16:49');
+  const late=intervalPerm(D,'تأخير عن الدوام','09:00','09:46');
+  const early=intervalPerm(D,'خروج مبكر','16:30','18:00');
+  const times = (permissions) => {
+    const p=attendancePresentation(featureDay(actual,permissions));
+    return [p.officialIn,p.officialOut].map((d)=>d.toTimeString().slice(0,5));
+  };
+  eq('Approved late only يبدّل الدخول وحده', ['09:00','16:49'], times([late]));
+  eq('Approved early only يبدّل الخروج وحده', ['09:29','18:00'], times([early]));
+  eq('Approved both يعرض الدخول والخروج الرسميين', ['09:00','18:00'], times([late,early]));
+  eq('No approved coverage يبقي البصمتين الفعليتين', ['09:29','16:49'], times([]));
+  eq('طبقة العرض لا تعدّل البصمات الفعلية', ['09:29','16:49'], [
+    actual.sessions[0].in.toTimeString().slice(0,5),
+    actual.sessions[0].out.toTimeString().slice(0,5)
+  ]);
+  settings();
 }
 {
   const D='2026-06-01';
@@ -417,6 +442,9 @@ const featureDay = (record, permissions=[]) => buildDailyStatus(CYC, [EMP], perm
   window.XLSX={ utils:{ book_new:()=>({sheets:{}}), json_to_sheet:(rows)=>rows,
     book_append_sheet:(book,sheet,name)=>{book.sheets[name]=sheet;} },
     writeFile:(book,filename)=>saved.push({book,filename}) };
+  teamPerfExport(CYC,'المبيعات',teamExportRows(summary));
+  eq('Excel أداء القسم يعرض ساعات العمل كمدة', '08:00',
+     saved.pop().book.sheets['أداء المبيعات'][0]['ساعات العمل']);
   const actualRecord=rec(D,'08:00','15:00');
   const exportDay=featureDay(actualRecord,[intervalPerm(D,'خروج مبكر','15:00','16:00')]);
   attendanceExport(CYC,{isDevice:true},[exportDay],
@@ -424,7 +452,7 @@ const featureDay = (record, permissions=[]) => buildDailyStatus(CYC, [EMP], perm
   const att=saved.pop().book.sheets;
   const attendanceRow=att['التقرير اليومي'][0];
   eq('Excel الحضور يعرض الوقت الرسمي والملاحظة القصيرة', {
-    in:'08:00', out:'16:00', hours:'8.00', type:'خروج مبكر',
+    in:'08:00', out:'16:00', hours:'08:00', type:'خروج مبكر',
     note:'خروج فعلي 15:00 — استئذان معتمد 15:00–16:00'
   }, {
     in:attendanceRow['الدخول الرسمي'], out:attendanceRow['الخروج الرسمي'],
@@ -441,11 +469,31 @@ const featureDay = (record, permissions=[]) => buildDailyStatus(CYC, [EMP], perm
   ].every((key)=>!Object.hasOwn(attendanceRow,key)));
   eq('طبقة العرض والتصدير لا تغير البصمة الفعلية', '15:00',
      actualRecord.sessions[0].out.toTimeString().slice(0,5));
-  eq('Excel الجلسات الخام يبقى سبع ساعات', '7.00', att['الجلسات التفصيلية'][0]['ساعات العمل']);
+  eq('Excel الجلسات الخام يبقى سبع ساعات', '07:00', att['الجلسات التفصيلية'][0]['ساعات العمل']);
+
+  const reportWeek = Object.fromEntries(Object.entries(WEEK).map(([dow, shift]) => [dow,
+    shift.type === 'off' ? shift : { ...shift, start:'09:00', end:'18:00' }]));
+  settings({ shifts:reportWeek });
+  const reportActual=rec(D,'09:29','16:49');
+  const reportLate=intervalPerm(D,'تأخير عن الدوام','09:00','09:46');
+  const reportEarly=intervalPerm(D,'خروج مبكر','16:30','18:00');
+  const reportDay=featureDay(reportActual,[reportLate,reportEarly]);
+  attendanceExport(CYC,{isDevice:true},[reportDay],null);
+  const reportRow=saved.pop().book.sheets['التقرير اليومي'][0];
+  eq('Excel يعرض effective in/out معاً ويبقي actual في الملاحظة', {
+    in:'09:00', out:'18:00',
+    note:'دخول فعلي 09:29 — خروج فعلي 16:49 — استئذان معتمد 09:00–09:46، 16:30–18:00'
+  }, { in:reportRow['الدخول الرسمي'], out:reportRow['الخروج الرسمي'], note:reportRow['ملاحظة'] });
+  eq('Excel لا يغيّر actual punches عند عرض الوقت الرسمي', ['09:29','16:49'], [
+    reportActual.sessions[0].in.toTimeString().slice(0,5),
+    reportActual.sessions[0].out.toTimeString().slice(0,5)
+  ]);
+  settings();
+
   payrollExport(CYC,[partialPay]);
   const pay=saved.pop().book.sheets;
   eq('Excel المسير يفصل الفعلي والمحتسب ونقص Mid', {
-    actual:+partialPay.recordedWorkH.toFixed(2), effective:+partialPay.workH.toFixed(2), gap:30
+    actual:'183:00', effective:'183:30', gap:30
   }, (() => { const x=pay['مسير الرواتب'][0]; return { actual:x['ساعات فعلية'],
     effective:x['ساعات محتسبة بعد الاستئذانات'], gap:x['دقائق نقص أثناء الوردية'] }; })());
   const detail=pay['تفصيل الأيام'].find((x)=>x['التاريخ']===D);
@@ -547,7 +595,7 @@ group('٣-ج. جدول المناوبات الأسبوعي المعتمد');
     book_append_sheet:(b,s,n)=>{b.sheets[n]=s;}},writeFile:(b)=>rosterSaved.push(b)};
   attendanceExport(CYC,{isDevice:true},[eveningDay],null);
   const exportRow=rosterSaved[0].sheets['التقرير اليومي'][0];
-  eq('Reports/Excel يعرضان شفت Roster الصحيح', ['مسائي 14:00–23:00','9.00'],
+  eq('Reports/Excel يعرضان شفت Roster الصحيح', ['مسائي 14:00–23:00','09:00'],
     [exportRow['الوردية'],exportRow['ساعات العمل المحتسبة']]);
 
   clearApprovedRosterEntries();

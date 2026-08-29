@@ -27,7 +27,7 @@
 import { el, esc, toast } from '../lib/dom.js';
 import { getMe, getUsers, getRequests } from '../lib/state.js';
 import { recentCyclesList, cycleOf } from '../lib/dates.js';
-import { hhmm } from '../lib/format.js';
+import { decimalHoursHHMM, hhmm } from '../lib/format.js';
 import { fetchAttendance, buildDailyStatus } from '../lib/attendance.js';
 import { teamSummaryOf, trendOf, teamExportRows } from '../lib/team-stats.js';
 import { deptCoverageOf, coverageNote } from '../lib/zk-coverage.js';
@@ -210,7 +210,7 @@ export async function render(view, token) {
         <td class="num">${e.leave || '—'}</td>
         <td class="num ${e.missing ? 'text-amber' : ''}">${e.missing || '—'}</td>
         <td class="num">${e.lateMin ? esc(hhmm(e.lateMin)) : '—'}</td>
-        <td class="num">${Math.round(e.secs / 360) / 10}</td>
+        <td class="num">${decimalHoursHHMM(e.secs / 3600)}</td>
         <td class="num">${e.attendanceRate}%</td>
         <td class="num"><b class="${e.commitmentRate >= 90 ? 'text-green' : e.commitmentRate >= 75 ? 'text-amber' : 'text-red'}">${e.commitmentRate}%</b></td>`;
       /* ⚠️ المعرّف 'profile' لا 'employee-profile' — الثاني غير مُسجَّل في
