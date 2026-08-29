@@ -492,6 +492,41 @@ await check('admin records an adjustment',           true,  () => setDoc(doc(adm
 await check('admin EDITS an adjustment',             false, () => updateDoc(doc(admin, 'attendanceAdjustments/a8'), { reason: 'سبب آخر' }));
 await check('admin DELETES an adjustment',           false, () => deleteDoc(doc(admin, 'attendanceAdjustments/a8')));
 
+const penaltyAdj = (over = {}) => ({
+  adjustmentType: 'missingPunchPenalty', employeeUid: 'empU', employeeName: 'سالم',
+  date: ymdKsa(), coll: 'zkAttendance', sessionIdx: 0, field: 'out',
+  action: 'apply', penaltyMinutes: 60, reason: 'خصم موثّق لبصمة ناقصة',
+  byUid: 'adminU', byName: 'المدير', at: serverTimestamp(), ...over
+});
+await check('employee writes missing-punch penalty', false,
+  () => setDoc(doc(emp, 'attendanceAdjustments/p-emp'),
+    penaltyAdj({ byUid:'empU', byName:'سالم' })));
+await check('manager writes missing-punch penalty',  false,
+  () => setDoc(doc(mgr, 'attendanceAdjustments/p-mgr'),
+    penaltyAdj({ byUid:'mgrU', byName:'فهد' })));
+await check('admin applies 1h missing-punch penalty', true,
+  () => setDoc(doc(admin, 'attendanceAdjustments/p-60'), penaltyAdj()));
+await check('admin applies 2h missing-punch penalty', true,
+  () => setDoc(doc(admin, 'attendanceAdjustments/p-120'), penaltyAdj({ penaltyMinutes:120 })));
+await check('admin applies 3h missing-punch penalty', true,
+  () => setDoc(doc(admin, 'attendanceAdjustments/p-180'), penaltyAdj({ penaltyMinutes:180 })));
+await check('admin reverses missing-punch penalty with zero', true,
+  () => setDoc(doc(admin, 'attendanceAdjustments/p-reverse'),
+    penaltyAdj({ action:'reverse', penaltyMinutes:0 })));
+await check('missing-punch apply rejects 90 minutes', false,
+  () => setDoc(doc(admin, 'attendanceAdjustments/p-90'), penaltyAdj({ penaltyMinutes:90 })));
+await check('missing-punch apply rejects zero', false,
+  () => setDoc(doc(admin, 'attendanceAdjustments/p-apply-zero'), penaltyAdj({ penaltyMinutes:0 })));
+await check('missing-punch reverse rejects nonzero', false,
+  () => setDoc(doc(admin, 'attendanceAdjustments/p-reverse-60'),
+    penaltyAdj({ action:'reverse', penaltyMinutes:60 })));
+await check('missing-punch penalty rejects timestamp value', false,
+  () => setDoc(doc(admin, 'attendanceAdjustments/p-value'), penaltyAdj({ value:Timestamp.now() })));
+await check('admin EDITS a missing-punch penalty', false,
+  () => updateDoc(doc(admin, 'attendanceAdjustments/p-60'), { penaltyMinutes:180 }));
+await check('admin DELETES a missing-punch penalty', false,
+  () => deleteDoc(doc(admin, 'attendanceAdjustments/p-60')));
+
 await env.withSecurityRulesDisabled(async (ctx) => {
   const d = ctx.firestore();
   await setDoc(doc(d, 'attendanceAdjustments/own-current'), adj({ employeeUid: 'empU', date: '2026-06-01' }));

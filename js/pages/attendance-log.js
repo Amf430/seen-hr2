@@ -4,14 +4,17 @@ import { db, doc, getDoc } from '../lib/firebase.js';
 import { getUsers, getRequests } from '../lib/state.js';
 import { refreshUsers } from '../lib/users.js';
 import { recentCyclesList, ymd, AR_DAYS } from '../lib/dates.js';
-import { fmtDur, hm, fmtDT, fmtDist, tsToDate } from '../lib/format.js';
+import { fmtDur, hm, fmtDT, fmtDist, tsToDate, decimalHoursHHMM } from '../lib/format.js';
 import { fetchAttendance, flattenSessions, buildDailyStatus, sessionsOf } from '../lib/attendance.js';
 import { attendanceExport } from '../lib/excel.js';
 import { locCell, openSessionDetail } from '../components/location-view.js';
 import { REMOTE_LABEL } from '../lib/geo.js';
 import { isStale, rerender } from '../lib/nav.js';
 import { photoUsage, purgePhotosBefore } from '../lib/photo.js';
-import { adjustmentsInRange, applyAll } from '../lib/adjustments.js';
+import {
+  adjustmentsInRange, applyAll, missingPunchPenaltyState
+} from '../lib/adjustments.js';
+import { openMissingPunchPenalty } from '../components/adjust-modal.js';
 import { openTypedConfirm } from '../components/review-modals.js';
 import { logAction } from '../lib/audit.js';
 import { card, empty, tableWrap, sectionHead, button, callout, pageHead } from '../lib/ui.js';
@@ -238,6 +241,19 @@ export async function render(view, token, opt) {
           <tbody>${rows.map((r, i) => {
             const can = sessionsOf(r.rec).length > 0;
             const p = attendancePresentation(r);
+            const missingField = r.cls === 'missingIn' ? 'in' : r.cls === 'missing' ? 'out' : '';
+            const sessionIdx = openIdxOf(r);
+            const penalty = missingField
+              ? missingPunchPenaltyState(r.rec, { coll: opt.coll, sessionIdx, field: missingField })
+              : { minutes: 0 };
+            const actions = [
+              p.hasApproved ? `<span class="pill pill--dot present">استئذان معتمد</span>
+                ${p.uncoveredMin ? `<span class="pill pill--dot missing">${p.uncoveredMin} د غير مغطاة</span>` : ''}
+                <button class="btn ghost sm" type="button" data-permission="${i}" aria-label="تفاصيل الاستئذان">التفاصيل</button>` : '',
+              missingField ? `${penalty.minutes
+                ? `<span class="pill pill--dot missing">خصم ${decimalHoursHHMM(penalty.minutes / 60)}</span>` : ''}
+                <button class="btn ghost sm" type="button" data-penalty="${i}">ساعات الخصم</button>` : ''
+            ].filter(Boolean).join('');
             return `<tr${can ? ` data-daily="${i}" class="is-clickable"` : ''}>
             <td><b>${esc(r.u.name)}</b></td><td class="num">${esc(r.u.empId || '—')}</td>
             <td class="num">${esc(r.dateStr)}</td><td>${AR_DAYS[r.dow]}</td>
@@ -246,11 +262,8 @@ export async function render(view, token, opt) {
             <td class="num text-red">${p.officialOut ? hm(p.officialOut) : '—'}</td>
             <td class="num">${r.secs > 0 ? fmtDur(r.secs) : '—'}</td>
             <td class="cell-note"><div class="truncate" title="${esc(p.note)}">${esc(p.note)}</div></td>
-            <td>${p.hasApproved ? `<div class="actions-cell" style="flex-wrap:wrap">
-              <span class="pill pill--dot present">استئذان معتمد</span>
-              ${p.uncoveredMin ? `<span class="pill pill--dot missing">${p.uncoveredMin} د غير مغطاة</span>` : ''}
-              <button class="btn ghost sm" type="button" data-permission="${i}" aria-label="تفاصيل الاستئذان">التفاصيل</button>
-            </div>` : '<span class="muted">—</span>'}</td></tr>`;
+            <td>${actions ? `<div class="actions-cell" style="flex-wrap:wrap">${actions}</div>`
+              : '<span class="muted">—</span>'}</td></tr>`;
           }).join('')}</tbody>
         </table>`);
       wrap.querySelectorAll('button[data-permission]').forEach((b) => {
@@ -271,6 +284,14 @@ export async function render(view, token, opt) {
             body.appendChild(audit);
           }
           r.permissions.forEach((p) => body.appendChild(requestCard(p, false)));
+        };
+      });
+      wrap.querySelectorAll('button[data-penalty]').forEach((b) => {
+        b.onclick = (e) => {
+          e.stopPropagation();
+          const r = rows[+b.dataset.penalty];
+          const field = r.cls === 'missingIn' ? 'in' : 'out';
+          openMissingPunchPenalty(r.rec, openIdxOf(r), opt.coll, field);
         };
       });
       wrap.querySelectorAll('tr[data-daily]').forEach((tr) => {
