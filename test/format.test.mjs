@@ -5,7 +5,9 @@
    تُقرأ ترجمةً آلية، و«صباح الخير» في الثالثة عصراً خطأ صريح.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { plural, greeting, firstName, initials, hueOf, fmtDayDate } from '../js/lib/format.js';
+import {
+  decimalHoursHHMM, plural, greeting, firstName, initials, hueOf, fmtDayDate
+} from '../js/lib/format.js';
 
 let pass = 0, fail = 0;
 const eq = (name, expected, actual) => {
@@ -74,6 +76,15 @@ group('٦. اسم اليوم والتاريخ');
 ok('يذكر اليوم', /الخميس|الأربعاء|الجمعة|السبت|الأحد|الاثنين|الإثنين|الثلاثاء/
   .test(fmtDayDate(new Date(2026, 7, 13))));
 eq('تاريخ باطل لا ينهار', '—', fmtDayDate('ليس تاريخاً'));
+
+group('٧. الساعات العشرية كمدة');
+
+eq('8.63 تقرّب إلى 08:38', '08:38', decimalHoursHHMM(8.63));
+eq('8.34 تقرّب إلى 08:20', '08:20', decimalHoursHHMM(8.34));
+eq('8.98 تقرّب إلى 08:59', '08:59', decimalHoursHHMM(8.98));
+eq('9.10 تقرّب إلى 09:06', '09:06', decimalHoursHHMM(9.10));
+eq('6.07 تقرّب إلى 06:04', '06:04', decimalHoursHHMM(6.07));
+eq('0.15 تقرّب إلى 00:09', '00:09', decimalHoursHHMM(0.15));
 
 console.log(`\n\x1b[1m═══ النتيجة: ${pass} ناجح، ${fail} فاشل ═══\x1b[0m`);
 process.exit(fail ? 1 : 0);

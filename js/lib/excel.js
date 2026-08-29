@@ -9,7 +9,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import { AR_DAYS, STATUS_AR, ymdKsa } from './dates.js';
-import { fmtDate, hm, tsToDate } from './format.js';
+import { decimalHoursHHMM, fmtDate, hm, tsToDate } from './format.js';
 import { toast } from './dom.js';
 import { sessionsOf, flattenSessions, fetchAttendance } from './attendance.js';
 import { requestsInCycle } from './dates.js';
@@ -37,7 +37,11 @@ function saveBook(sheets, filename) {
    صُدِّر منها يُفقد الثقة في الاثنين معاً. */
 export function teamPerfExport(cyc, deptName, rows) {
   if (!rows.length) { toast('لا بيانات للتصدير', 'err'); return; }
-  saveBook([[`أداء ${deptName || 'القسم'}`.slice(0, 28), rows]],
+  const displayRows = rows.map((r) => ({
+    ...r,
+    'ساعات العمل': decimalHoursHHMM(r['ساعات العمل'])
+  }));
+  saveBook([[`أداء ${deptName || 'القسم'}`.slice(0, 28), displayRows]],
            `أداء-${deptName || 'القسم'}-${cyc.key}.xlsx`);
 }
 
@@ -63,7 +67,7 @@ export function exportRequests(requests) {
 const mapSess = (rows) => rows.map((row) => {
   const s = row.s || {};
   let hours = '';
-  if (s.in && s.out) hours = ((tsToDate(s.out) - tsToDate(s.in)) / 3600000).toFixed(2);
+  if (s.in && s.out) hours = decimalHoursHHMM((tsToDate(s.out) - tsToDate(s.in)) / 3600000);
   return {
     'الموظف': row.r.employeeName, 'الرقم الوظيفي': row.r.employeeEmpId || '', 'القسم': row.r.department || '',
     'التاريخ': row.r.date, 'اليوم': AR_DAYS[row.r.dow] || '', 'الوردية': row.r.shiftLabel || '',
@@ -138,7 +142,7 @@ export function attendanceExport(cyc, opt, dailyRowsList, sessRowsList) {
       'الحالة': r.status,
       'الدخول الرسمي': p.officialIn ? hm(p.officialIn) : '',
       'الخروج الرسمي': p.officialOut ? hm(p.officialOut) : '',
-      'ساعات العمل المحتسبة': r.secs > 0 ? (r.secs / 3600).toFixed(2) : '',
+      'ساعات العمل المحتسبة': r.secs > 0 ? decimalHoursHHMM(r.secs / 3600) : '',
       'نوع الاستئذان': p.permissionType,
       /* التقرير الرئيسي موجز؛ البصمات الفعلية تبقى في سجل الجلسات، وتظهر
          هنا فقط حين تختلف عن الوقت الرسمي بسبب استئذان معتمد. */
@@ -148,7 +152,8 @@ export function attendanceExport(cyc, opt, dailyRowsList, sessRowsList) {
   if (sessRowsList) {
     sheets.push(['الجلسات التفصيلية', sessRowsList.map((row) => {
       const s = row.s || {};
-      let hours = ''; if (s.in && s.out) hours = ((tsToDate(s.out) - tsToDate(s.in)) / 3600000).toFixed(2);
+      let hours = '';
+      if (s.in && s.out) hours = decimalHoursHHMM((tsToDate(s.out) - tsToDate(s.in)) / 3600000);
       return {
         'الموظف': row.r.employeeName, 'الرقم الوظيفي': row.r.employeeEmpId || '', 'القسم': row.r.department || '',
         'التاريخ': row.r.date, 'اليوم': AR_DAYS[row.r.dow] || '', 'الوردية': row.r.shiftLabel || '',
@@ -174,12 +179,12 @@ export function payrollExport(cyc, rowsPay) {
     'أيام الغياب': r.absentDays, 'إجازة مدفوعة (يوم)': r.paidLeaveDays, 'إجازة بدون راتب (يوم)': r.unpaidDays,
     'أيام بلا بصمة انصراف': r.missingOut,
     'دقائق التأخير': r.lateMin, 'دقائق الخروج المبكر': r.earlyMin, 'دقائق معفاة باستئذان': r.exemptMin,
-    'ساعات مطلوبة': +r.reqH.toFixed(2),
-    'ساعات فعلية': +(Number.isFinite(r.recordedWorkH) ? r.recordedWorkH : r.workH).toFixed(2),
+    'ساعات مطلوبة': decimalHoursHHMM(r.reqH),
+    'ساعات فعلية': decimalHoursHHMM(Number.isFinite(r.recordedWorkH) ? r.recordedWorkH : r.workH),
     'خصم الساعات': +r.dedHours.toFixed(2), 'خصم الغياب': +r.dedAbsent.toFixed(2),
     'خصم إجازة بدون راتب': +r.dedUnpaid.toFixed(2),
     'إجمالي الخصم': +r.total.toFixed(2), 'المستحق': +r.net.toFixed(2),
-    'ساعات محتسبة بعد الاستئذانات': +r.workH.toFixed(2),
+    'ساعات محتسبة بعد الاستئذانات': decimalHoursHHMM(r.workH),
     'دقائق نقص أثناء الوردية': r.gapMin || 0
   }));
   const details = [];
@@ -187,15 +192,15 @@ export function payrollExport(cyc, rowsPay) {
     const p = permissionExportFields(d.permissions);
     details.push({
     'الموظف': r.u.name, 'الرقم الوظيفي': r.u.empId || '', 'التاريخ': d.dateStr, 'اليوم': AR_DAYS[d.dow] || '',
-    'الحالة': d.status, 'ساعات مطلوبة': +(d.need || 0).toFixed(2),
+    'الحالة': d.status, 'ساعات مطلوبة': decimalHoursHHMM(d.need || 0),
     'دخول': d.in ? hm(d.in) : '', 'خروج': d.out ? hm(d.out) : '',
     'دقائق تأخير': d.lm || 0, 'دقائق خروج مبكر': d.em || 0, 'دقائق معفاة': d.ex || 0,
     'خصم اليوم': +(d.ded || 0).toFixed(2),
     'معرف طلب الاستئذان': p.ids, 'نوع الاستئذان': p.types, 'سبب الاستئذان': p.reasons,
     'تفاصيل الاستئذان': p.details,
     'خروج محتسب': d.effectiveOut ? hm(d.effectiveOut) : '',
-    'ساعات فعلية': d.actualSecs > 0 ? +(d.actualSecs / 3600).toFixed(2) : '',
-    'ساعات محتسبة': d.effectiveSecs > 0 ? +(d.effectiveSecs / 3600).toFixed(2) : '',
+    'ساعات فعلية': d.actualSecs > 0 ? decimalHoursHHMM(d.actualSecs / 3600) : '',
+    'ساعات محتسبة': d.effectiveSecs > 0 ? decimalHoursHHMM(d.effectiveSecs / 3600) : '',
     'ملاحظة': d.note || '',
     'دقائق نقص أثناء الوردية': d.gm || 0,
     'فترات استئذان محتسبة': d.permissionIntervalsLabel || '',

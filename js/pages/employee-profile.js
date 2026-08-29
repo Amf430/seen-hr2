@@ -16,6 +16,7 @@ import { directReports, managerOf, managerChain } from '../lib/org.js';
 import { openDocsModal, docsList } from '../components/documents-modal.js';
 import { adjustmentsForAttendanceRecords, adjustedUnifiedAttendance } from '../lib/adjustments.js';
 import { attendanceMetrics } from '../lib/attendance-metrics.js';
+import { attendancePresentation } from '../lib/attendance-presentation.js';
 import { requestBelongsToEmployee } from '../lib/permission-link.js';
 import { adjustedPayrollAttendance } from '../lib/attendance-pipeline.js';
 import {
@@ -289,15 +290,18 @@ export async function render(view, token) {
     else dc.appendChild(tableWrap(`
       <table class="tight">
         <thead><tr><th class="num">التاريخ</th><th>اليوم</th><th>الوردية</th><th>الحالة</th><th class="num">دخول</th><th class="num">خروج</th><th class="num">الساعات</th><th>ملاحظة</th></tr></thead>
-        <tbody>${rows.map((r) => `<tr>
+        <tbody>${rows.map((r) => {
+          const p = attendancePresentation(r);
+          return `<tr>
           <td class="num">${esc(r.dateStr)}</td>
           <td>${AR_DAYS[r.dow]}</td>
           <td class="cell-sub">${esc(shiftText(r.shift))}</td>
           <td><span class="pill pill--dot ${esc(r.cls)}">${esc(r.status)}</span></td>
-          <td class="num text-green">${r.firstIn ? hm(r.firstIn) : '—'}</td>
-          <td class="num text-red">${r.lastOut ? hm(r.lastOut) : '—'}</td>
+          <td class="num text-green">${p.officialIn ? hm(p.officialIn) : '—'}</td>
+          <td class="num text-red">${p.officialOut ? hm(p.officialOut) : '—'}</td>
           <td class="num">${r.secs > 0 ? fmtDur(r.secs) : '—'}</td>
-          <td class="cell-sub">${esc(r.note || '')}</td></tr>`).join('')}</tbody>
+          <td class="cell-sub">${esc(r.note || '')}</td></tr>`;
+        }).join('')}</tbody>
       </table>`));
     host.appendChild(dc);
   }
