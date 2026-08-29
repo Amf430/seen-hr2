@@ -333,9 +333,11 @@ const featureDay = (record, permissions=[]) => buildDailyStatus(CYC, [EMP], perm
   const workWeek = Object.fromEntries(Object.entries(WEEK).map(([dow, shift]) => [dow,
     shift.type === 'off' ? shift : { ...shift, start:'09:00', end:'18:00' }]));
   settings({ shifts:workWeek });
-  const D='2026-06-01', actual=rec(D,'09:29','16:49');
+  const D='2026-06-01', actual={ employeeUid:'e1', date:D, sessions:[{
+    in:new Date(`${D}T09:29:00`), out:new Date(`${D}T16:49:35`)
+  }] };
   const late=intervalPerm(D,'تأخير عن الدوام','09:00','09:46');
-  const early=intervalPerm(D,'خروج مبكر','16:30','18:00');
+  const early=intervalPerm(D,'خروج مبكر','16:50','18:00');
   const times = (permissions) => {
     const p=attendancePresentation(featureDay(actual,permissions));
     return [p.officialIn,p.officialOut].map((d)=>d.toTimeString().slice(0,5));
@@ -344,9 +346,17 @@ const featureDay = (record, permissions=[]) => buildDailyStatus(CYC, [EMP], perm
   eq('Approved early only يبدّل الخروج وحده', ['09:29','18:00'], times([early]));
   eq('Approved both يعرض الدخول والخروج الرسميين', ['09:00','18:00'], times([late,early]));
   eq('No approved coverage يبقي البصمتين الفعليتين', ['09:29','16:49'], times([]));
-  eq('طبقة العرض لا تعدّل البصمات الفعلية', ['09:29','16:49'], [
-    actual.sessions[0].in.toTimeString().slice(0,5),
-    actual.sessions[0].out.toTimeString().slice(0,5)
+  const bothDay=featureDay(actual,[late,early]);
+  eq('فجوة ٢٥ ثانية تبقى في worked hours ولا تمنع الحد الرسمي', {
+    seconds:32375, duration:'08:59:35', officialIn:'09:00', officialOut:'18:00'
+  }, (() => { const p=attendancePresentation(bothDay); return {
+    seconds:bothDay.secs, duration:new Date(bothDay.secs*1000).toISOString().slice(11,19),
+    officialIn:p.officialIn.toTimeString().slice(0,5),
+    officialOut:p.officialOut.toTimeString().slice(0,5)
+  }; })());
+  eq('طبقة العرض لا تعدّل البصمات الفعلية', ['09:29:00','16:49:35'], [
+    actual.sessions[0].in.toTimeString().slice(0,8),
+    actual.sessions[0].out.toTimeString().slice(0,8)
   ]);
   settings();
 }

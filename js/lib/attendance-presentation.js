@@ -26,6 +26,12 @@ const explicitPeriods = (permissions) => [...new Set((permissions || [])
   .filter((r) => r?.startTime && r?.endTime)
   .map((r) => `${r.startTime}–${r.endTime}`))].join('، ');
 
+/* الجدول يعرض HH:MM، والمؤشرات نفسها تقرّب النقص إلى دقيقة. فجوة أقل من
+   نصف دقيقة لا ينبغي أن تبقي الحدّ الرسمي على بصمة تبدو للمستخدم مغطاة؛
+   هذا قرار عرض فقط ولا يغيّر ثانية واحدة في الساعات المحتسبة. */
+const roundsToZeroMinutes = (milliseconds) =>
+  Math.round(Math.max(0, Number(milliseconds) || 0) / 60000) === 0;
+
 /* الوقت الرسمي هو حدّ اتحاد البصمات مع الفترات التي اعتمدها
    المحرك فعلاً. لا ننشئ حداً مفقوداً: بلا بصمة دخول أو خروج نعرض
    الفراغ، حتى لو وجد طلب معتمد. */
@@ -44,6 +50,11 @@ export function attendancePresentation(input = {}) {
        المعروض فقط حين تصل الفترة المعتمدة إلى البصمة الفعلية؛ أما الفجوة
        غير المغطاة فتبقي وقت الدخول الفعلي ظاهراً. */
     const connected = intervals.filter((x) => x.start < actualIn && x.end >= actualIn);
+    const minuteConnected = kinds.includes(PERMISSION_KIND.LATE)
+      ? intervals.filter((x) => x.start < actualIn && x.end < actualIn &&
+        roundsToZeroMinutes(actualIn - x.end))
+      : [];
+    connected.push(...minuteConnected);
     if (connected.length)
       officialIn = new Date(Math.min(actualIn.getTime(), ...connected.map((x) => x.start.getTime())));
   }
@@ -51,6 +62,12 @@ export function attendancePresentation(input = {}) {
   /* الخروج الرسمي يلتزم effectiveOut الذي أقرّه المحرك؛ لا نحوله إلى نهاية
      فترة جزئية وبينها وبين البصمة فجوة غير مغطاة. */
   if (actualOut && effectiveOut && effectiveOut > actualOut) officialOut = effectiveOut;
+  else if (actualOut && kinds.includes(PERMISSION_KIND.EARLY)) {
+    const minuteConnected = intervals.filter((x) => x.end > actualOut &&
+      roundsToZeroMinutes(x.start - actualOut));
+    if (minuteConnected.length)
+      officialOut = new Date(Math.max(actualOut.getTime(), ...minuteConnected.map((x) => x.end.getTime())));
+  }
 
   const periods = permissionIntervalsLabel(intervals) || explicitPeriods(permissions);
   const type = kinds.map((k) => KIND_LABEL[k]).filter(Boolean).join(' · ');
