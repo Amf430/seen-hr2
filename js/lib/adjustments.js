@@ -27,7 +27,8 @@ import { tsToDate } from './format.js';
 import { employeeUidsOf } from './permission-link.js';
 import {
   applyAttendanceAdjustments, applyAllAttendanceAdjustments,
-  adjustedUnifiedAttendance, adjustedPayrollAttendance
+  adjustedUnifiedAttendance, adjustedPayrollAttendance,
+  missingPunchPenaltyState, MISSING_PUNCH_ADJUSTMENT
 } from './attendance-pipeline.js';
 
 /* المعرّف يحمل كل ما يميّز التصحيح — فإعادة تصحيح نفس الحقل تُنشئ قيداً
@@ -52,6 +53,42 @@ export async function addAdjustment({ rec, coll, sessionIdx, field, value, reaso
   await setDoc(doc(db, 'attendanceAdjustments', adjId(payload)), payload);
   await logAction('تصحيح سجل حضور',
     `${payload.employeeName} — ${payload.date} — ${field === 'in' ? 'دخول' : 'خروج'} — ${payload.reason}`);
+}
+
+/* خصم البصمة الناقصة سياسة مالية موثّقة، لا تصحيح وقت. لذلك لا يحمل value
+   ولا يمرّ على Timestamp.fromDate إطلاقاً، ويبقى raw attendance كما هو. */
+export async function addMissingPunchPenalty({
+  rec, coll, sessionIdx, field, action = 'apply', penaltyMinutes, reason
+}) {
+  const minutes = Number(penaltyMinutes);
+  if (!['in', 'out'].includes(field)
+      || !['attendance', 'zkAttendance'].includes(coll)
+      || !Number.isInteger(sessionIdx) || sessionIdx < 0 || sessionIdx >= 12
+      || !((action === 'apply' && [60, 120, 180].includes(minutes))
+        || (action === 'reverse' && minutes === 0)))
+    throw new Error('invalid-missing-punch-penalty');
+  const me = getMe();
+  const payload = {
+    adjustmentType: MISSING_PUNCH_ADJUSTMENT,
+    employeeUid: rec.employeeUid,
+    employeeName: rec.employeeName || '',
+    date: rec.date,
+    coll,
+    sessionIdx,
+    field,
+    action,
+    penaltyMinutes: minutes,
+    reason: reason.trim(),
+    byUid: me.id,
+    byName: me.name,
+    at: serverTimestamp()
+  };
+  // المعرّف التلقائي يحفظ كل حركة كسجل مستقل حتى لو تمّت حركتان في الملّي ثانية نفسها.
+  await setDoc(doc(collection(db, 'attendanceAdjustments')), payload);
+  const label = field === 'in' ? 'دخول' : 'خروج';
+  const effect = action === 'apply' ? `خصم ${minutes / 60} س` : 'عكس الخصم';
+  await logAction('تعديل خصم بصمة ناقصة',
+    `${payload.employeeName} — ${payload.date} — بصمة ${label} — ${effect} — ${payload.reason}`);
 }
 
 /* ═══ الجلب ═══ */
@@ -119,4 +156,7 @@ export function applyAll(recs, adjustments) {
   return applyAllAttendanceAdjustments(recs, adjustments);
 }
 
-export { tsToDate, adjustedUnifiedAttendance, adjustedPayrollAttendance };
+export {
+  tsToDate, adjustedUnifiedAttendance, adjustedPayrollAttendance,
+  missingPunchPenaltyState
+};

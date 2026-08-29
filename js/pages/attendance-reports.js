@@ -126,7 +126,8 @@ export async function render(view, token) {
         <thead><tr>
           <th>الموظف</th><th>الرقم الوظيفي</th><th>القسم</th><th>التاريخ</th><th>اليوم</th>
           <th>الوردية</th><th>الدخول</th><th>مصدر الدخول</th><th>الخروج</th><th>مصدر الخروج</th>
-          <th>ساعات العمل</th><th>الحالة</th><th>الاستئذان</th><th>الملاحظة</th>
+          <th>ساعات العمل</th><th>دقائق التأخير الخاضعة للخصم</th><th>خصم البصمة الناقصة</th>
+          <th>الحالة</th><th>الاستئذان</th><th>الملاحظة</th>
         </tr></thead>
         <tbody>${rows.map((r) => `<tr>
           <td><b>${esc(r.employee)}</b></td><td class="num">${esc(r.employeeId || '—')}</td>
@@ -137,6 +138,8 @@ export async function render(view, token) {
           <td class="num text-green">${r.officialIn ? hm(r.officialIn) : '—'}</td><td>${esc(r.inSource || '—')}</td>
           <td class="num text-red">${r.officialOut ? hm(r.officialOut) : '—'}</td><td>${esc(r.outSource || '—')}</td>
           <td class="num">${esc(r.workedHours)}</td>
+          <td class="num">${r.deductibleLateMinutes}</td>
+          <td class="num">${esc(r.missingPunchPenalty)}</td>
           <td><span class="pill pill--dot ${esc(r.statusClass)}">${esc(r.status)}</span></td>
           <td>${esc(r.permission || '—')}</td>
           <td class="cell-note"><div class="truncate" title="${esc(r.note)}">${esc(r.note || '—')}</div></td>

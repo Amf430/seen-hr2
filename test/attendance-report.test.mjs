@@ -22,10 +22,11 @@ const day = (over = {}) => {
     shift:{ type:'morning', start:'09:00', end:'18:00' },
     firstIn, lastOut, effectiveOut:over.effectiveOut || lastOut,
     secs:over.secs ?? 8.63 * 3600, status:over.status || 'حاضر', cls:over.cls || 'present',
+    lateMin:over.lateMin || 0,
     note:over.note || '', permissions:over.permissions || [],
     permissionIntervals:over.permissionIntervals || [],
-    rec:{ employeeUid:over.uid || 'e1', date, source,
-      sessions:[{ in:firstIn, out:lastOut }] }
+    rec:{ employeeUid:over.uid || 'e1', employeeName:over.name || 'سالم', date, source,
+      sessions:[{ in:firstIn, out:lastOut }], ...(over.rec || {}) }
   };
 };
 
@@ -93,6 +94,31 @@ eq('بناء التقرير لا يغيّر البصمات الفعلية', ['09
   approved.rec.sessions[0].in.toTimeString().slice(0,5),
   approved.rec.sessions[0].out.toTimeString().slice(0,5)
 ]);
+
+eq('دقائق التأخير الخاضعة للخصم تأتي من lateMin النهائي لا من الملاحظة', [15, 0, 45], [
+  attendanceReportRow(day({ lateMin:15, note:'تأخير خام 45 ومغطى 30' })).deductibleLateMinutes,
+  attendanceReportRow(day({ lateMin:0, note:'مغطى بالكامل' })).deductibleLateMinutes,
+  attendanceReportRow(day({ lateMin:45, note:'بلا استئذان' })).deductibleLateMinutes
+]);
+
+const missingOut = day({
+  status:'نسيان بصمة الخروج', cls:'missing', lastOut:null,
+  rec:{ sessions:[{ in:at('2026-08-24','09:00'), out:null }],
+    __penaltyAdjustments:[{
+      id:'p1', adjustmentType:'missingPunchPenalty', employeeUid:'e1', date:'2026-08-24',
+      coll:'zkAttendance', sessionIdx:0, field:'out', action:'apply', penaltyMinutes:120,
+      at:{ toMillis:()=>1 }
+    }] }
+});
+const missingOutRow = attendanceReportRow(missingOut);
+eq('التقرير يفصل خصم البصمة الناقصة ويختصر الملاحظة', {
+  penalty:'02:00', minutes:120, note:'بصمة خروج مفقودة — تعديل إداري معتمد', out:null
+}, {
+  penalty:missingOutRow.missingPunchPenalty,
+  minutes:missingOutRow.missingPunchPenaltyMinutes,
+  note:missingOutRow.note,
+  out:missingOut.rec.sessions[0].out
+});
 
 console.log(`\n${pass} ناجح، ${fail} فاشل`);
 if (fail) process.exit(1);

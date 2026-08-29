@@ -46,6 +46,7 @@ import {
 import { clearApprovedRosterEntries, setApprovedRosterEntries } from '../../js/lib/weekly-roster.js';
 import { rosterTimeRangeHtml, rosterTimeRangeText } from '../../js/pages/weekly-roster.js';
 import * as attendanceReportsPage from '../../js/pages/attendance-reports.js';
+import { openMissingPunchPenalty } from '../../js/components/adjust-modal.js';
 
 const out = document.getElementById('out');
 let pass = 0, fail = 0;
@@ -622,6 +623,8 @@ group('٣-ج. جدول المناوبات الأسبوعي المعتمد');
     [exportRow['الوردية'],exportRow['ساعات العمل المحتسبة']]);
   eq('صفحة تقرير الحضور تقرأ نفس شفت Roster المركزي', 'مسائي 14:00–23:00',
     attendanceReportRows([eveningDay])[0].shift);
+  eq('دقائق الخصم في التقرير تُقاس على شفت Roster نفسه', 30,
+    attendanceReportRows([rosterViolation])[0].deductibleLateMinutes);
 
   clearApprovedRosterEntries();
   const fallback=buildDailyStatus(CYC,[EMP],[],fullMonth()).find((r)=>r.dateStr===D);
@@ -673,14 +676,30 @@ group('٣-د. تقرير Device / Mobile / Merged');
   eq('الوقت المتطابق لا يكرر الصف ويثبت المصدرين',
     ['جهاز البصمة + الجوال','جهاز البصمة + الجوال'], [tied.inSource,tied.outSource]);
 
+  const partlyCovered=buildDailyStatus(CYC,[EMP],[
+    intervalPerm(D,'تأخير عن الدوام','08:00','08:30')
+  ],fullMonth({[D]:rec(D,'08:45','16:00')}),{compensate:true}).find((r)=>r.dateStr===D);
+  const fullyCovered=buildDailyStatus(CYC,[EMP],[
+    intervalPerm(D,'تأخير عن الدوام','08:00','08:45')
+  ],fullMonth({[D]:rec(D,'08:45','16:00')}),{compensate:true}).find((r)=>r.dateStr===D);
+  const uncovered=buildDailyStatus(CYC,[EMP],[],
+    fullMonth({[D]:rec(D,'08:45','16:00')}),{compensate:true}).find((r)=>r.dateStr===D);
+  eq('التقرير يعرض Late 45 ناقص Permission 30 كـ15 دقيقة قابلة للخصم', 15,
+    attendanceReportRows([partlyCovered])[0].deductibleLateMinutes);
+  eq('التغطية الكاملة تعرض صفر دقيقة قابلة للخصم', 0,
+    attendanceReportRows([fullyCovered])[0].deductibleLateMinutes);
+  eq('بلا استئذان تبقى دقائق التأخير كاملة', 45,
+    attendanceReportRows([uncovered])[0].deductibleLateMinutes);
+
   const saved=[];
   window.XLSX={utils:{book_new:()=>({sheets:{}}),json_to_sheet:(x)=>x,
     book_append_sheet:(b,s,n)=>{b.sheets[n]=s;}},writeFile:(b,f)=>saved.push({b,f})};
   attendanceReportExport([mergedRow],{fromDate:D,toDate:D});
   const excelRow=saved[0].b.sheets['الحضور والانصراف'][0];
-  eq('Excel التقرير يحمل الأعمدة الأربعة عشر بالترتيب', [
+  eq('Excel التقرير يحمل الأعمدة الستة عشر بالترتيب', [
     'الموظف','الرقم الوظيفي','القسم','التاريخ','اليوم','الوردية','الدخول','مصدر الدخول',
-    'الخروج','مصدر الخروج','ساعات العمل','الحالة','الاستئذان','الملاحظة'
+    'الخروج','مصدر الخروج','ساعات العمل','دقائق التأخير الخاضعة للخصم',
+    'خصم البصمة الناقصة','الحالة','الاستئذان','الملاحظة'
   ],Object.keys(excelRow));
   eq('Excel يعرض Merged وHH:MM دون ساعات عشرية',
     {in:'08:55',inSource:'جهاز البصمة',out:'18:10',outSource:'الجوال',hours:'09:15'}, {
@@ -731,6 +750,96 @@ group('٣-ب. مصدر الحضور المستخدم في المسير');
        [sig(official), sig(official), sig(official)],
        [sig(official), sig(dashboard), sig(profile)]);
   }
+  settings();
+}
+
+/* ══════════════════ ٣-هـ. خصم البصمة الناقصة ══════════════════ */
+group('٣-هـ. خصم إداري موثّق للبصمة الناقصة');
+{
+  settings({ payroll:{ hoursPerDay:8, daysPerMonth:30, graceMinutes:0, attendanceSource:'physical' } });
+  const D='2026-06-01';
+  const penaltyAdj=(field,minutes,id='p1',ms=1,action=minutes?'apply':'reverse')=>({
+    id, adjustmentType:'missingPunchPenalty', employeeUid:'e1', employeeName:'سالم', date:D,
+    coll:'zkAttendance', sessionIdx:0, field, action, penaltyMinutes:minutes,
+    reason:'اعتماد الموارد البشرية', at:{toMillis:()=>ms}
+  });
+  const config={hoursPerDay:8,daysPerMonth:30,graceMinutes:0,attendanceSource:'physical'};
+
+  const outOnly={employeeUid:'e1',employeeName:'سالم',date:D,missedCheckIn:true,
+    sessions:[{in:null,out:at(D,'16:00')}]};
+  const missingInRaw=fullMonth({[D]:outOnly});
+  const missingInPrepared=adjustedPayrollAttendance([EMP],config,missingInRaw,[],[
+    penaltyAdj('in',60)
+  ]);
+  const missingInPay=computePayroll(CYC,[EMP],[],missingInPrepared,{config})[0];
+  eq('Missing in + 1h يطبق الخصم المختار بلا استنتاج دخول', {
+    penalty:60,dedHours:37.5,absent:0,rawIn:null
+  }, {
+    penalty:missingInPay.missingPunchPenaltyMin,dedHours:+missingInPay.dedHours.toFixed(2),
+    absent:missingInPay.absentDays,rawIn:outOnly.sessions[0].in
+  });
+
+  const inOnly=rec(D,'08:00',null); inOnly.employeeName='سالم';
+  openMissingPunchPenalty(inOnly,0,'zkAttendance','out');
+  eq('واجهة الخصم تعرض الخيارات البسيطة 1/2/3 ساعات', ['60','120','180'],
+    [...document.querySelector('#mpHours').options].map((o)=>o.value));
+  document.querySelector('#mpCancel').click();
+  const missingOutRaw=fullMonth({[D]:inOnly});
+  const prepared2=adjustedPayrollAttendance([EMP],config,missingOutRaw,[],[
+    penaltyAdj('out',120)
+  ]);
+  const pay2=computePayroll(CYC,[EMP],[],prepared2,{config})[0];
+  eq('Missing out + 2h يصل Payroll مرة واحدة', {
+    penalty:120,dedHours:75,rawOut:null
+  }, {
+    penalty:pay2.missingPunchPenaltyMin,dedHours:+pay2.dedHours.toFixed(2),
+    rawOut:inOnly.sessions[0].out
+  });
+
+  const prepared3=adjustedPayrollAttendance([EMP],config,missingOutRaw,[],[
+    penaltyAdj('out',180)
+  ]);
+  const pay3=computePayroll(CYC,[EMP],[],prepared3,{config})[0];
+  eq('Missing out + 3h يخصم ثلاث ساعات', [180,112.5],
+    [pay3.missingPunchPenaltyMin,+pay3.dedHours.toFixed(2)]);
+
+  const baseline=computePayroll(CYC,[EMP],[],missingOutRaw,{config})[0];
+  const noAdjustment=computePayroll(CYC,[EMP],[],
+    adjustedPayrollAttendance([EMP],config,missingOutRaw,[],[]),{config})[0];
+  eq('بلا Adjustment يبقى السلوك السابق دون تغيير',
+    [baseline.total,baseline.workH,baseline.missingOut],
+    [noAdjustment.total,noAdjustment.workH,noAdjustment.missingOut]);
+
+  const latestOnly=adjustedPayrollAttendance([EMP],config,missingOutRaw,[],[
+    penaltyAdj('out',60,'older',1),penaltyAdj('out',180,'newer',2)
+  ]);
+  eq('أكثر من Apply لا يُجمع وآخر حالة فقط تدخل Payroll', 180,
+    computePayroll(CYC,[EMP],[],latestOnly,{config})[0].missingPunchPenaltyMin);
+  const reversed=adjustedPayrollAttendance([EMP],config,missingOutRaw,[],[
+    penaltyAdj('out',120,'apply',1),penaltyAdj('out',0,'reverse',2,'reverse')
+  ]);
+  eq('Reverse append-only يلغي الأثر المالي', 0,
+    computePayroll(CYC,[EMP],[],reversed,{config})[0].missingPunchPenaltyMin);
+
+  const penaltyDay=buildDailyStatus(CYC,[EMP],[],prepared2).find((r)=>r.dateStr===D);
+  const penaltyReport=attendanceReportRows([penaltyDay])[0];
+  eq('التقرير يفصل الخصم عن الملاحظة ويبقي raw ناقصاً', {
+    penalty:'02:00',note:'بصمة خروج مفقودة — تعديل إداري معتمد',rawOut:null
+  }, {
+    penalty:penaltyReport.missingPunchPenalty,note:penaltyReport.note,
+    rawOut:penaltyDay.rec.sessions[0].out
+  });
+  const penaltySaved=[];
+  window.XLSX={utils:{book_new:()=>({sheets:{}}),json_to_sheet:(x)=>x,
+    book_append_sheet:(b,s,n)=>{b.sheets[n]=s;}},writeFile:(b)=>penaltySaved.push(b)};
+  attendanceReportExport([penaltyReport],{fromDate:D,toDate:D});
+  const penaltyExcel=penaltySaved[0].sheets['الحضور والانصراف'][0];
+  eq('Excel يفصل التأخير القابل للخصم وخصم البصمة الناقصة', {
+    late:0,penalty:'02:00',note:'بصمة خروج مفقودة — تعديل إداري معتمد'
+  }, {
+    late:penaltyExcel['دقائق التأخير الخاضعة للخصم'],
+    penalty:penaltyExcel['خصم البصمة الناقصة'],note:penaltyExcel['الملاحظة']
+  });
   settings();
 }
 

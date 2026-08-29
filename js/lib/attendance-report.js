@@ -10,6 +10,7 @@ import { AR_DAYS } from './dates.js';
 import { decimalHoursHHMM } from './format.js';
 import { attendancePresentation } from './attendance-presentation.js';
 import { attendanceBoundarySources, attendanceSourceLabel } from './attendance-sources.js';
+import { missingPunchPenaltyState } from './attendance-pipeline.js';
 
 export const ATTENDANCE_REPORT_SOURCE = Object.freeze({
   DEVICE: 'device', MOBILE: 'mobile', MERGED: 'merged'
@@ -38,6 +39,9 @@ const shiftLabel = (shift) => {
 export function attendanceReportRow(day) {
   const presentation = attendancePresentation(day);
   const sources = attendanceBoundarySources(day?.rec);
+  const penalty = missingPunchPenaltyState(day?.rec);
+  const penaltyLabel = penalty.byField.in > 0 ? 'بصمة دخول مفقودة'
+    : penalty.byField.out > 0 ? 'بصمة خروج مفقودة' : '';
   const shiftName = day?.shift?.planName ||
     (day?.shift?.type === 'evening' ? 'مسائي' : day?.shift ? 'صباحي' : '');
   return {
@@ -57,10 +61,13 @@ export function attendanceReportRow(day) {
     officialOut: presentation.officialOut,
     outSource: attendanceSourceLabel(sources.outSource),
     workedHours: decimalHoursHHMM(Math.max(0, Number(day?.secs) || 0) / 3600),
+    deductibleLateMinutes: Math.max(0, Math.round(Number(day?.lateMin) || 0)),
+    missingPunchPenaltyMinutes: penalty.minutes,
+    missingPunchPenalty: penalty.minutes ? decimalHoursHHMM(penalty.minutes / 60) : '00:00',
     status: day?.status || '',
     statusClass: day?.cls || '',
     permission: presentation.hasApproved ? (presentation.permissionType || 'معتمد') : '',
-    note: presentation.note || '',
+    note: penaltyLabel ? `${penaltyLabel} — تعديل إداري معتمد` : (presentation.note || ''),
     presentation,
     dayRow: day
   };

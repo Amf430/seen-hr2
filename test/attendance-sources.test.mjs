@@ -4,7 +4,8 @@ import {
   loadRequiredAttendanceSources, attendanceBoundarySources, attendanceSourceLabel
 } from '../js/lib/attendance-sources.js';
 import {
-  applyAllAttendanceAdjustments, adjustedPayrollAttendance
+  applyAllAttendanceAdjustments, adjustedPayrollAttendance, missingPunchPenaltyState,
+  validMissingPunchPenalty
 } from '../js/lib/attendance-pipeline.js';
 import { payrollRowsForView, payrollRowForEmployee } from '../js/lib/payroll-view.js';
 import { readFileSync } from 'node:fs';
@@ -246,6 +247,48 @@ eq('raw + adjustment يبقى يوماً واحداً ويطبق مرة واحد
 eq('Pipeline المسير يطبق التصحيح ثم يختار physical', '08:00',
    adjustedPayrollAttendance(users, { attendanceSource: 'physical' }, [rawDay], [],
      [adj('in', at('08:00'))])[0].sessions[0].in.toTimeString().slice(0, 5));
+
+console.log('\n\x1b[1m═══ خصم البصمة الناقصة append-only ═══\x1b[0m');
+const penalty = (field, minutes, over = {}) => ({
+  id: over.id || `p-${field}-${minutes}`,
+  adjustmentType: 'missingPunchPenalty', employeeUid: 'newUid', employeeName: 'سالم',
+  date: '2026-08-18', coll: 'zkAttendance', sessionIdx: 0, field,
+  action: minutes ? 'apply' : 'reverse', penaltyMinutes: minutes,
+  at: { toMillis: () => over.ms ?? 1 }, ...over
+});
+const missingOutRaw = rec('newUid', 'device', [{ in: at('08:00'), out: null }]);
+overlaid = applyAllAttendanceAdjustments([missingOutRaw], [penalty('out', 120)], 'zkAttendance');
+eq('خصم ساعتين يضاف كقيد بلا إنشاء بصمة خروج', [120, null, 1], [
+  missingPunchPenaltyState(overlaid[0]).minutes,
+  overlaid[0].sessions[0].out,
+  overlaid[0].__penaltyAdjustments.length
+]);
+eq('السجل الخام نفسه لم يتغير', null, missingOutRaw.sessions[0].out);
+eq('قيد خصم بلا raw لا ينشئ سجل حضور', 0,
+  applyAllAttendanceAdjustments([], [penalty('out', 60)], 'zkAttendance').length);
+eq('العقد النقي يرفض ساعات غير معتمدة', [true, true, true, false],
+  [60, 120, 180, 90].map((m) => validMissingPunchPenalty(penalty('out', m))));
+
+const repeated = [
+  penalty('out', 120, { id:'b', ms:2 }),
+  penalty('out', 180, { id:'a', ms:2 }),
+  penalty('out', 60, { id:'z', ms:1 })
+];
+const stateForward = missingPunchPenaltyState(
+  applyAllAttendanceAdjustments([missingOutRaw], repeated, 'zkAttendance')[0]);
+const stateReverseInput = missingPunchPenaltyState(
+  applyAllAttendanceAdjustments([missingOutRaw], [...repeated].reverse(), 'zkAttendance')[0]);
+eq('آخر Apply وحده يفوز بترتيب at ثم id مهما كان ترتيب Firestore', [120, 120],
+  [stateForward.minutes, stateReverseInput.minutes]);
+
+const reversedPenalty = applyAllAttendanceAdjustments([missingOutRaw], [
+  penalty('out', 120, { id:'apply', ms:1 }),
+  penalty('out', 0, { id:'reverse', ms:2, action:'reverse' })
+], 'zkAttendance')[0];
+eq('Reverse لاحق يصفر الأثر ويبقي القيدين في التاريخ', [0, 2], [
+  missingPunchPenaltyState(reversedPenalty).minutes,
+  missingPunchPenaltyState(reversedPenalty).history.length
+]);
 
 console.log('\n\x1b[1m═══ القراءة المطلوبة والـSnapshot ═══\x1b[0m');
 const emptyRead = await loadRequiredAttendanceSources({ physical: async () => [] });

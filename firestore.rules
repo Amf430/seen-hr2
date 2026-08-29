@@ -902,23 +902,40 @@ service cloud.firestore {
           && (adjustmentSourceSameDept('attendance')
               || adjustmentSourceSameDept('zkAttendance'));
       }
+      function adjustmentAuditOk() {
+        return d().byUid == request.auth.uid
+          && d().byName == me().name
+          && d().at == request.time
+          && d().coll in ['attendance','zkAttendance']
+          && d().field in ['in','out']
+          && d().sessionIdx is int && d().sessionIdx >= 0 && d().sessionIdx < 12
+          && isYmd(d().date)
+          /* السبب إلزامي — تصحيح أو خصم بلا سبب لا يختلف عن التزوير */
+          && d().reason is string && d().reason.size() >= 3 && d().reason.size() <= 300;
+      }
+      function timeCorrectionOk() {
+        /* غياب adjustmentType هو العقد التاريخي؛ لا Migration ولا تغيير معنى. */
+        return !('adjustmentType' in d())
+          && d().keys().hasOnly(['employeeUid','employeeName','date','coll','sessionIdx',
+                                 'field','value','reason','byUid','byName','at'])
+          && d().value is timestamp;
+      }
+      function missingPunchPenaltyOk() {
+        return d().adjustmentType == 'missingPunchPenalty'
+          && d().keys().hasOnly(['adjustmentType','employeeUid','employeeName','date','coll',
+                                 'sessionIdx','field','action','penaltyMinutes','reason',
+                                 'byUid','byName','at'])
+          && d().penaltyMinutes is int
+          && ((d().action == 'apply' && d().penaltyMinutes in [60,120,180])
+              || (d().action == 'reverse' && d().penaltyMinutes == 0));
+      }
       allow read: if isAdmin()
         || (isActive() && resource != null && isMine(p().employeeUid))
         || adjustmentCurrentUserSameDept()
         || adjustmentHistoricalSameDept();
       allow create: if isAdmin()
-        && d().byUid == request.auth.uid
-        && d().byName == me().name
-        && d().at == request.time
-        && d().keys().hasOnly(['employeeUid','employeeName','date','coll','sessionIdx',
-                               'field','value','reason','byUid','byName','at'])
-        && d().coll in ['attendance','zkAttendance']
-        && d().field in ['in','out']
-        && d().sessionIdx is int && d().sessionIdx >= 0 && d().sessionIdx < 12
-        && isYmd(d().date)
-        /* السبب إلزامي — تصحيح بلا سبب لا يختلف عن التزوير */
-        && d().reason is string && d().reason.size() >= 3 && d().reason.size() <= 300
-        && d().value is timestamp;
+        && adjustmentAuditOk()
+        && (timeCorrectionOk() || missingPunchPenaltyOk());
       allow update, delete: if false;
     }
 
