@@ -22,6 +22,33 @@ const validIntervals = (rows) => (Array.isArray(rows) ? rows : [])
   .map((x) => ({ start: validDate(x?.start), end: validDate(x?.end) }))
   .filter((x) => x.start && x.end && x.end > x.start);
 
+const HM_RE = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
+const hasNumber = (v) => v !== '' && v != null && Number.isFinite(Number(v));
+const roundedMinutes = (v) => Math.max(0, Math.round(Number(v) || 0));
+const secondsMinutes = (v) => roundedMinutes((Number(v) || 0) / 60);
+
+/* نثبت أن Early نفسه — لا مجرد فترة Mid مجاورة — يصل إلى نهاية الوردية.
+   نطابق عقد الطلب مع الفترة التي طبّعها المحرك بالفعل، لذلك الطلب غير
+   القابل للإسناد للوردية لا يستطيع تغيير العرض. */
+const earlyReachesShiftEnd = (permissions, intervals, shiftStart, shiftEnd) => {
+  if (!shiftStart || !shiftEnd || shiftEnd <= shiftStart) return false;
+  const terminal = intervals.filter((x) => x.end.getTime() === shiftEnd.getTime());
+  if (!terminal.length) return false;
+  const shiftEndHm = hm(shiftEnd);
+  return permissions.some((permission) => {
+    if (permissionKindOf(permission) !== PERMISSION_KIND.EARLY) return false;
+    const startHm = permission?.startTime || permission?.time;
+    const endHm = permission?.endTime || shiftEndHm; /* Legacy Early → shiftEnd */
+    if (!HM_RE.test(String(startHm || '')) || endHm !== shiftEndHm) return false;
+    const [hour, minute] = startHm.split(':').map(Number);
+    const start = new Date(shiftEnd);
+    start.setHours(hour, minute, 0, 0);
+    if (start >= shiftEnd) start.setDate(start.getDate() - 1);
+    if (start < shiftStart || start >= shiftEnd) return false;
+    return terminal.some((x) => x.start <= start);
+  });
+};
+
 const explicitPeriods = (permissions) => [...new Set((permissions || [])
   .filter((r) => r?.startTime && r?.endTime)
   .map((r) => `${r.startTime}–${r.endTime}`))].join('، ');
@@ -42,6 +69,8 @@ export function attendancePresentation(input = {}) {
   const permissions = Array.isArray(input.permissions)
     ? input.permissions : (Array.isArray(input.approved) ? input.approved : []);
   const kinds = [...new Set(permissions.map(permissionKindOf).filter(Boolean))];
+  const shiftStart = validDate(input.shiftStart);
+  const shiftEnd = validDate(input.shiftEnd);
 
   let officialIn = actualIn;
   let officialOut = actualOut;
@@ -59,9 +88,11 @@ export function attendancePresentation(input = {}) {
       officialIn = new Date(Math.min(actualIn.getTime(), ...connected.map((x) => x.start.getTime())));
   }
   const effectiveOut = validDate(input.effectiveOut);
-  /* الخروج الرسمي يلتزم effectiveOut الذي أقرّه المحرك؛ لا نحوله إلى نهاية
-     فترة جزئية وبينها وبين البصمة فجوة غير مغطاة. */
+  /* effectiveOut يبقى مرجع الساعات. العرض وحده يصل إلى shiftEnd عندما يثبت
+     أن Early Approved نفسه يغطي النهاية؛ الفجوة قبله تبقى رقماً مستقلاً. */
   if (actualOut && effectiveOut && effectiveOut > actualOut) officialOut = effectiveOut;
+  if (actualOut && shiftEnd > actualOut &&
+      earlyReachesShiftEnd(permissions, intervals, shiftStart, shiftEnd)) officialOut = shiftEnd;
   else if (actualOut && kinds.includes(PERMISSION_KIND.EARLY)) {
     const minuteConnected = intervals.filter((x) => x.end > actualOut &&
       roundsToZeroMinutes(x.start - actualOut));
@@ -80,14 +111,17 @@ export function attendancePresentation(input = {}) {
 
   const permissionNote = permissions.length
     ? `استئذان معتمد${periods ? ` ${periods}` : ''}` : '';
-  const hasMinuteFields = Number.isFinite(Number(input.punctualityLateMin)) ||
-    Number.isFinite(Number(input.punctualityEarlyMin));
-  const uncoveredMin = hasMinuteFields
-    ? Math.max(0, Math.round(Number(input.punctualityLateMin) || 0)) +
-      Math.max(0, Math.round(Number(input.punctualityEarlyMin) || 0))
-    : Math.max(0, Math.round(((Number(input.lateUncoveredSecs) || 0) +
-      (Number(input.earlyUncoveredSecs) || 0) +
-      (Number(input.midUncoveredSecs) || 0)) / 60));
+  const deductibleLateMinutes = hasNumber(input.lateMin) ? roundedMinutes(input.lateMin)
+    : hasNumber(input.punctualityLateMin) ? roundedMinutes(input.punctualityLateMin)
+    : secondsMinutes(input.lateUncoveredSecs);
+  const uncoveredEarlyMinutes = hasNumber(input.uncoveredEarlyMinutes)
+    ? roundedMinutes(input.uncoveredEarlyMinutes)
+    : hasNumber(input.earlyUncoveredSecs) ? secondsMinutes(input.earlyUncoveredSecs)
+    : roundedMinutes(input.punctualityEarlyMin);
+  const uncoveredMidMinutes = hasNumber(input.uncoveredMidMinutes)
+    ? roundedMinutes(input.uncoveredMidMinutes) : secondsMinutes(input.midUncoveredSecs);
+  /* يبقى للتوافق مع أي مستهلك قديم، لكن الواجهات لا تعرض هذا الجمع بعد الآن. */
+  const uncoveredMin = deductibleLateMinutes + uncoveredEarlyMinutes + uncoveredMidMinutes;
   const baseNote = String(input.note || '')
     .replace(/\s*·\s*يمكن تقديم استئذان عنه/g, '')
     .replace(/\s*·\s*بدون عذر/g, '');
@@ -101,6 +135,9 @@ export function attendancePresentation(input = {}) {
     hasApproved: permissions.length > 0,
     permissionType: type,
     permissionNote,
+    deductibleLateMinutes,
+    uncoveredEarlyMinutes,
+    uncoveredMidMinutes,
     uncoveredMin,
     note: permissions.length
       ? [...evidence, permissionNote].filter(Boolean).join(' — ')

@@ -318,12 +318,16 @@ export function buildDailyStatus(cyc, users, requests, recs, opts = {}) {
       if (shift.src === 'exception' && shift.exLabel) note = (note ? note + ' · ' : '') + shift.exLabel;
       else if (shift.src === 'dept')                  note = (note ? note + ' · ' : '') + 'وردية القسم';
       rows.push({ u, dateStr, dow, shift, status, cls, note, firstIn, lastOut,
+                  shiftStart: win ? win.start : null,
+                  shiftEnd: win ? win.end : null,
                   effectiveOut: permissionEffect.effectiveOut,
                   actualSecs: lastOut ? permissionEffect.actualSecs : secs,
                   secs,
                   creditedSecs: permissionEffect.creditedSecs,
                   permissionIntervals: permissionEffect.coveredIntervals,
                   permissionIntervalsLabel: permissionIntervalsLabel(permissionEffect.coveredIntervals),
+                  earlyUncoveredSecs: permissionEffect.earlyUncoveredSecs,
+                  midUncoveredSecs: permissionEffect.midUncoveredSecs,
                   midGapMin: Math.round(permissionEffect.midUncoveredSecs / 60),
                   permissionFallback: permissionEffect.midFallback,
                   requiredSecs: win ? Math.max(0, (win.end - win.start) / 1000) : 0,

@@ -20,9 +20,13 @@ const day = (over = {}) => {
       department:over.department || 'المبيعات' },
     dateStr:date, dow:new Date(`${date}T00:00:00`).getDay(),
     shift:{ type:'morning', start:'09:00', end:'18:00' },
+    shiftStart:over.shiftStart || at(date, '09:00'),
+    shiftEnd:over.shiftEnd || at(date, '18:00'),
     firstIn, lastOut, effectiveOut:over.effectiveOut || lastOut,
     secs:over.secs ?? 8.63 * 3600, status:over.status || 'حاضر', cls:over.cls || 'present',
     lateMin:over.lateMin || 0,
+    earlyUncoveredSecs:over.earlyUncoveredSecs || 0,
+    midUncoveredSecs:over.midUncoveredSecs || 0,
     note:over.note || '', permissions:over.permissions || [],
     permissionIntervals:over.permissionIntervals || [],
     rec:{ employeeUid:over.uid || 'e1', employeeName:over.name || 'سالم', date, source,
@@ -94,6 +98,34 @@ eq('بناء التقرير لا يغيّر البصمات الفعلية', ['09
   approved.rec.sessions[0].in.toTimeString().slice(0,5),
   approved.rec.sessions[0].out.toTimeString().slice(0,5)
 ]);
+
+const separatedEarly = day({
+  firstIn:at('2026-08-24','09:22'), lastOut:at('2026-08-24','15:55'),
+  effectiveOut:at('2026-08-24','15:55'), lateMin:22, earlyUncoveredSecs:5 * 60,
+  permissions:[{ type:'permission', status:'approved', category:'خروج مبكر',
+    permissionKind:'early', startTime:'16:00', endTime:'18:00' }],
+  permissionIntervals:[{ start:at('2026-08-24','16:00'), end:at('2026-08-24','18:00') }]
+});
+const separatedRow = attendanceReportRow(separatedEarly);
+eq('Early الواصل لنهاية الوردية يرفع العرض ويفصل نقص الخروج عن التأخير', {
+  officialOut:'18:00', actualOut:'15:55', late:22, early:5,
+  note:'خروج فعلي 15:55 — استئذان معتمد 16:00–18:00'
+}, {
+  officialOut:separatedRow.officialOut.toTimeString().slice(0,5),
+  actualOut:separatedEarly.rec.sessions[0].out.toTimeString().slice(0,5),
+  late:separatedRow.deductibleLateMinutes, early:separatedRow.uncoveredEarlyMinutes,
+  note:separatedRow.note
+});
+
+const notToShiftEnd = attendanceReportRow(day({
+  firstIn:at('2026-08-24','09:00'), lastOut:at('2026-08-24','15:55'),
+  effectiveOut:at('2026-08-24','15:55'), earlyUncoveredSecs:65 * 60,
+  permissions:[{ type:'permission', status:'approved', category:'خروج مبكر',
+    permissionKind:'early', startTime:'16:00', endTime:'17:00' }],
+  permissionIntervals:[{ start:at('2026-08-24','16:00'), end:at('2026-08-24','17:00') }]
+}));
+eq('Early الذي لا يصل shiftEnd لا يدّعي خروجاً رسمياً 18:00', '15:55',
+  notToShiftEnd.officialOut.toTimeString().slice(0,5));
 
 eq('دقائق التأخير الخاضعة للخصم تأتي من lateMin النهائي لا من الملاحظة', [15, 0, 45], [
   attendanceReportRow(day({ lateMin:15, note:'تأخير خام 45 ومغطى 30' })).deductibleLateMinutes,
