@@ -248,7 +248,9 @@ export async function render(view, token, opt) {
               : { minutes: 0 };
             const actions = [
               p.hasApproved ? `<span class="pill pill--dot present">استئذان معتمد</span>
-                ${p.uncoveredMin ? `<span class="pill pill--dot missing">${p.uncoveredMin} د غير مغطاة</span>` : ''}
+                ${p.deductibleLateMinutes ? `<span class="pill pill--dot missing">${p.deductibleLateMinutes} د تأخير خاضعة للخصم</span>` : ''}
+                ${p.uncoveredEarlyMinutes ? `<span class="pill pill--dot missing">${p.uncoveredEarlyMinutes} د خروج غير مغطاة</span>` : ''}
+                ${p.uncoveredMidMinutes ? `<span class="pill pill--dot missing">${p.uncoveredMidMinutes} د أثناء الدوام غير مغطاة</span>` : ''}
                 <button class="btn ghost sm" type="button" data-permission="${i}" aria-label="تفاصيل الاستئذان">التفاصيل</button>` : '',
               missingField ? `${penalty.minutes
                 ? `<span class="pill pill--dot missing">خصم ${decimalHoursHHMM(penalty.minutes / 60)}</span>` : ''}

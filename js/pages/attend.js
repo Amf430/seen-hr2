@@ -33,7 +33,8 @@ export function dayWork(rec, deptName, emp, requests) {
     baseSecs: rawSecs, shiftStart: w ? w.start : null, shiftEnd: w ? w.end : null,
     lateGraceMinutes: 0
   });
-  return { secs: lastOut ? effect.effectiveSecs : rawSecs, effect };
+  return { secs: lastOut ? effect.effectiveSecs : rawSecs, effect,
+    shiftStart: w ? w.start : null, shiftEnd: w ? w.end : null };
 }
 
 export async function render(view, token) {
@@ -89,6 +90,8 @@ export async function render(view, token) {
         const d = new Date(r.date + 'T00:00:00');
         const p = attendancePresentation({
           ...(work.effect || {}),
+          shiftStart: work.shiftStart,
+          shiftEnd: work.shiftEnd,
           firstIn: ss[0]?.in,
           lastOut: last?.out
         });
@@ -103,7 +106,9 @@ export async function render(view, token) {
           <td class="cell-note"><div class="truncate" title="${esc(p.note)}">${esc(p.note)}</div></td>
           <td>${p.hasApproved ? `<div class="actions-cell" style="flex-wrap:wrap">
             <span class="pill pill--dot present">استئذان معتمد</span>
-            ${p.uncoveredMin ? `<span class="pill pill--dot missing">${p.uncoveredMin} د غير مغطاة</span>` : ''}
+            ${p.deductibleLateMinutes ? `<span class="pill pill--dot missing">${p.deductibleLateMinutes} د تأخير خاضعة للخصم</span>` : ''}
+            ${p.uncoveredEarlyMinutes ? `<span class="pill pill--dot missing">${p.uncoveredEarlyMinutes} د خروج غير مغطاة</span>` : ''}
+            ${p.uncoveredMidMinutes ? `<span class="pill pill--dot missing">${p.uncoveredMidMinutes} د أثناء الدوام غير مغطاة</span>` : ''}
             <button class="btn ghost sm" type="button" data-permission="${i}" aria-label="تفاصيل الاستئذان">التفاصيل</button>
           </div>` : '<span class="muted">—</span>'}</td>
         </tr>`;
@@ -115,6 +120,8 @@ export async function render(view, token) {
       const ss = sessionsOf(r), last = ss[ss.length - 1];
       const p = attendancePresentation({
         ...(work.effect || {}),
+        shiftStart: work.shiftStart,
+        shiftEnd: work.shiftEnd,
         firstIn: ss[0]?.in,
         lastOut: last?.out
       });

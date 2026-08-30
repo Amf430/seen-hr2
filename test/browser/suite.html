@@ -323,11 +323,13 @@ const featureDay = (record, permissions=[]) => buildDailyStatus(CYC, [EMP], perm
     actual:presented.actualOut.toTimeString().slice(0,5), note:presented.note
   });
   const partialPresentation=attendancePresentation(featureDay(earlyRec,[partial]));
-  eq('عرض Early الجزئي لا يحول الخروج إلى نهاية الوردية', {
-    official:'15:00', note:'استئذان معتمد 15:30–16:00', uncovered:30
+  eq('عرض Early الواصل لنهاية الوردية يرفع الرسمي ويبقي النقص مستقلاً', {
+    official:'16:00', note:'خروج فعلي 15:00 — استئذان معتمد 15:30–16:00',
+    early:30, late:0
   }, {
     official:partialPresentation.officialOut.toTimeString().slice(0,5),
-    note:partialPresentation.note, uncovered:partialPresentation.uncoveredMin
+    note:partialPresentation.note, early:partialPresentation.uncoveredEarlyMinutes,
+    late:partialPresentation.deductibleLateMinutes
   });
   eq('Early صريح جزئي يبقي النقص خارجه', { early:30, exempt:30, hours:7.5, ded:18.75 },
      (() => { const r=runPayroll(fullMonth({[D]:earlyRec}),[partial]); const d=r.details.find(x=>x.dateStr===D);
@@ -364,6 +366,36 @@ const featureDay = (record, permissions=[]) => buildDailyStatus(CYC, [EMP], perm
     actual.sessions[0].in.toTimeString().slice(0,8),
     actual.sessions[0].out.toTimeString().slice(0,8)
   ]);
+  settings();
+}
+{
+  const workWeek = Object.fromEntries(Object.entries(WEEK).map(([dow, shift]) => [dow,
+    shift.type === 'off' ? shift : { ...shift, start:'09:00', end:'18:00' }]));
+  settings({ shifts:workWeek });
+  const D='2026-06-01';
+  const actual=rec(D,'09:22','15:55');
+  const earlyToEnd=intervalPerm(D,'خروج مبكر','16:00','18:00');
+  const day=featureDay(actual,[earlyToEnd]);
+  const presented=attendancePresentation(day);
+  const pay=runPayroll(fullMonth({[D]:actual}),[earlyToEnd]);
+  const detail=pay.details.find((x)=>x.dateStr===D);
+  eq('عرض 15:55 + Early 16:00–18:00 يفصل الرسمي والنقصين', {
+    officialOut:'18:00',actualOut:'15:55',late:22,early:5,
+    note:'خروج فعلي 15:55 — استئذان معتمد 16:00–18:00'
+  }, {
+    officialOut:hm(presented.officialOut),actualOut:hm(presented.actualOut),
+    late:presented.deductibleLateMinutes,early:presented.uncoveredEarlyMinutes,
+    note:presented.note
+  });
+  eq('تغيير العرض لا يغيّر worked hours أو Payroll', {
+    seconds:30780,lm:22,em:5,ded:16.875,rawOut:'15:55'
+  }, {
+    seconds:day.secs,lm:detail.lm,em:detail.em,ded:detail.ded,
+    rawOut:hm(actual.sessions[0].out)
+  });
+  const earlyShort=intervalPerm(D,'خروج مبكر','16:00','17:00');
+  const shortPresentation=attendancePresentation(featureDay(actual,[earlyShort]));
+  eq('Early 16:00–17:00 لا يعرض shiftEnd 18:00', '15:55', hm(shortPresentation.officialOut));
   settings();
 }
 {
@@ -538,6 +570,19 @@ const featureDay = (record, permissions=[]) => buildDailyStatus(CYC, [EMP], perm
   eq('Overnight يربط Early بنهاية الوردية في اليوم التالي', {out:'2026-06-02T06:00',hours:8}, {
     out:`${ymd(day.effectiveOut)}T${day.effectiveOut.toTimeString().slice(0,5)}`, hours:day.secs/3600
   });
+  const partialRecord={employeeUid:'e1',date:D,sessions:[{
+    in:at(D,'22:00'),out:at('2026-06-02','03:25')
+  }]};
+  const partialDay=buildDailyStatus(CYC,[EMP],[
+    intervalPerm(D,'خروج مبكر','03:30','06:00')
+  ],[partialRecord]).find((r)=>r.dateStr===D);
+  const partialPresentation=attendancePresentation(partialDay);
+  eq('Overnight يرفع العرض إلى shiftEnd ويبقي فجوة الخمس دقائق', {
+    official:'2026-06-02T06:00',actual:'03:25',early:5
+  }, {
+    official:`${ymd(partialPresentation.officialOut)}T${hm(partialPresentation.officialOut)}`,
+    actual:hm(partialPresentation.actualOut),early:partialPresentation.uncoveredEarlyMinutes
+  });
   const nightSplit={employeeUid:'e1',date:D,sessions:[
     {in:at(D,'22:00'),out:at(D,'23:00')},{in:at('2026-06-02','01:00'),out:at('2026-06-02','06:00')}
   ]};
@@ -696,10 +741,10 @@ group('٣-د. تقرير Device / Mobile / Merged');
     book_append_sheet:(b,s,n)=>{b.sheets[n]=s;}},writeFile:(b,f)=>saved.push({b,f})};
   attendanceReportExport([mergedRow],{fromDate:D,toDate:D});
   const excelRow=saved[0].b.sheets['الحضور والانصراف'][0];
-  eq('Excel التقرير يحمل الأعمدة الستة عشر بالترتيب', [
+  eq('Excel التقرير يحمل الأعمدة السبعة عشر بالترتيب', [
     'الموظف','الرقم الوظيفي','القسم','التاريخ','اليوم','الوردية','الدخول','مصدر الدخول',
     'الخروج','مصدر الخروج','ساعات العمل','دقائق التأخير الخاضعة للخصم',
-    'خصم البصمة الناقصة','الحالة','الاستئذان','الملاحظة'
+    'دقائق الخروج المبكر غير المغطاة','خصم البصمة الناقصة','الحالة','الاستئذان','الملاحظة'
   ],Object.keys(excelRow));
   eq('Excel يعرض Merged وHH:MM دون ساعات عشرية',
     {in:'08:55',inSource:'جهاز البصمة',out:'18:10',outSource:'الجوال',hours:'09:15'}, {
@@ -834,10 +879,11 @@ group('٣-هـ. خصم إداري موثّق للبصمة الناقصة');
     book_append_sheet:(b,s,n)=>{b.sheets[n]=s;}},writeFile:(b)=>penaltySaved.push(b)};
   attendanceReportExport([penaltyReport],{fromDate:D,toDate:D});
   const penaltyExcel=penaltySaved[0].sheets['الحضور والانصراف'][0];
-  eq('Excel يفصل التأخير القابل للخصم وخصم البصمة الناقصة', {
-    late:0,penalty:'02:00',note:'بصمة خروج مفقودة — تعديل إداري معتمد'
+  eq('Excel يفصل التأخير والخروج المبكر وخصم البصمة الناقصة', {
+    late:0,early:0,penalty:'02:00',note:'بصمة خروج مفقودة — تعديل إداري معتمد'
   }, {
     late:penaltyExcel['دقائق التأخير الخاضعة للخصم'],
+    early:penaltyExcel['دقائق الخروج المبكر غير المغطاة'],
     penalty:penaltyExcel['خصم البصمة الناقصة'],note:penaltyExcel['الملاحظة']
   });
   settings();

@@ -187,6 +187,7 @@ export function attendanceReportExport(rows, opts = {}) {
     'مصدر الخروج': r.outSource,
     'ساعات العمل': r.workedHours,
     'دقائق التأخير الخاضعة للخصم': r.deductibleLateMinutes,
+    'دقائق الخروج المبكر غير المغطاة': r.uncoveredEarlyMinutes,
     'خصم البصمة الناقصة': r.missingPunchPenalty,
     'الحالة': r.status,
     'الاستئذان': r.permission,
