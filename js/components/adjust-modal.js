@@ -10,9 +10,11 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import { openModal, esc, toast } from '../lib/dom.js';
-import { hm, tsToDate, fmtDate } from '../lib/format.js';
+import { hm, tsToDate, fmtDate, fmtDT, decimalHoursHHMM } from '../lib/format.js';
 import { sessionsOf } from '../lib/attendance.js';
-import { addAdjustment } from '../lib/adjustments.js';
+import {
+  addAdjustment, addMissingPunchPenalty, missingPunchPenaltyState
+} from '../lib/adjustments.js';
 import { hmToDate } from '../lib/dates.js';
 import { rerender } from '../lib/nav.js';
 
@@ -102,4 +104,72 @@ export function openAdjust(rec, sessionIdx, coll) {
       btn.disabled = false; btn.textContent = 'حفظ التصحيح';
     }
   };
+}
+
+/* خصم البصمة الناقصة لا يطلب وقتاً ولا يمرّ على openAdjust: عدم معرفة
+   البصمة حقيقة يجب أن تبقى ظاهرة، والقيد المالي يعيش بجانبها لا مكانها. */
+export function openMissingPunchPenalty(rec, sessionIdx, coll, field) {
+  const state = missingPunchPenaltyState(rec, { coll, sessionIdx, field });
+  const activeMinutes = state.minutes;
+  const label = field === 'in' ? 'الدخول' : 'الخروج';
+  const history = state.history.length ? `<div class="detail-list">${[...state.history].reverse().map((a) => {
+    const at = tsToDate(a.at);
+    const effect = a.action === 'reverse' ? 'عكس الخصم'
+      : `خصم ${decimalHoursHHMM((a.penaltyMinutes || 0) / 60)}`;
+    return `<div class="detail-line"><span class="k">${esc(effect)}</span>
+      <span class="v">${esc(a.byName || '—')}${at ? ` · ${esc(fmtDT(at))}` : ''}<br>
+      <span class="help">${esc(a.reason || '')}</span></span></div>`;
+  }).join('')}</div>` : '<p class="help">لا يوجد خصم سابق لهذه البصمة.</p>';
+
+  const m = openModal(`
+    <h3>خصم بصمة ${label} الناقصة</h3>
+    <div class="callout callout--warn">
+      <b class="callout__title">لن تُنشأ بصمة بديلة</b>
+      <div class="help">يبقى السجل الخام ناقصاً كما هو. يُضاف قيد مالي موثّق فقط،
+      وآخر قيد لنفس البصمة هو الفعّال دون جمع التكرارات.</div>
+    </div>
+    <div class="detail-list">
+      <div class="detail-line"><span class="k">الموظف</span><span class="v">${esc(rec.employeeName || '—')}</span></div>
+      <div class="detail-line"><span class="k">التاريخ</span><span class="v num">${esc(rec.date || '—')}</span></div>
+      <div class="detail-line"><span class="k">الخصم الفعّال</span><span class="v num">${
+        activeMinutes ? esc(decimalHoursHHMM(activeMinutes / 60)) : 'لا يوجد'}</span></div>
+    </div>
+    <div class="form-row">
+      <div class="field"><label for="mpHours">ساعات الخصم</label>
+        <select id="mpHours"><option value="60">1 ساعة</option><option value="120">2 ساعات</option>
+          <option value="180">3 ساعات</option></select></div>
+      <div class="field"><label for="mpReason">السبب/الملاحظة *</label>
+        <textarea id="mpReason" placeholder="مثال: بصمة خروج مفقودة — اعتماد خصم ساعتين بعد المراجعة"></textarea></div>
+    </div>
+    <div class="err" id="mpErr"></div>
+    <h4>سجل التعديلات</h4>${history}
+    <div class="row">
+      <button class="btn ghost" id="mpCancel">تراجع</button>
+      ${activeMinutes ? '<button class="btn danger ghost" id="mpReverse">عكس الخصم</button>' : ''}
+      <button class="btn" id="mpApply">تطبيق الخصم</button>
+    </div>`);
+
+  m.$('#mpCancel').onclick = m.close;
+  const save = async (action) => {
+    const err = m.$('#mpErr'); err.textContent = '';
+    const reason = m.$('#mpReason').value.trim();
+    if (reason.length < 3) { err.textContent = 'اكتب سبب التعديل — إلزامي وتفرضه قواعد الأمان'; return; }
+    const penaltyMinutes = action === 'reverse' ? 0 : Number(m.$('#mpHours').value);
+    const buttons = m.modal.querySelectorAll('button');
+    buttons.forEach((b) => { b.disabled = true; });
+    try {
+      await addMissingPunchPenalty({ rec, coll, sessionIdx, field, action, penaltyMinutes, reason });
+      m.close();
+      toast(action === 'reverse' ? 'سُجّل عكس الخصم مع بقاء التاريخ' : 'حُفظ خصم البصمة الناقصة', 'ok');
+      rerender();
+    } catch (e) {
+      console.error(e);
+      err.textContent = e.code === 'permission-denied'
+        ? 'رُفض الحفظ — التعديل لمدير النظام وحده' : 'تعذّر حفظ التعديل';
+      buttons.forEach((b) => { b.disabled = false; });
+    }
+  };
+  m.$('#mpApply').onclick = () => save('apply');
+  const reverse = m.$('#mpReverse');
+  if (reverse) reverse.onclick = () => save('reverse');
 }

@@ -30,7 +30,8 @@ import { logAction } from './audit.js';
 /* ⚠️ الصفوف تُختصر عمداً: computePayroll ترجع مع كل صف مصفوفة details فيها
    يوم بيوم. تخزينها لأربعين موظفاً يتجاوز حدّ الوثيقة (مليون بايت). نحفظ
    الأرقام النهائية التي صُرِف عليها — وهي وحدها ما يُحتجّ به محاسبياً.
-   التفصيل اليومي يبقى قابلاً لإعادة الاشتقاق من zkAttendance الذي لا يُعدَّل. */
+   التفصيل اليومي يبقى قابلاً لإعادة الاشتقاق من المصدر المحفوظ في config.
+   أما الأرقام المحتجّ بها فهي الصفوف المختصرة نفسها، لا إعادة الاشتقاق. */
 function slimRow(r) {
   return {
     uid: r.u.id, name: r.u.name || '', empId: r.u.empId || '',
@@ -40,6 +41,7 @@ function slimRow(r) {
     absentDays: r.absentDays, unpaidDays: r.unpaidDays, paidLeaveDays: r.paidLeaveDays,
     missingOut: r.missingOut,
     lateMin: r.lateMin, earlyMin: r.earlyMin, gapMin: r.gapMin || 0, exemptMin: r.exemptMin,
+    missingPunchPenaltyMin: r.missingPunchPenaltyMin || 0,
     reqH: +r.reqH.toFixed(2), workH: +r.workH.toFixed(2),
     recordedWorkH: +(Number.isFinite(r.recordedWorkH) ? r.recordedWorkH : r.workH).toFixed(2),
     dedHours: +r.dedHours.toFixed(2), dedAbsent: +r.dedAbsent.toFixed(2),
@@ -48,16 +50,18 @@ function slimRow(r) {
   };
 }
 
-export async function approveRun(cyc, rows) {
+export async function approveRun(cyc, rows, config = payrollConfig()) {
   const me = getMe();
   const slim = rows.map(slimRow);
   const totals = slim.reduce((a, r) => ({
     salary: a.salary + r.salary, total: a.total + r.total, net: a.net + r.net,
     absentDays: a.absentDays + r.absentDays, lateMin: a.lateMin + r.lateMin,
     earlyMin: a.earlyMin + r.earlyMin, gapMin: a.gapMin + (r.gapMin || 0),
+    missingPunchPenaltyMin: a.missingPunchPenaltyMin + (r.missingPunchPenaltyMin || 0),
     missingOut: a.missingOut + r.missingOut,
     headcount: a.headcount + 1
-  }), { salary: 0, total: 0, net: 0, absentDays: 0, lateMin: 0, earlyMin: 0, gapMin: 0, missingOut: 0, headcount: 0 });
+  }), { salary: 0, total: 0, net: 0, absentDays: 0, lateMin: 0, earlyMin: 0,
+    gapMin: 0, missingPunchPenaltyMin: 0, missingOut: 0, headcount: 0 });
 
   await setDoc(doc(db, 'payrollRuns', cyc.key), {
     cycleKey: cyc.key,
@@ -67,7 +71,7 @@ export async function approveRun(cyc, rows) {
     approvedAt: serverTimestamp(),
     rows: slim,
     totals,
-    config: payrollConfig()
+    config
   });
   await logAction('اعتماد مسير الرواتب',
     `${cyc.label} — ${totals.headcount} موظفاً · المستحق ${totals.net.toFixed(2)}`);

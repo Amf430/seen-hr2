@@ -10,6 +10,7 @@ import { $, toast } from './lib/dom.js';
 import { initAuth, login, logout, requestPasswordReset, changeOwnPassword, authError } from './lib/auth.js';
 import { getMe, resetState } from './lib/state.js';
 import { loadSettings } from './lib/settings.js';
+import { loadApprovedWeeklyRosters } from './lib/weekly-roster-io.js';
 import { go, resetNav } from './lib/nav.js';
 import { cleanupPage } from './lib/lifecycle.js';
 import { buildNav, buildDock, paintIdentity, showScreen, initShellChrome, setBootStage } from './app/shell.js';
@@ -80,6 +81,10 @@ let routerStarted = false;
 async function enterApp() {
   setBootStage('جارٍ تحميل إعدادات النظام…');
   await loadSettings();
+  /* فشل تحميل override لا يمنع الدخول ولا يخمّن شفتاً: يبقى resolver على
+     fallback الحالي، ويظهر الخطأ للمراقبة بدلاً من تحويله إلى غياب صامت. */
+  try { await loadApprovedWeeklyRosters(); }
+  catch (e) { console.error('loadApprovedWeeklyRosters', e); }
   showScreen('app');
   paintIdentity();
   buildNav();

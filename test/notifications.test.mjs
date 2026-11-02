@@ -21,6 +21,7 @@ globalThis.localStorage = {
 
 const state = await import('../js/lib/state.js');
 const nf    = await import('../js/lib/notifications.js');
+const ack   = await import('../js/lib/announcement-ack-state.js');
 
 let pass = 0, fail = 0;
 const t = (label, actual, expected) => {
@@ -136,6 +137,26 @@ t('مستندات بنوع خاطئ لا تُسقط النظام', nf.buildNotif
 
 reset({ ...EMP, contractEnd: 'ليس تاريخاً' }, []);
 t('تاريخ عقد خاطئ لا يُسقط النظام', nf.buildNotifications(), []);
+
+console.log('\n\x1b[1m═══ إقرار الإعلان — إنشاء مرة واحدة ═══\x1b[0m');
+const acknowledged = await ack.readAckState(async () => true);
+t('من أقرّ سابقاً يرى حالة تم الاطلاع', acknowledged, ack.ACK_STATE.ACKNOWLEDGED);
+
+let writes = 0;
+const duplicate = await ack.createAckIfPending(acknowledged, async () => { writes++; });
+t('الإقرار الموجود لا يطلق كتابة ثانية',
+  { wrote: false, writes: 0 }, { wrote: duplicate.wrote, writes });
+
+const readFailed = await ack.readAckState(async () => { throw new Error('read-failed'); });
+t('فشل myAck يبقى حالة خطأ لا حالة غير مقرّ بها', readFailed, ack.ACK_STATE.ERROR);
+const afterFailure = await ack.createAckIfPending(readFailed, async () => { writes++; });
+t('فشل myAck لا يؤدي إلى create',
+  { wrote: false, writes: 0 }, { wrote: afterFailure.wrote, writes });
+
+const pending = await ack.readAckState(async () => false);
+const created = await ack.createAckIfPending(pending, async () => { writes++; });
+t('غير المقرّ به وحده ينشئ الإقرار',
+  { state: 'acknowledged', wrote: true, writes: 1 }, { ...created, writes });
 
 console.log(`\n\x1b[1m═══ النتيجة: ${pass} ناجح، ${fail} فاشل ═══\x1b[0m`);
 process.exit(fail ? 1 : 0);

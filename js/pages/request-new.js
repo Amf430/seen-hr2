@@ -5,6 +5,7 @@ import { submitRequest, permOldestDate, permWindowOpen, PERM_BACKDATE_DAYS } fro
 import { ymdKsa } from '../lib/dates.js';
 import { go } from '../lib/nav.js';
 import { card, empty } from '../lib/ui.js';
+import { PERMISSION_KIND } from '../lib/permission-link.js';
 
 const approverOptions = () =>
   (getSettings().approvers || []).map((a) => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('');
@@ -62,7 +63,7 @@ function permForm() {
       <div class="field"><label for="pfDate">التاريخ</label>
         <input id="pfDate" type="date" min="${esc(oldest)}" value="${esc(today)}">
         <div class="help">يُقبل الاستئذان عن يومه وحتى ${PERM_BACKDATE_DAYS} أيام مضت
-          (من ${esc(oldest)}). بعدها تُغلق الحالة ويُعتمد التأخير أو الخروج المبكر بدون عذر.</div></div>
+          (من ${esc(oldest)}). بعدها تُغلق الحالة ويُعتمد النقص الزمني بدون عذر.</div></div>
       <div class="field"><label for="pfStart">من الساعة</label><input id="pfStart" type="time"></div>
       <div class="field"><label for="pfEnd">إلى الساعة</label><input id="pfEnd" type="time"></div>
     </div>
@@ -71,14 +72,19 @@ function permForm() {
         <select id="pfApprover">${approverOptions()}</select></div>
     </div>
     <div class="form-row one">
-      <div class="field"><label for="pfNote">ملاحظات (اختياري)</label>
-        <textarea id="pfNote" placeholder="تفاصيل إضافية…"></textarea></div>
+      <div class="field"><label for="pfNote">تفاصيل الطلب (إلزامي)</label>
+        <textarea id="pfNote" maxlength="500" placeholder="اكتب تفاصيل الطلب…"></textarea></div>
     </div>
     <button class="btn w-auto" id="pfSubmit" type="button">تقديم طلب الاستئذان</button>`;
 
   f.querySelector('#pfSubmit').onclick = async (e) => {
     const btn = e.currentTarget;
     const cat = f.querySelector('#pfCat').value;
+    const permissionKind = ({
+      'تأخير عن الدوام': PERMISSION_KIND.LATE,
+      'خروج مبكر': PERMISSION_KIND.EARLY,
+      'استئذان أثناء الدوام': PERMISSION_KIND.MID
+    })[cat];
     const date = f.querySelector('#pfDate').value;
     const startTime = f.querySelector('#pfStart').value;
     const endTime = f.querySelector('#pfEnd').value;
@@ -95,12 +101,13 @@ function permForm() {
     }
     if (!rId) { toast('اختر السبب', 'err'); return; }
     if (!aId) { toast('اختر جهة الاعتماد', 'err'); return; }
+    if (!note) { toast('أدخل تفاصيل الطلب', 'err'); return; }
 
     const reason = (S.permissionReasons || []).find((x) => x.id === rId);
     const appr = (S.approvers || []).find((x) => x.id === aId);
     btn.disabled = true; btn.textContent = 'جارٍ التقديم…';
     const ok = await submitRequest({
-      type: 'permission', category: cat, categoryLabel: cat, date, startTime, endTime,
+      type: 'permission', permissionKind, category: cat, categoryLabel: cat, date, startTime, endTime,
       reasonId: rId, reasonLabel: reason?.label || '',
       approverId: aId, approverName: appr?.name || '', note
     });

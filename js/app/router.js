@@ -39,6 +39,8 @@ import * as announcementsPage from '../pages/announcements.js';
 import * as leavePolicy   from '../pages/settings/leave-policy.js';
 import * as taskTemplates from '../pages/settings/task-templates.js';
 import * as attendanceLog  from '../pages/attendance-log.js';
+import * as attendanceReports from '../pages/attendance-reports.js';
+import * as weeklyRoster   from '../pages/weekly-roster.js';
 import * as payroll        from '../pages/payroll.js';
 import * as monthly        from '../pages/monthly.js';
 import * as reports        from '../pages/reports.js';
@@ -74,6 +76,8 @@ const RENDERERS = {
   'set-leave-policy': leavePolicy.render,
   'set-task-templates': taskTemplates.render,
   attendance:     (v, t) => attendanceLog.render(v, t, { coll: 'attendance',   isDevice: false }),
+  'attendance-reports': attendanceReports.render,
+  'weekly-roster': weeklyRoster.render,
   zklog:          (v, t) => attendanceLog.render(v, t, { coll: 'zkAttendance', isDevice: true  }),
   payroll:        payroll.render,
   monthly:        monthly.render,

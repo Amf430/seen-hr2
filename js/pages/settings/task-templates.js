@@ -17,6 +17,7 @@ import { refreshUsers } from '../../lib/users.js';
 import { PRIORITY_AR, MAX_BACKFILL_DAYS } from '../../lib/task-flow.js';
 import { isStale } from '../../lib/nav.js';
 import { card, empty, tableWrap, sectionHead, button, callout, loading } from '../../lib/ui.js';
+import { loadRequiredSource } from '../../lib/required-source.js';
 
 const RECUR_AR = { '': 'بلا تكرار (قالب يدوي)', daily: 'يومي', weekly: 'أسبوعي', monthly: 'شهري' };
 const DOW_AR = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
@@ -37,8 +38,15 @@ export async function render(view, token) {
   host.appendChild(loading('جارٍ التحميل…'));
   view.appendChild(host);
 
-  try { await refreshUsers(); } catch (e) { console.error('templates', e); }
+  const usersSource = await loadRequiredSource(refreshUsers, getUsers);
   if (isStale(token)) return;
+  if (usersSource.status === 'error') {
+    console.error('templates', usersSource.error);
+    host.innerHTML = '';
+    host.appendChild(callout('danger', 'تعذّر تحميل الموظفين',
+      'لن تُعرض خيارات تكليف ناقصة، ولن تتاح كتابة القوالب حتى تنجح القراءة.'));
+    return;
+  }
 
   function draw() {
     host.innerHTML = '';

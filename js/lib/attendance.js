@@ -15,8 +15,9 @@ import { resolveShift, shiftWindowFor, compensableMin,
 /* ⚠️ لا دورة استيراد: requests.js لا يستورد هذا الملف ولا شيء في شجرته
    (state / perms / dom / audit / dates / firebase) يصل إليه. */
 import { permWindowOpen } from './requests.js';
-import { hmToDate } from './dates.js';
 import { hm } from './format.js';
+import { employeeUidsOf, requestBelongsToEmployee, permissionDisplayLabel } from './permission-link.js';
+import { dayBounds } from './attendance-metrics.js';
 import { permissionWorkTime, permissionIntervalsLabel } from './permission-work-time.js';
 
 /* ═══ كل معرّفات الموظف — الحالي وما سبقه ═══
@@ -30,8 +31,7 @@ import { permissionWorkTime, permissionIntervalsLabel } from './permission-work-
    استيراد المسير بلا داعٍ.
 
    ⚠️ الحالي أولاً — السجل الحالي أولى عند التطابق. */
-export const uidsOf = (u) =>
-  u ? [u.id, ...((u.previousUids || []).filter((x) => x && x !== u.id))] : [];
+export const uidsOf = employeeUidsOf;
 
 /* أول سجل يوجد لهذا الموظف في هذا اليوم، تحت أيٍّ من معرّفاته */
 export const recFor = (recMap, u, dateStr) => {
@@ -102,23 +102,7 @@ export function lastOutOf(sessions) {
 
    ⚠️ بصمة واحدة في اليوم كلّه تبقى دخولاً بلا خروج، فنسيان الانصراف
    الحقيقي ما زال يُكتشف. */
-export function dayBounds(sessions) {
-  let first = null, last = null;
-  for (const s of sessions) {
-    for (const key of ['in', 'out']) {
-      const t = tsToDate(s[key]);
-      if (!t) continue;
-      if (!first || t < first) first = t;
-      if (!last  || t > last)  last  = t;
-    }
-  }
-  return {
-    firstIn: first,
-    lastOut: (first && last && last > first) ? last : null,
-    /* المدى بالثواني — صفر ما لم يوجد حدّان */
-    spanSecs: (first && last && last > first) ? (last - first) / 1000 : 0
-  };
-}
+export { dayBounds };
 
 /* ── سجلات الموظف نفسه ──
    ⚠️ لا تستعمل fetchAttendance هنا. هي تستعلم بالتاريخ فقط، وقاعدة القراءة
@@ -139,15 +123,19 @@ export function dayBounds(sessions) {
    مفهرسة بالقديم. القاعدة `isMine()` تقبل الاثنين فيقبلهما الاستعلام — وإلا
    يتيتّم تاريخ الموظف كله عند أول استعادة ويظهر غياباً لم يقع.
 
-   ⚠️ يحتاج فهرساً مركّباً (employeeUid, date) في المجموعتين. موجود في
-   `firestore.indexes.json` — والمحاكي يبنيه تلقائياً بينما الإنتاج لا،
-   فالنشر قبل وصول الواجهة للموظفين لا بعده. */
-export async function fetchMyAttendance(cycle, uid, coll = 'attendance') {
+   ⚠️ الموظف يحتاج (employeeUid,date). المدير يضيف department، ويستفيد من
+   دمج الفهرسين الموجودين (department,date) و(employeeUid,date) لكل مجموعة.
+   الإنتاج لا يبنيهما من الملف تلقائياً، فيجب التحقق أنهما READY قبل الواجهة. */
+export async function fetchMyAttendance(cycle, uid, coll = 'attendance', department = '') {
   const uids = (Array.isArray(uid) ? uid : [uid]).filter(Boolean).slice(0, 30);
   if (!uids.length) return [];
-  const snap = await getDocs(query(collection(db, coll),
-    where('employeeUid', 'in', uids),
-    where('date', '>=', ymd(cycle.start)), where('date', '<=', ymd(cycle.end))));
+  const parts = [collection(db, coll)];
+  /* ⚠️ مدير القسم يحتاج القيود الثلاثة داخل Query نفسها. فلترة القسم بعد
+     القراءة لا تثبت sameDept()، وقراءة القسم كله توسّع البيانات بلا حاجة. */
+  if (department) parts.push(where('department', '==', department));
+  parts.push(where('employeeUid', 'in', uids),
+    where('date', '>=', ymd(cycle.start)), where('date', '<=', ymd(cycle.end)));
+  const snap = await getDocs(query(...parts));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
@@ -194,21 +182,23 @@ export function flattenSessions(recs) {
    ولا ننسب للنظام وقتاً لا تثبته البصمات. */
 export function permissionAuditNote(effect, firstIn, lastOut) {
   if (!effect?.approved?.length) return '';
+  const labels = [...new Set(effect.approved.map(permissionDisplayLabel).filter(Boolean))].join(' · ');
+  const withLabels = (text) => labels ? `${text} — ${labels}` : text;
   const actual = [firstIn ? `دخول فعلي ${hm(firstIn)}` : '', lastOut ? `خروج فعلي ${hm(lastOut)}` : '']
     .filter(Boolean).join(' — ');
   if (effect.midFallback) {
-    return `${actual ? actual + ' — ' : ''}استئذان أثناء الدوام معتمد، ولم يُطبّق على الساعات لعدم اكتمال أو وضوح الجلسات`;
+    return withLabels(`${actual ? actual + ' — ' : ''}استئذان أثناء الدوام معتمد، ولم يُطبّق على الساعات لعدم اكتمال أو وضوح الجلسات`);
   }
   const periods = permissionIntervalsLabel(effect.coveredIntervals);
-  if (!periods) return `${actual ? actual + ' — ' : ''}استئذان معتمد، وتعذّر تحديد الفترة المحتسبة`;
+  if (!periods) return withLabels(`${actual ? actual + ' — ' : ''}استئذان معتمد، وتعذّر تحديد الفترة المحتسبة`);
   const creditedMin = Math.round((effect.creditedSecs || 0) / 60);
   const categories = [...new Set(effect.approved.map((r) => r.category).filter(Boolean))];
   const permissionLabel = categories.length === 1 ? `استئذان ${categories[0]} معتمد` : 'استئذانات معتمدة';
-  const throughShiftEnd = effect.actualOut && effect.effectiveOut && effect.effectiveOut > effect.actualOut &&
-    effect.earlyCoveredSecs > 0 && effect.earlyUncoveredSecs === 0
+  const throughShiftEnd = effect.actualOut && effect.effectiveOut && effect.effectiveOut > effect.actualOut
+    && effect.earlyCoveredSecs > 0 && effect.earlyUncoveredSecs === 0
     ? ` حتى نهاية الوردية ${hm(effect.effectiveOut)}` : ` ${periods}`;
-  return `${actual ? actual + ' — ' : ''}${permissionLabel}${throughShiftEnd}` +
-    (creditedMin ? ` — احتُسب ${creditedMin} د` : ' — لا تعويض إضافي لتداخل الفترة مع وقت العمل');
+  return withLabels(`${actual ? actual + ' — ' : ''}${permissionLabel}${throughShiftEnd}`
+    + (creditedMin ? ` — احتُسب ${creditedMin} د` : ' — لا تعويض إضافي لتداخل الفترة مع وقت العمل'));
 }
 
 /* ═══ الحالة اليومية (حاضر/متأخر/غائب/إجازة) مع ربط الاستئذان — منقولة حرفياً ═══
@@ -235,16 +225,18 @@ export function buildDailyStatus(cyc, users, requests, recs, opts = {}) {
       const shift = resolveShift(dateStr, dow, u.department, u);
       if (!shift || shift.type === 'off') continue;   /* راحة أو عطلة رسمية → لا يُحاسب عليها */
       const leave = requests.find((r) => r.type === 'leave' && r.status === 'approved' &&
-        r.employeeUid === u.id && r.startDate <= dateStr && r.endDate >= dateStr);
+        requestBelongsToEmployee(r, u) && r.startDate <= dateStr && r.endDate >= dateStr);
       const rec = recFor(recMap, u, dateStr);
       const sessions = sessionsOf(rec);
       /* اليوم بحدّيه لا بمزاوجة الجلسات — انظر dayBounds */
-      const { firstIn, lastOut, spanSecs } = dayBounds(sessions);
+      const { firstIn, lastOut, spanSecs, hasAttendanceEvidence } = dayBounds(sessions, {
+        missedCheckIn: rec?.missedCheckIn === true
+      });
       const openSess = !!firstIn && !lastOut;
       const win = shiftWindowFor(d, shift);
       const permissionEffect = permissionWorkTime({
         requests,
-        employeeUid: u.id,
+        employee: u,
         dateStr,
         sessions,
         firstIn,
@@ -252,16 +244,17 @@ export function buildDailyStatus(cyc, users, requests, recs, opts = {}) {
         baseSecs: spanSecs,
         shiftStart: win ? win.start : null,
         shiftEnd: win ? win.end : null,
-        /* السماح يقرر هل اليوم متأخر، لكنه لا يُطرح من الرقم إذا تجاوزه:
-           08:30 مع سماح 10 كان يُسجّل 30 دقيقة لا 20. */
+        /* السماح يحدد هل اليوم متأخر، لكنه لا يُطرح من عدد الدقائق عند
+           تجاوزه؛ هذا يحفظ تعريف شاشة الحضور الحالي بالحرف. */
         lateGraceMinutes: 0
       });
       /* المدى من أول بصمة لآخرها. وبلا بصمة خروج تُقصّ الجلسة المفتوحة عند
-         نهاية الوردية بدل أن تعدّ حتى الآن. استئذان الخروج المعتمد يغيّر
-         الحدّ المحتسب في الذاكرة فقط، ويبقى lastOut هو الخروج الفعلي. */
+         نهاية الوردية بدل أن تعدّ حتى الآن. الاستئذان يغيّر الحد المحتسب
+         في الذاكرة فقط، ويبقى lastOut هو الخروج الفعلي. */
       const secs = lastOut ? permissionEffect.effectiveSecs
                            : workedSecs(sessions, win ? win.end.getTime() : null).secs;
       let status, cls, note = '', lateMin = 0, compMin = 0, excusable = false;
+      let punctualityLateMin = 0, punctualityEarlyMin = 0;
       if (leave) { status = 'إجازة: ' + (leave.categoryLabel || ''); cls = 'leave'; }
       else if (firstIn) {
         /* نسيان بصمة الخروج: جلسة مفتوحة ومضى أكثر من ساعتين على نهاية الوردية */
@@ -269,29 +262,39 @@ export function buildDailyStatus(cyc, users, requests, recs, opts = {}) {
           status = 'نسيان بصمة الخروج'; cls = 'missing';
           note = `دخل ${hm(firstIn)} ولم يسجّل انصراف — مضى أكثر من ساعتين على نهاية الوردية`;
         } else {
-          const allowedBase = hmToDate(d, shift.start || '');
-          if (allowedBase) {
-            const grace = new Date(allowedBase.getTime() + LATE_GRACE_MIN * 60000);
+          if (win) {
+            const grace = new Date(win.start.getTime() + LATE_GRACE_MIN * 60000);
             if (firstIn > grace) {
               const uncoveredLate = Math.max(0, Math.round(permissionEffect.lateUncoveredSecs / 60));
+              /* البقاء بعد الدوام قد يعوّض مالياً، لكنه لا يمحو أن بداية اليوم
+                 كانت متأخرة في مؤشر الانضباط. الاستئذان يمحو الجزء الذي
+                 يغطيه وحده، قبل تطبيق تعويض البقاء. */
+              punctualityLateMin = uncoveredLate;
               compMin = compensate ? compensableMin(uncoveredLate, lastOut, win) : 0;
               lateMin = uncoveredLate - compMin;
               if (lateMin > 0) {
                 status = 'متأخر'; cls = 'late';
                 note = compMin ? `تأخر ${lateMin} د بعد تعويض ${compMin} د` : `تأخر ${lateMin} د`;
               } else {
-                /* التعويض أو فترة الاستئذان غطّيا التأخير كاملاً. */
+                /* التعويض أو الاستئذان غطّى التأخير كاملاً. */
                 status = 'حاضر'; cls = 'present';
                 if (compMin) note = `عوّض تأخير ${uncoveredLate} د ببقائه بعد الدوام`;
               }
             } else { status = 'حاضر'; cls = 'present'; }
           } else { status = 'حاضر'; cls = 'present'; }
         }
+        if (lastOut && win && lastOut < win.end)
+          punctualityEarlyMin = Math.max(0, Math.round(permissionEffect.earlyUncoveredSecs / 60));
+        /* attendanceMetrics في main يقرأ بوابتَي مخالفة زمنية فقط، ولا
+           يعيد حساب الساعات. في يوم Mid المعتمد وحده نضم النقص الداخلي
+           غير المغطى إلى البوابة الثانية كي لا يبدو اليوم ملتزماً، من دون
+           تغيير أي يوم عادي أو منح الاستئذان إعفاءً لمخالفة أخرى. */
+        punctualityEarlyMin += Math.max(0, Math.round(permissionEffect.midUncoveredSecs / 60));
         /* ── نافذة الاستئذان ──
            يوم متأخر بلا استئذان معتمد: إمّا النافذة ما زالت مفتوحة فيُقال
            للموظف كم بقي له، أو أُغلقت فيُعتمد التأخير «بدون عذر» ويبقى في
            الخصم. الرقم كان يظهر عارياً بلا إشارة إلى أن له مخرجاً في وقته. */
-        if (cls === 'late' && !permissionEffect.lateCoveredSecs) {
+        if (cls === 'late' && permissionEffect.lateUncoveredSecs > 0) {
           excusable = permWindowOpen(dateStr);
           note += excusable ? ' · يمكن تقديم استئذان عنه' : ' · بدون عذر';
         }
@@ -314,19 +317,24 @@ export function buildDailyStatus(cyc, users, requests, recs, opts = {}) {
       if (permissionNote) note = (note ? note + ' · ' : '') + permissionNote;
       if (shift.src === 'exception' && shift.exLabel) note = (note ? note + ' · ' : '') + shift.exLabel;
       else if (shift.src === 'dept')                  note = (note ? note + ' · ' : '') + 'وردية القسم';
-      rows.push({
-        u, dateStr, dow, shift, status, cls, note, firstIn, lastOut,
-        effectiveOut: permissionEffect.effectiveOut,
-        actualSecs: lastOut ? permissionEffect.actualSecs : secs,
-        secs,
-        creditedSecs: permissionEffect.creditedSecs,
-        permissionIntervals: permissionEffect.coveredIntervals,
-        permissionIntervalsLabel: permissionIntervalsLabel(permissionEffect.coveredIntervals),
-        midGapMin: Math.round(permissionEffect.midUncoveredSecs / 60),
-        permissionFallback: permissionEffect.midFallback,
-        requiredSecs: win ? Math.max(0, (win.end - win.start) / 1000) : 0,
-        rec, openSess, lateMin, compMin, excusable
-      });
+      rows.push({ u, dateStr, dow, shift, status, cls, note, firstIn, lastOut,
+                  shiftStart: win ? win.start : null,
+                  shiftEnd: win ? win.end : null,
+                  effectiveOut: permissionEffect.effectiveOut,
+                  actualSecs: lastOut ? permissionEffect.actualSecs : secs,
+                  secs,
+                  creditedSecs: permissionEffect.creditedSecs,
+                  permissionIntervals: permissionEffect.coveredIntervals,
+                  permissionIntervalsLabel: permissionIntervalsLabel(permissionEffect.coveredIntervals),
+                  earlyUncoveredSecs: permissionEffect.earlyUncoveredSecs,
+                  midUncoveredSecs: permissionEffect.midUncoveredSecs,
+                  midGapMin: Math.round(permissionEffect.midUncoveredSecs / 60),
+                  permissionFallback: permissionEffect.midFallback,
+                  requiredSecs: win ? Math.max(0, (win.end - win.start) / 1000) : 0,
+                  rec,
+                  permissions: permissionEffect.approved,
+                  openSess, lateMin, compMin, excusable, hasAttendanceEvidence,
+                  punctualityLateMin, punctualityEarlyMin });
     }
   });
   rows.sort((a, b) => (a.u.name || '').localeCompare(b.u.name || '') || (a.dateStr > b.dateStr ? 1 : -1));

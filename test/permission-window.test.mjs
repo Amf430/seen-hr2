@@ -16,7 +16,8 @@
 
 import { PERM_BACKDATE_DAYS, permOldestDate, permWindowOpen,
          FIX_WINDOW_DAYS, FIX_MAX_PER_CYCLE, fixOldestDate, fixWindowOpen,
-         fixCountInCycle } from '../js/lib/request-windows.js';
+         fixCountInCycle, fixableAttendanceRows,
+         fixCycleOf } from '../js/lib/request-windows.js';
 
 let pass = 0, fail = 0;
 const check = (name, expected, actual) => {
@@ -76,6 +77,32 @@ check('قبله بيوم مرفوض',          false, fixWindowOpen('2026-08-04'
 check('⚠️ تاريخ في المستقبل مرفوض', false, fixWindowOpen('2026-08-13', '2026-08-12'));
 check('تاريخ فارغ مرفوض',          false, fixWindowOpen('', '2026-08-12'));
 
+console.log('\n\x1b[1m═══ مسار تصحيح البصمة في صفحة الأداء ═══\x1b[0m');
+const correctionRows = [
+  { cls: 'missing',   dateStr: '2026-08-12' },
+  { cls: 'missingIn', dateStr: '2026-08-11' },
+  { cls: 'absent',    dateStr: '2026-08-10' },
+  { cls: 'present',   dateStr: '2026-08-12' },
+  { cls: 'late',      dateStr: '2026-08-12' },
+  { cls: 'leave',     dateStr: '2026-08-12' },
+  { cls: 'missing',   dateStr: '2026-08-04' }
+];
+const correctionKinds = fixableAttendanceRows(correctionRows, '2026-08-12').map((r) => r.cls);
+check('missingOut يظهر له مسار التصحيح', true, correctionKinds.includes('missing'));
+check('missingIn يظهر له مسار التصحيح',  true, correctionKinds.includes('missingIn'));
+check('الغياب القابل للتصحيح يظهر له المسار', true, correctionKinds.includes('absent'));
+check('الحالات السليمة لا يظهر لها المسار', false,
+  correctionKinds.some((cls) => ['present', 'late', 'leave'].includes(cls)));
+check('اليوم الناقص خارج النافذة لا يظهر له المسار', 3, correctionKinds.length);
+
+console.log('\n\x1b[1m═══ دورة سجل التصحيح عند حدّ 25 ← 26 ═══\x1b[0m');
+const previousCycle = fixCycleOf('2026-08-25');
+const currentCycle = fixCycleOf('2026-08-26');
+check('سجل يوم 25 يتبع الدورة السابقة', '2026-07', previousCycle?.key);
+check('يوم 26 يفتح دورة جديدة', '2026-08', currentCycle?.key);
+check('تصحيح سجل 25 لا يستخدم دورة يوم 26', false, previousCycle?.key === currentCycle?.key);
+check('تاريخ سجل فاسد لا يسقط إلى دورة اليوم', null, fixCycleOf('2026-02-30'));
+
 /* ═══ عدّاد الدورة ═══
    ⚠️ المرفوض لا يُحسب: طلب رُفض لم يستهلك شيئاً، وحسابه يعاقب الموظف مرتين. */
 console.log('\n\x1b[1m═══ عدّاد طلبات التصحيح في الدورة ═══\x1b[0m');
@@ -89,12 +116,14 @@ const reqs = [
   { type: 'leave',         employeeUid: 'u1', status: 'approved', date: '2026-08-02' },
   { type: 'attendanceFix', employeeUid: 'u1', status: 'approved', date: '2026-07-01' }
 ];
+const restored = { id: 'u-new', previousUids: ['u1', 'u-old-2'] };
 check('المعلّق والمعتمَد يُحسبان', 2, fixCountInCycle(reqs, 'u1', cyc));
 check('⚠️ والمرفوض لا يُحسب — لم يستهلك شيئاً',
    2, fixCountInCycle(reqs.filter((r) => r.status !== 'rejected'), 'u1', cyc));
 check('وطلبات موظف آخر لا تُحسب عليه', 1, fixCountInCycle(reqs, 'u2', cyc));
 check('وخارج الدورة لا يُحسب',         2, fixCountInCycle(reqs, 'u1', cyc));
 check('موظف بلا طلبات → صفر',          0, fixCountInCycle(reqs, 'u9', cyc));
+check('العدّاد يجمع UID الحالي والتاريخي', 2, fixCountInCycle(reqs, restored, cyc));
 
 
 /* ═══ النداء بوسيط واحد — الانحدار الذي كشفته اختبارات المتصفح ═══
