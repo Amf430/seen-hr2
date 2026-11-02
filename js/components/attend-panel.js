@@ -12,7 +12,7 @@
    غياب البيانات يعني عدم وجود جلسة مفتوحة.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { db, doc, getDoc, setDoc, onSnapshot } from '../lib/firebase.js';
+import { db, doc, getDoc, onSnapshot, writeBatch } from '../lib/firebase.js';
 import { el, esc, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { getMe, getSettings } from '../lib/state.js';
@@ -22,7 +22,7 @@ import { sessionsOf, workedSecs } from '../lib/attendance.js';
 import { shiftLabelOf, checkInAllowed, myShiftToday, attendButtonState } from '../lib/shifts.js';
 import { getPosition, geoRuleFor, nearestBranch, activeBranches, REMOTE_BRANCH_ID, REMOTE_LABEL } from '../lib/geo.js';
 import { verifyBiometric, bioReasonAr, bioUserCancelled, setCredentialPersister } from '../lib/biometric.js';
-import { capturePhoto, savePhoto } from '../lib/photo.js';
+import { capturePhoto, stagePhoto } from '../lib/photo.js';
 import { saveBioCredentials } from '../lib/users.js';
 import { setPageInterval, trackSubscription, onCleanup } from '../lib/lifecycle.js';
 import { notifyState, askPermission, checkCheckoutReminder } from '../lib/reminders.js';
@@ -438,7 +438,11 @@ async function doAttendance(kind, ref, btn, bioNote, rule, setBusy, missedIn = f
      من يسجّل داخل الفرع لا يُطلب منه شيء — لا يُثقَل الطريق الطبيعي بخطوة.
 
      ⚠️ تُلتقط قبل الحفظ لا بعده: صورة تفشل بعد كتابة الجلسة تترك سجلاً بلا
-     دليل، ولا وسيلة لإجبار الموظف على إعادتها. */
+     دليل، ولا وسيلة لإجبار الموظف على إعادتها.
+
+     ⚠️ لمن هو «من أي مكان» الصورة شرطٌ على السيرفر لا هنا فقط (remotePhotoOk
+     في firestore.rules): بصمة بلا صورة في الدفعة نفسها تُرفض. فلا تجعل
+     needsPhoto أضيق من rule.mode === 'remote' — وإلا رفض السيرفر كل بصمة. */
   const needsPhoto = rule.mode === 'remote' || !(near && near.inside);
   let photo = null;
   if (needsPhoto) {
@@ -447,7 +451,7 @@ async function doAttendance(kind, ref, btn, bioNote, rule, setBusy, missedIn = f
        null لو أغلق الموظف النافذة، ولا ترمي. */
     photo = await capturePhoto();
     if (!photo)
-      return fail('تسجيلك من خارج نطاق الفرع يحتاج صورة للموقع — افتح الكاميرا وصوّر مكانك');
+      return fail('التسجيل من خارج نطاق الفرع يحتاج صورة حيّة لمكانك — افتح الكاميرا والتقطها');
   }
 
   /* ④ البصمة — عجزُ الجهاز لا يمنع، وإلغاءُ الموظف يمنع.
@@ -487,6 +491,13 @@ async function doAttendance(kind, ref, btn, bioNote, rule, setBusy, missedIn = f
   try {
     const now = new Date(), dow = now.getDay();
     const loc = pos ? { lat: pos.lat, lng: pos.lng } : null;
+    /* ⚠️ الجلسة وصورتها في دفعة واحدة — تُكتبان معاً أو لا شيء. القاعدة
+       تشترط لمن هو «من أي مكان» أن تكون الصورة في الكتابة نفسها، والدفعة
+       تُغني عن الحالة القديمة: جلسة محفوظة وصورة فشلت بعدها فبقي اليوم بلا
+       دليل. فشل الدفعة يُرجع الموظف لزرّ التسجيل بلا أثر، فيعيد بأمان. */
+    const batch = writeBatch(db);
+    /* تاريخ الوثيقة لا «اليوم» — هو ما تبني منه القاعدة معرّف الصورة */
+    const photoDate = (pre && pre.date) || ymdKsa(now);
 
     if (kind === 'in') {
       const sessions = preSessions.concat([{
@@ -508,19 +519,15 @@ async function doAttendance(kind, ref, btn, bioNote, rule, setBusy, missedIn = f
         ...(gate.reason === 'offDay' ? { offDayWork: true } : {}),
         source: 'web'
       }]);
-      await setDoc(ref, {
+      batch.set(ref, {
         employeeUid: me.id, employeeName: me.name, employeeEmpId: me.empId || '',
         department: me.department || '', date: ymdKsa(now), dow,
         shiftLabel: shiftLabelOf(dow), source: 'web',
         branchId, branchName, workMode: rule.mode,
         sessions
       }, { merge: true });
-      /* ⚠️ الصورة تُحفظ بعد نجاح الجلسة. لو فشل حفظها لا نُبطل الحضور — الموظف
-         سجّل فعلاً، وموقعه محفوظ على الجلسة. نُبلغه فقط ليعيد المحاولة. */
-      if (photo) {
-        try { await savePhoto({ dateStr: ymdKsa(now), sessionIdx: sessions.length - 1, kind: 'in', photo, pos }); }
-        catch (e) { console.error('photo', e); toast('سُجّل حضورك، لكن تعذّر رفع الصورة', 'err'); }
-      }
+      if (photo) stagePhoto(batch, { dateStr: photoDate, sessionIdx: sessions.length - 1, kind: 'in', photo, pos });
+      await batch.commit();
       toast(`تم تسجيل الحضور — ${branchName}`, 'ok');
     } else if (missedIn && openIdx < 0) {
       /* ── انصرافٌ بلا دخول ──
@@ -532,9 +539,9 @@ async function doAttendance(kind, ref, btn, bioNote, rule, setBusy, missedIn = f
         in: null, out: now,
         outLoc: loc, outAcc: pos ? Math.round(pos.acc || 0) : null,
         outBranchId: branchId, outBranchName: branchName,
-        outGeoDenied: !pos, missedIn: true, source: 'web'
+        outGeoDenied: !pos, missedIn: true, outPhoto: !!photo, source: 'web'
       }]);
-      await setDoc(ref, {
+      batch.set(ref, {
         employeeUid: me.id, employeeName: me.name, employeeEmpId: me.empId || '',
         department: me.department || '', date: ymdKsa(now), dow,
         shiftLabel: shiftLabelOf(dow), source: 'web',
@@ -542,6 +549,10 @@ async function doAttendance(kind, ref, btn, bioNote, rule, setBusy, missedIn = f
         missedCheckIn: true,
         sessions
       }, { merge: true });
+      /* ⚠️ هذا المسار كان يلتقط الصورة ثم لا يحفظها — الانصراف بلا دخول
+         يحتاج دليله كأي انصراف آخر. */
+      if (photo) stagePhoto(batch, { dateStr: photoDate, sessionIdx: sessions.length - 1, kind: 'out', photo, pos });
+      await batch.commit();
       toast('سُجّل انصرافك. يومك عليه «نسيان بصمة الحضور» — قدّم طلب تصحيح من «أدائي».', 'ok');
     } else {
       const sessions = preSessions;
@@ -556,11 +567,9 @@ async function doAttendance(kind, ref, btn, bioNote, rule, setBusy, missedIn = f
         outBio: bio.ok, outBioReason: bio.ok ? '' : (bio.reason || ''),
         outPhoto: !!photo
       };
-      await setDoc(ref, { sessions }, { merge: true });
-      if (photo) {
-        try { await savePhoto({ dateStr: ymdKsa(now), sessionIdx: openIdx, kind: 'out', photo, pos }); }
-        catch (e) { console.error('photo', e); toast('سُجّل انصرافك، لكن تعذّر رفع الصورة', 'err'); }
-      }
+      batch.set(ref, { sessions }, { merge: true });
+      if (photo) stagePhoto(batch, { dateStr: photoDate, sessionIdx: openIdx, kind: 'out', photo, pos });
+      await batch.commit();
       toast('تم تسجيل الانصراف', 'ok');
     }
   } catch (e) {

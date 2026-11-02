@@ -900,9 +900,8 @@ tr.is-clickable:hover{background:var(--row-hover)}
   margin-block-start:var(--sp-3);padding:var(--sp-2);border:1px dashed var(--line-strong);
   border-radius:var(--r-md);background:var(--paper-2)}
 .shot__msg{font-size:var(--fs-sm);color:var(--muted-strong);text-align:center;margin:0}
-.shot__img{max-inline-size:100%;max-block-size:44vh;border-radius:var(--r-md);display:block}
-/* التسمية تتصرّف كزرّ — لمسة الموظف عليها هي ما يفتح الكاميرا */
-label.btn{cursor:pointer}
+.shot__img,.shot__video{max-inline-size:100%;max-block-size:44vh;border-radius:var(--r-md);display:block}
+.shot__video{background:#000}
 /* ‎.btn تفرض display:inline-flex فتتغلّب على [hidden] الافتراضية، فكان زرّ
    «أرسِل الصورة» يظهر قبل التقاط أي صورة. */
 .btn[hidden]{display:none}
