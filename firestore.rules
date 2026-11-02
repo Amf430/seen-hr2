@@ -75,6 +75,35 @@ service cloud.firestore {
       return timestamp.date(int(s.split('-')[0]), int(s.split('-')[1]), int(s.split('-')[2]));
     }
 
+    /* ───────────── weekly department roster owner ─────────────
+       departmentIndex مجرد وسيلة وصول إلى المصفوفة وليس هوية. كل سماح كتابة
+       يثبت أولاً أن العنصر ما زال موجوداً وأن id فيه يطابق departmentId في
+       الـRoster، ثم يثبت managerUid. إعادة ترتيب القائمة تفشل مغلقاً. */
+    function settingsConfigPath() {
+      return /databases/$(database)/documents/settings/config;
+    }
+    function rosterDepartmentRefMatches(x) {
+      let deps = get(settingsConfigPath()).data.departments;
+      return deps is list
+        && x.departmentIndex is int
+        && x.departmentIndex >= 0
+        && x.departmentIndex < deps.size()
+        && deps[x.departmentIndex].id == x.departmentId
+        && deps[x.departmentIndex].name == x.department;
+    }
+    function rosterDepartmentRefOk(x) {
+      return exists(settingsConfigPath()) && rosterDepartmentRefMatches(x);
+    }
+    function rosterDepartmentManagerOk(x) {
+      let dep = get(settingsConfigPath()).data.departments[x.departmentIndex];
+      return dep.managerUid is string && dep.managerUid != ''
+        && dep.managerUid == request.auth.uid && myDept() == dep.name;
+    }
+    function isRosterManagerFor(x) {
+      return isMgr() && rosterDepartmentRefOk(x)
+        && rosterDepartmentManagerOk(x);
+    }
+
     /* ───────────── attendance sessions ─────────────
        Rules cannot loop, and sessions is capped at 12, so the prefix check is
        unrolled. `n <= i` short-circuits before the index is ever evaluated.  */
@@ -311,14 +340,22 @@ service cloud.firestore {
     }
 
     match /settings/{doc} {
+      function payrollAttendanceSourceOk() {
+        return !('payroll' in d())
+          || !('attendanceSource' in d().payroll)
+          || d().payroll.attendanceSource in ['physical','mobile','both'];
+      }
       /* was sIn(): a signed-up stranger could read company GPS, payroll rules,
          department list and every manager's uid.
          isActive() and not hasP(): a suspended employee kept reading all of it,
          which the emulator caught. Note users/{uid} self-read deliberately stays
          at sIn() — the client must be able to read its own doc to DISCOVER it is
          suspended and show the right message before signing itself out. */
-      allow read:  if isActive();
-      allow write: if isAdmin();
+      allow read: if isActive();
+      /* الحقل اختياري للتوافق مع settings القديمة، وحذف الأدمن بقي على
+         semantics السابقة بدل أن يفشل بسبب غياب request.resource. */
+      allow create, update: if isAdmin() && payrollAttendanceSourceOk();
+      allow delete: if isAdmin();
     }
 
     /* ═════════════════════════ requests ═════════════════════════ */
@@ -361,13 +398,16 @@ service cloud.firestore {
           && d().endDate >= d().startDate
           && d().days is int && d().days > 0 && d().days <= 365
           && d().leaveTypeId is string && d().leaveTypeId != ''
+          && d().get('note', '') is string && d().get('note', '').size() <= 500
           && ymdTs(d().startDate) + duration.value(d().days - 1, 'd') <= ymdTs(d().endDate)
           && ymdTs(d().endDate) <= ymdTs(d().startDate) + duration.value(d().days * 2 + 7, 'd');
     }
 
     /* ───────────── permission: no rewriting the past ─────────────
-       الفترة المعتمدة هي التي تحدد دقائق الإعفاء، والفئة تشرح موضعها. كانت
-       الفئة والوقت نصوصاً غير متحقق منها على تاريخ غير متحقق منه، لذلك كان
+       `category` decides the payroll exemption:
+           latePerm  = category contains 'تأخير'  → late minutes waived
+           earlyPerm = category contains 'خروج'   → early-out minutes waived
+       It was an unvalidated client string on an unvalidated date, so an
        employee could file a permission dated last month and a department
        manager (who may approve permissions) could approve it — erasing a
        deduction already earned, with nothing in the audit log tying the two.
@@ -445,22 +485,36 @@ service cloud.firestore {
       return v is string && v.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$');
     }
 
+    function permissionKindOk() {
+      return (d().permissionKind == 'late'  && d().category == 'تأخير عن الدوام')
+          || (d().permissionKind == 'early' && d().category == 'خروج مبكر')
+          || (d().permissionKind == 'mid'   && d().category == 'استئذان أثناء الدوام');
+    }
+
     function permOk() {
+      /* التفاصيل تحفظ سياق قرار الإعفاء من الخصم، والسقف يمنع تحويل الطلب
+         إلى مساحة تخزين غير محدودة على حساب مالك النظام. */
       return isYmd(d().date)
           && d().date >= ymd(ksa() - duration.value(3, 'd'))
           && d().category in ['تأخير عن الدوام', 'خروج مبكر', 'استئذان أثناء الدوام']
           && (
-            /* الشكل الجديد: فترة صريحة ثابتة بعد التقديم. ترتيب الوقتين لا
-               يُفرض هنا لأن 23:00→01:00 فترة صحيحة في وردية ليلية. */
+            /* الشكل الجديد: الفترة صريحة وpermissionKind هو معناها
+               الدلالي. لا نقارن الوقتين نصياً لأن 23:00→01:00 صحيح. */
             ('startTime' in d() && 'endTime' in d() && !('time' in d())
+              && ('permissionKind' in d()) && permissionKindOk()
               && permissionTimeOk(d().startTime) && permissionTimeOk(d().endTime)
               && d().startTime != d().endTime)
             ||
-            /* الطلبات القديمة بلا ترحيل: time وحده يبقى للفئتين القديمتين. */
+            /* العميل والوثائق القديمة: time وحده للفئتين القديمتين. وجود
+               permissionKind اختياري، لكنه إن وُجد يبقى متطابقاً. */
             (!('startTime' in d()) && !('endTime' in d())
               && d().category in ['تأخير عن الدوام', 'خروج مبكر']
-              && permissionTimeOk(d().time))
-          );
+              && permissionTimeOk(d().time)
+              && (!('permissionKind' in d()) || permissionKindOk()))
+          )
+          && d().note is string
+          && d().note.trim().size() > 0
+          && d().note.size() <= 500;
     }
 
     /* ───────────── attendanceFix: employee-raised punch correction ─────────
@@ -497,12 +551,16 @@ service cloud.firestore {
           && d().claimedTime is string
           && d().claimedTime.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
           && d().reason is string
-          && d().reason.size() >= 10 && d().reason.size() <= 300;
+          && d().reason.size() >= 10 && d().reason.size() <= 300
+          /* غياب الحقل = وثيقة قديمة تستهدف employeeUid. وإن وُجد فلا يقبل
+             إلا UID الحالي أو previousUids المحروسة إدارياً لنفس الموظف. */
+          && (!('attendanceUid' in d())
+              || (d().attendanceUid is string && isMine(d().attendanceUid)));
     }
 
     match /requests/{id} {
       allow read: if isAdmin()
-        || (sIn() && p().employeeUid == request.auth.uid)
+        || (hasP() && isMine(p().employeeUid))
         || sameDept();
 
       allow create: if isActive()
@@ -513,6 +571,9 @@ service cloud.firestore {
         && d().get('department','')     == myDept()
         && d().get('employeeEmpId','')  == me().get('empId','')
         && d().type in ['permission','leave','attendanceFix']
+        /* attendanceUid ليس حقلاً عاماً للطلبات؛ وجوده مشروع فقط في تصحيح
+           بصمة، وfixOk() يربطه بهوية الموظف الحالية أو التاريخية. */
+        && (!('attendanceUid' in d()) || d().type == 'attendanceFix')
         && d().status == 'pending'
         && d().reviewedBy == '' && d().reviewedAt == null && d().rejectReason == ''
         && d().createdAt == request.time
@@ -545,17 +606,167 @@ service cloud.firestore {
                يوافق على طلب سحبه الموظف بنفسه (cancelled ← approved) أو
                يعيد فتح طلب مرفوض. */
             && p().status == 'pending'
-            && p().employeeUid != request.auth.uid
+            && !isMine(p().employeeUid)
             && d().status in ['approved','rejected']
             && d().reviewedBy == me().name
             && only(['status','reviewedBy','reviewedAt','rejectReason']))
         /* employee withdrawing their own pending request — works either way */
-        || (isActive() && p().employeeUid == request.auth.uid
+        || (isActive() && isMine(p().employeeUid)
             && p().status == 'pending'
             && d().status == 'cancelled'
             && only(['status','reviewedAt']));
 
       allow delete: if isAdmin();
+    }
+
+    /* ═══════════════════ weekly department rosters ═══════════════════
+
+       Parent واحد يحكم Workflow الأسبوع كله، وEntry واحدة لكل موظف تحته.
+       الحالة لا تُكرَّر في Entries: الحساب لا يقرأ approvedDays إلا حين يكون
+       الـParent نفسه Approved. وهذا يمنع حالتين متناقضتين لنفس الأسبوع.
+
+       ⚠️ بعد بداية الأسبوع لا يُعاد Approved إلى Returned. تعديل الماضي هنا
+       يحتاج Amendment/Audit مستقلين، وهما خارج هذا الإصدار عمداً. */
+    match /weeklyRosters/{rosterId} {
+      function rosterParentOk() {
+        return d().keys().hasOnly([
+            'weekStart','weekEnd','departmentId','departmentIndex','department','status',
+            'createdByUid','createdByName','createdAt','updatedAt',
+            'submittedByUid','submittedAt','reviewedByUid','reviewedByName','reviewedAt','returnNote'
+          ])
+          && d().departmentId is string && d().departmentId.size() > 0 && d().departmentId.size() <= 80
+          && rosterId == d().departmentId + '_' + d().weekStart
+          && isYmd(d().weekStart) && isYmd(d().weekEnd)
+          && ymdTs(d().weekEnd) == ymdTs(d().weekStart) + duration.value(6, 'd')
+          && d().departmentIndex is int && d().departmentIndex >= 0
+          && d().department is string && d().department.size() > 0 && d().department.size() <= 80
+          && d().status in ['draft','submitted','approved','returned']
+          && d().createdByUid is string && d().createdByUid.size() <= 128
+          && d().createdByName is string && d().createdByName.size() <= 120
+          && d().submittedByUid is string && d().submittedByUid.size() <= 128
+          && d().reviewedByUid is string && d().reviewedByUid.size() <= 128
+          && d().reviewedByName is string && d().reviewedByName.size() <= 120
+          && d().returnNote is string && d().returnNote.size() <= 300;
+      }
+
+      allow read: if isAdmin()
+        || (isMgr() && p().department == myDept())
+        || (isActive() && p().status == 'approved' && p().department == myDept());
+
+      allow create: if isRosterManagerFor(d()) && rosterParentOk()
+        && d().status == 'draft'
+        && d().createdByUid == request.auth.uid && d().createdByName == me().name
+        && d().createdAt == request.time && d().updatedAt == request.time
+        && d().submittedByUid == '' && d().submittedAt == null
+        && d().reviewedByUid == '' && d().reviewedByName == '' && d().reviewedAt == null
+        && d().returnNote == '';
+
+      allow update: if rosterParentOk() && (
+        /* مسؤول الجدول يحفظ Draft/Returned أو يرسله فقط. */
+        (isRosterManagerFor(d())
+          && d().departmentId == p().departmentId
+          && p().status in ['draft','returned']
+          && d().updatedAt == request.time
+          && (
+            (d().status == p().status
+              && only(['departmentIndex','department','updatedAt']))
+            || (d().status == 'submitted'
+              && d().submittedByUid == request.auth.uid && d().submittedAt == request.time
+              && d().returnNote == ''
+              && only(['status','submittedByUid','submittedAt','updatedAt','returnNote']))
+          ))
+        ||
+        /* HR يعتمد/يعيد، وإعادة Approved مسموحة قبل بداية الأسبوع فقط. */
+        (isAdmin() && d().updatedAt == request.time
+          && d().reviewedByUid == request.auth.uid && d().reviewedByName == me().name
+          && d().reviewedAt == request.time
+          && only(['status','reviewedByUid','reviewedByName','reviewedAt','updatedAt','returnNote'])
+          && (
+            (p().status == 'submitted' && d().status == 'approved' && d().returnNote == '')
+            || (p().status == 'submitted' && d().status == 'returned'
+              && d().returnNote.size() > 0)
+            || (p().status == 'approved' && d().status == 'returned'
+              && d().returnNote.size() > 0 && ksa() < ymdTs(p().weekStart))
+          ))
+      );
+      allow delete: if false;
+
+      match /entries/{employeeUid} {
+        function parentPath() {
+          return /databases/$(database)/documents/weeklyRosters/$(rosterId);
+        }
+        function parentStatus() { return get(parentPath()).data.status; }
+        function parentDepartment() { return get(parentPath()).data.department; }
+        function parentData() { return get(parentPath()).data; }
+        function shortRef(v) { return v is string && v.size() <= 80; }
+        function rosterDaysOk(m) {
+          return m is map && m.keys().hasOnly(['0','1','2','3','4','5'])
+            && shortRef(m.get('0','')) && shortRef(m.get('1',''))
+            && shortRef(m.get('2','')) && shortRef(m.get('3',''))
+            && shortRef(m.get('4','')) && shortRef(m.get('5',''));
+        }
+        function snapshotDayOk(x) {
+          return x == null
+            || (x is map && (
+              (x.keys().hasOnly(['kind']) && x.kind == 'rest')
+              || (x.keys().hasOnly(['kind','shiftPlanId','planName','type','start','end','checkInCutoff'])
+                && x.kind == 'shift'
+                && x.shiftPlanId is string && x.shiftPlanId.size() > 0 && x.shiftPlanId.size() <= 80
+                && x.planName is string && x.planName.size() > 0 && x.planName.size() <= 120
+                && x.type in ['morning','evening']
+                && x.start is string && x.start.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+                && x.end is string && x.end.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+                && (!('checkInCutoff' in x)
+                  || (x.checkInCutoff is string
+                    && x.checkInCutoff.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')))
+              )));
+        }
+        function approvedDaysOk(m) {
+          return m is map && m.keys().hasOnly(['0','1','2','3','4','5'])
+            && snapshotDayOk(m.get('0', null)) && snapshotDayOk(m.get('1', null))
+            && snapshotDayOk(m.get('2', null)) && snapshotDayOk(m.get('3', null))
+            && snapshotDayOk(m.get('4', null)) && snapshotDayOk(m.get('5', null));
+        }
+        function entryBaseOk() {
+          return d().keys().hasOnly(['employeeUid','employeeName','department','days','approvedDays','updatedAt'])
+            && d().employeeUid == employeeUid
+            && d().employeeUid is string && d().employeeUid.size() <= 128
+            && d().employeeName is string && d().employeeName.size() > 0 && d().employeeName.size() <= 120
+            && d().department == parentDepartment()
+            && d().department is string && d().department.size() <= 80
+            && rosterDaysOk(d().days)
+            && d().updatedAt == request.time;
+        }
+        function employeeIsDepartmentStaff() {
+          let u = /databases/$(database)/documents/users/$(employeeUid);
+          return exists(u) && get(u).data.get('department','') == parentDepartment()
+            && get(u).data.get('role','employee') != 'admin';
+        }
+
+        allow read: if isAdmin()
+          || (isMgr() && parentDepartment() == myDept())
+          || (parentStatus() == 'approved'
+            && ((isMgr() && p().department == myDept())
+              || (isActive() && isMine(employeeUid))));
+
+        allow create: if isRosterManagerFor(parentData()) && parentStatus() in ['draft','returned']
+          && entryBaseOk() && employeeIsDepartmentStaff() && !('approvedDays' in d());
+
+        allow update: if
+          (isMgr() && isRosterManagerFor(parentData()) && parentStatus() in ['draft','returned']
+            && entryBaseOk() && employeeIsDepartmentStaff()
+            && d().employeeUid == p().employeeUid && d().department == p().department
+            && only(['employeeName','days','updatedAt']))
+          ||
+          /* العميل يكتب اللقطة والاعتماد في transaction واحدة. أمنياً تكفي
+             نافذة Submitted: اللقطة لا تؤثر قبل Approved، وبعده تُقفل نهائياً. */
+          (isAdmin() && parentStatus() == 'submitted'
+            && d().updatedAt == request.time
+            && approvedDaysOk(d().approvedDays)
+            && only(['approvedDays','updatedAt']));
+
+        allow delete: if isRosterManagerFor(parentData()) && parentStatus() in ['draft','returned'];
+      }
     }
 
     /* ═════════════════════════ attendance (web self check-in) ═════════════════════════ */
@@ -672,21 +883,59 @@ service cloud.firestore {
 
        إضافة فقط: لا تعديل ولا حذف حتى للأدمن. تصحيح خاطئ يُلغى بتصحيح مضادّ. */
     match /attendanceAdjustments/{id} {
-      allow read: if isAdmin() || sameDept()
-        || (isActive() && resource != null && p().employeeUid == request.auth.uid);
+      function adjustmentUserPath() {
+        return /databases/$(database)/documents/users/$(p().employeeUid);
+      }
+      function adjustmentCurrentUserSameDept() {
+        return isMgr() && p().employeeUid is string
+          && exists(adjustmentUserPath())
+          && get(adjustmentUserPath()).data.get('department','') == myDept();
+      }
+      function adjustmentSourceSameDept(coll) {
+        let rid = p().employeeUid + '_' + p().date;
+        let source = /databases/$(database)/documents/$(coll)/$(rid);
+        return p().coll == coll && exists(source)
+          && get(source).data.get('department','') == myDept();
+      }
+      function adjustmentHistoricalSameDept() {
+        return isMgr() && p().employeeUid is string && isYmd(p().date)
+          && (adjustmentSourceSameDept('attendance')
+              || adjustmentSourceSameDept('zkAttendance'));
+      }
+      function adjustmentAuditOk() {
+        return d().byUid == request.auth.uid
+          && d().byName == me().name
+          && d().at == request.time
+          && d().coll in ['attendance','zkAttendance']
+          && d().field in ['in','out']
+          && d().sessionIdx is int && d().sessionIdx >= 0 && d().sessionIdx < 12
+          && isYmd(d().date)
+          /* السبب إلزامي — تصحيح أو خصم بلا سبب لا يختلف عن التزوير */
+          && d().reason is string && d().reason.size() >= 3 && d().reason.size() <= 300;
+      }
+      function timeCorrectionOk() {
+        /* غياب adjustmentType هو العقد التاريخي؛ لا Migration ولا تغيير معنى. */
+        return !('adjustmentType' in d())
+          && d().keys().hasOnly(['employeeUid','employeeName','date','coll','sessionIdx',
+                                 'field','value','reason','byUid','byName','at'])
+          && d().value is timestamp;
+      }
+      function missingPunchPenaltyOk() {
+        return d().adjustmentType == 'missingPunchPenalty'
+          && d().keys().hasOnly(['adjustmentType','employeeUid','employeeName','date','coll',
+                                 'sessionIdx','field','action','penaltyMinutes','reason',
+                                 'byUid','byName','at'])
+          && d().penaltyMinutes is int
+          && ((d().action == 'apply' && d().penaltyMinutes in [60,120,180])
+              || (d().action == 'reverse' && d().penaltyMinutes == 0));
+      }
+      allow read: if isAdmin()
+        || (isActive() && resource != null && isMine(p().employeeUid))
+        || adjustmentCurrentUserSameDept()
+        || adjustmentHistoricalSameDept();
       allow create: if isAdmin()
-        && d().byUid == request.auth.uid
-        && d().byName == me().name
-        && d().at == request.time
-        && d().keys().hasOnly(['employeeUid','employeeName','date','coll','sessionIdx',
-                               'field','value','reason','byUid','byName','at'])
-        && d().coll in ['attendance','zkAttendance']
-        && d().field in ['in','out']
-        && d().sessionIdx is int && d().sessionIdx >= 0 && d().sessionIdx < 12
-        && isYmd(d().date)
-        /* السبب إلزامي — تصحيح بلا سبب لا يختلف عن التزوير */
-        && d().reason is string && d().reason.size() >= 3 && d().reason.size() <= 300
-        && d().value is timestamp;
+        && adjustmentAuditOk()
+        && (timeCorrectionOk() || missingPunchPenaltyOk());
       allow update, delete: if false;
     }
 

@@ -1,9 +1,9 @@
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, addDoc, getDocs,
-         query, where, orderBy, limit, serverTimestamp, Timestamp } from 'firebase/firestore';
+         query, where, orderBy, limit, serverTimestamp, Timestamp, writeBatch } from 'firebase/firestore';
 import fs from 'fs';
 
-const PROJECT = 'seen-hr2-test';
+const PROJECT = process.env.FIREBASE_RULES_TEST_PROJECT_ID || 'demo-seen-hr2-rc';
 let pass = 0, fail = 0;
 const failures = [];
 
@@ -34,19 +34,36 @@ await env.clearFirestore();
 await env.withSecurityRulesDisabled(async (ctx) => {
   const db = ctx.firestore();
   await setDoc(doc(db, 'users/adminU'), { name: 'المدير', role: 'admin', status: 'active', department: 'الموارد البشرية', empId: 'ADMIN' });
-  await setDoc(doc(db, 'users/empU'),   { name: 'سالم', role: 'employee', status: 'active', department: 'المبيعات', empId: '101', salary: 6000, balances: { annual: 21 }, previousUids: ['oldEmpU'] });
-  await setDoc(doc(db, 'users/emp2U'),  { name: 'خالد', role: 'employee', status: 'active', department: 'المبيعات', empId: '102', salary: 5000 });
-  await setDoc(doc(db, 'users/mgrU'),   { name: 'فهد', role: 'manager', status: 'active', department: 'المبيعات', empId: '103' });
+  await setDoc(doc(db, 'users/empU'),   { name: 'سالم', role: 'employee', status: 'active', department: 'المبيعات', empId: '101', salary: 6000, balances: { annual: 21 }, previousUids: ['oldEmpU', 'olderEmpU'] });
+  await setDoc(doc(db, 'users/emp2U'),  { name: 'خالد', role: 'employee', status: 'active', department: 'المبيعات', empId: '102', salary: 5000, previousUids: ['oldEmp2U'] });
+  await setDoc(doc(db, 'users/mgrU'),   { name: 'فهد', role: 'manager', status: 'active', department: 'المبيعات', empId: '103', previousUids: ['oldMgrU'] });
+  await setDoc(doc(db, 'users/mgr2U'),  { name: 'ماجد', role: 'manager', status: 'active', department: 'المبيعات', empId: '106' });
+  await setDoc(doc(db, 'users/finMgrU'),{ name: 'نورة', role: 'manager', status: 'active', department: 'المالية', empId: '107' });
+  await setDoc(doc(db, 'users/finU'),   { name: 'ناصر', role: 'employee', status: 'active', department: 'المالية', empId: '105' });
   await setDoc(doc(db, 'users/suspU'),  { name: 'معلّق', role: 'employee', status: 'suspended', department: 'المبيعات', empId: '104' });
-  await setDoc(doc(db, 'settings/config'), { branches: [], leaveTypes: [], company: { lat: 21.5, lng: 39.1, radius: 500 } });
+  await setDoc(doc(db, 'settings/config'), { branches: [], leaveTypes: [], company: { lat: 21.5, lng: 39.1, radius: 500 },
+    departments: [
+      { id: 'sales', name: 'المبيعات', managerUid: 'mgrU' },
+      { id: 'finance', name: 'المالية', managerUid: 'finMgrU' }
+    ] });
   await setDoc(doc(db, 'zkAttendance/empU_2026-07-01'), { employeeUid: 'empU', date: '2026-07-01', sessions: [] });
   /* ── history left under a previous uid, after an access restore ──
      empU carries oldEmpU in previousUids; emp2U carries nothing. Both try to
      read the same record — only the one who owns that past identity may. */
   await setDoc(doc(db, 'zkAttendance/oldEmpU_2026-06-01'),
-    { employeeUid: 'oldEmpU', employeeEmpId: '101', employeeName: 'سالم', date: '2026-06-01', sessions: [] });
+    { employeeUid: 'oldEmpU', employeeEmpId: '101', employeeName: 'سالم', department: 'المبيعات', date: '2026-06-01', sessions: [] });
   await setDoc(doc(db, 'attendance/oldEmpU_2026-06-01'),
-    { employeeUid: 'oldEmpU', employeeEmpId: '101', employeeName: 'سالم', date: '2026-06-01', sessions: [] });
+    { employeeUid: 'oldEmpU', employeeEmpId: '101', employeeName: 'سالم', department: 'المبيعات', date: '2026-06-01', sessions: [] });
+  await setDoc(doc(db, 'zkAttendance/olderEmpU_2026-06-02'),
+    { employeeUid: 'olderEmpU', employeeEmpId: '101', employeeName: 'سالم', department: 'المبيعات', date: '2026-06-02', sessions: [] });
+  await setDoc(doc(db, 'attendance/olderEmpU_2026-06-02'),
+    { employeeUid: 'olderEmpU', employeeEmpId: '101', employeeName: 'سالم', department: 'المبيعات', date: '2026-06-02', sessions: [] });
+  await setDoc(doc(db, 'zkAttendance/oldEmp2U_2026-06-01'),
+    { employeeUid: 'oldEmp2U', employeeEmpId: '102', employeeName: 'خالد', department: 'المبيعات', date: '2026-06-01', sessions: [] });
+  await setDoc(doc(db, 'zkAttendance/finU_2026-06-01'),
+    { employeeUid: 'finU', employeeEmpId: '105', employeeName: 'ناصر', department: 'المالية', date: '2026-06-01', sessions: [] });
+  await setDoc(doc(db, 'attendance/finU_2026-06-01'),
+    { employeeUid: 'finU', employeeEmpId: '105', employeeName: 'ناصر', department: 'المالية', date: '2026-06-01', sessions: [] });
   /* تذكرة موارد بشرية يملكها empU، ورسالة واحدة تحتها */
   await setDoc(doc(db, 'hrTickets/tkt1'), {
     employeeUid: 'empU', employeeName: 'سالم', employeeEmpId: '101', department: 'المبيعات',
@@ -65,12 +82,23 @@ await env.withSecurityRulesDisabled(async (ctx) => {
     status: 'pending', days: 3, leaveTypeId: 'annual', deduct: true,
     startDate: '2026-08-10', endDate: '2026-08-12', reviewedBy: '', reviewedAt: null, rejectReason: ''
   });
+  await setDoc(doc(db, 'requests/oldMgrPermission'), {
+    employeeUid: 'oldMgrU', employeeName: 'فهد', department: 'المبيعات', type: 'permission',
+    status: 'pending', date: '2026-08-01', time: '09:00', reviewedBy: '', reviewedAt: null, rejectReason: ''
+  });
+  await setDoc(doc(db, 'requests/oldEmpPermission'), {
+    employeeUid: 'oldEmpU', employeeName: 'سالم', department: 'المبيعات', type: 'permission',
+    status: 'pending', date: '2026-08-01', time: '09:00', reviewedBy: '', reviewedAt: null, rejectReason: ''
+  });
 });
 
 const stranger = env.authenticatedContext('strangerU').firestore();  // signed up, NO users doc
 const emp      = env.authenticatedContext('empU').firestore();
 const emp2     = env.authenticatedContext('emp2U').firestore();
 const mgr      = env.authenticatedContext('mgrU').firestore();
+const mgr2     = env.authenticatedContext('mgr2U').firestore();
+const finMgr   = env.authenticatedContext('finMgrU').firestore();
+const fin      = env.authenticatedContext('finU').firestore();
 const admin    = env.authenticatedContext('adminU').firestore();
 const susp     = env.authenticatedContext('suspU').firestore();
 const anon     = env.unauthenticatedContext().firestore();
@@ -83,11 +111,15 @@ const dRel = (n) => ymdKsa(new Date(ksaNow().getTime() + n * 86400000));
 const validRequest = (over = {}) => ({
   employeeUid: 'empU', employeeName: 'سالم', employeeEmpId: '101', department: 'المبيعات',
   type: 'permission', category: 'تأخير عن الدوام', categoryLabel: 'تأخير عن الدوام',
-  date: dRel(0), time: '09:30', status: 'pending',
+  date: dRel(0), time: '09:30', note: 'مراجعة موعد طبي', status: 'pending',
   reviewedBy: '', reviewedAt: null, rejectReason: '', createdAt: serverTimestamp(), ...over
 });
+
 const intervalRequest = (over = {}) => {
-  const r = validRequest({ startTime: '12:00', endTime: '13:00', ...over });
+  const r = validRequest({
+    category: 'استئذان أثناء الدوام', categoryLabel: 'استئذان أثناء الدوام',
+    permissionKind: 'mid', startTime: '12:00', endTime: '13:00', ...over
+  });
   delete r.time;
   return r;
 };
@@ -247,27 +279,25 @@ await check('PERM: forged category (fake exemption)', false, () =>
 await check('PERM: malformed date',                   false, () =>
   addDoc(collection(emp, 'requests'), validRequest({ date: '2026-8-5' })));
 await check('PERM: malformed legacy time',            false, () =>
-  addDoc(collection(emp, 'requests'), validRequest({ time: '25:00' })));
-await check('PERM: malformed startTime',              false, () =>
-  addDoc(collection(emp, 'requests'), intervalRequest({ startTime: '9:00' })));
-await check('PERM: missing endTime',                  false, () => {
+  addDoc(collection(emp, 'requests'), validRequest({ time: '9:30' })));
+await check('PERM: malformed interval start',         false, () =>
+  addDoc(collection(emp, 'requests'), intervalRequest({ startTime: '9:30' })));
+await check('PERM: interval missing endTime',         false, () => {
   const r = intervalRequest(); delete r.endTime;
   return addDoc(collection(emp, 'requests'), r);
 });
-await check('PERM: equal interval endpoints',         false, () =>
-  addDoc(collection(emp, 'requests'), intervalRequest({ startTime: '12:00', endTime: '12:00' })));
-await check('PERM: new interval smuggles legacy time',false, () => {
-  const r = intervalRequest(); r.time = '12:00';
-  return addDoc(collection(emp, 'requests'), r);
-});
-await check('PERM: legacy mid-shift has no interval', false, () =>
-  addDoc(collection(emp, 'requests'), validRequest({ category: 'استئذان أثناء الدوام' })));
+await check('PERM: zero-length interval',             false, () =>
+  addDoc(collection(emp, 'requests'), intervalRequest({ endTime: '12:00' })));
+await check('PERM: hybrid legacy and interval shape', false, () =>
+  addDoc(collection(emp, 'requests'), { ...intervalRequest(), time: '12:30' }));
+await check('PERM: legacy mid-shift is not inferred', false, () =>
+  addDoc(collection(emp, 'requests'), validRequest({ category: 'استئذان أثناء الدوام', categoryLabel: 'استئذان أثناء الدوام', time: '12:00' })));
 await check('request pre-approved by its author',     false, () => addDoc(collection(emp, 'requests'), { ...validRequest(), status: 'approved' }));
 await check('employee approves own pending request',  false, () => updateDoc(doc(emp, 'requests/permOfEmp'), { status: 'approved', reviewedBy: 'سالم', reviewedAt: serverTimestamp(), rejectReason: '' }));
 await check('employee approves a colleague request',  false, () => updateDoc(doc(emp2, 'requests/permOfEmp'), { status: 'approved', reviewedBy: 'خالد', reviewedAt: serverTimestamp(), rejectReason: '' }));
 await check('manager approves LEAVE (balances)',      false, () => updateDoc(doc(mgr, 'requests/leaveOfEmp'), { status: 'approved', reviewedBy: 'فهد', reviewedAt: serverTimestamp(), rejectReason: '' }));
 await check('manager rewrites permission time',       false, () => updateDoc(doc(mgr, 'requests/permOfEmp'), { status: 'approved', reviewedBy: 'فهد', reviewedAt: serverTimestamp(), rejectReason: '', time: '13:00' }));
-await check('manager rewrites permission interval',   false, () => updateDoc(doc(mgr, 'requests/permOfEmp'), { status: 'approved', reviewedBy: 'فهد', reviewedAt: serverTimestamp(), rejectReason: '', startTime: '12:00', endTime: '13:00' }));
+await check('manager rewrites permission interval',   false, () => updateDoc(doc(mgr, 'requests/permOfEmp'), { status: 'approved', reviewedBy: 'فهد', reviewedAt: serverTimestamp(), rejectReason: '', startTime: '12:00', endTime: '13:00', permissionKind: 'mid', category: 'استئذان أثناء الدوام' }));
 await check('manager attributes decision to admin',   false, () => updateDoc(doc(mgr, 'requests/permOfEmp'), { status: 'approved', reviewedBy: 'المدير', reviewedAt: serverTimestamp(), rejectReason: '' }));
 await check('manager approves a WITHDRAWN request',   false, async () => {
   await env.withSecurityRulesDisabled(async (c) => setDoc(doc(c.firestore(), 'requests/withdrawnReq'), {
@@ -379,6 +409,16 @@ await check('admin sets previousUids',                true,
 await check('employee writes a past-uid zk record',   false,
   () => setDoc(doc(emp, 'zkAttendance/oldEmpU_2026-06-02'), { employeeUid: 'oldEmpU', date: '2026-06-02', sessions: [] }));
 
+await check('manager cannot approve own historical request', false,
+  () => updateDoc(doc(mgr, 'requests/oldMgrPermission'), {
+    status: 'approved', reviewedBy: 'فهد', reviewedAt: serverTimestamp(), rejectReason: ''
+  }));
+await check('employee queries requests across current and previous uids', true,
+  () => getDocs(query(collection(emp, 'requests'),
+    where('employeeUid', 'in', ['empU', 'oldEmpU', 'olderEmpU']))));
+await check('employee request query cannot include a foreign uid', false,
+  () => getDocs(query(collection(emp, 'requests'),
+    where('employeeUid', 'in', ['empU', 'finU']))));
 await check('employee writes zkAttendance (payroll)', false, () => setDoc(doc(emp, 'zkAttendance/empU_' + ymdKsa()), { employeeUid: 'empU', date: ymdKsa(), sessions: [] }));
 await check('admin writes zkAttendance',              false, () => setDoc(doc(admin, 'zkAttendance/x_' + ymdKsa()), { employeeUid: 'empU', date: ymdKsa(), sessions: [] }));
 await check('employee writes bridge/status',          false, () => setDoc(doc(emp, 'bridge/status'), { deviceOk: true }));
@@ -452,6 +492,61 @@ await check('admin records an adjustment',           true,  () => setDoc(doc(adm
 await check('admin EDITS an adjustment',             false, () => updateDoc(doc(admin, 'attendanceAdjustments/a8'), { reason: 'سبب آخر' }));
 await check('admin DELETES an adjustment',           false, () => deleteDoc(doc(admin, 'attendanceAdjustments/a8')));
 
+const penaltyAdj = (over = {}) => ({
+  adjustmentType: 'missingPunchPenalty', employeeUid: 'empU', employeeName: 'سالم',
+  date: ymdKsa(), coll: 'zkAttendance', sessionIdx: 0, field: 'out',
+  action: 'apply', penaltyMinutes: 60, reason: 'خصم موثّق لبصمة ناقصة',
+  byUid: 'adminU', byName: 'المدير', at: serverTimestamp(), ...over
+});
+await check('employee writes missing-punch penalty', false,
+  () => setDoc(doc(emp, 'attendanceAdjustments/p-emp'),
+    penaltyAdj({ byUid:'empU', byName:'سالم' })));
+await check('manager writes missing-punch penalty',  false,
+  () => setDoc(doc(mgr, 'attendanceAdjustments/p-mgr'),
+    penaltyAdj({ byUid:'mgrU', byName:'فهد' })));
+await check('admin applies 1h missing-punch penalty', true,
+  () => setDoc(doc(admin, 'attendanceAdjustments/p-60'), penaltyAdj()));
+await check('admin applies 2h missing-punch penalty', true,
+  () => setDoc(doc(admin, 'attendanceAdjustments/p-120'), penaltyAdj({ penaltyMinutes:120 })));
+await check('admin applies 3h missing-punch penalty', true,
+  () => setDoc(doc(admin, 'attendanceAdjustments/p-180'), penaltyAdj({ penaltyMinutes:180 })));
+await check('admin reverses missing-punch penalty with zero', true,
+  () => setDoc(doc(admin, 'attendanceAdjustments/p-reverse'),
+    penaltyAdj({ action:'reverse', penaltyMinutes:0 })));
+await check('missing-punch apply rejects 90 minutes', false,
+  () => setDoc(doc(admin, 'attendanceAdjustments/p-90'), penaltyAdj({ penaltyMinutes:90 })));
+await check('missing-punch apply rejects zero', false,
+  () => setDoc(doc(admin, 'attendanceAdjustments/p-apply-zero'), penaltyAdj({ penaltyMinutes:0 })));
+await check('missing-punch reverse rejects nonzero', false,
+  () => setDoc(doc(admin, 'attendanceAdjustments/p-reverse-60'),
+    penaltyAdj({ action:'reverse', penaltyMinutes:60 })));
+await check('missing-punch penalty rejects timestamp value', false,
+  () => setDoc(doc(admin, 'attendanceAdjustments/p-value'), penaltyAdj({ value:Timestamp.now() })));
+await check('admin EDITS a missing-punch penalty', false,
+  () => updateDoc(doc(admin, 'attendanceAdjustments/p-60'), { penaltyMinutes:180 }));
+await check('admin DELETES a missing-punch penalty', false,
+  () => deleteDoc(doc(admin, 'attendanceAdjustments/p-60')));
+
+await env.withSecurityRulesDisabled(async (ctx) => {
+  const d = ctx.firestore();
+  await setDoc(doc(d, 'attendanceAdjustments/own-current'), adj({ employeeUid: 'empU', date: '2026-06-01' }));
+  await setDoc(doc(d, 'attendanceAdjustments/old-own'), adj({ employeeUid: 'oldEmpU', date: '2026-06-01' }));
+  await setDoc(doc(d, 'attendanceAdjustments/old-own-mobile'), adj({ employeeUid: 'oldEmpU', date: '2026-06-01', coll: 'attendance' }));
+  await setDoc(doc(d, 'attendanceAdjustments/older-own'), adj({ employeeUid: 'olderEmpU', date: '2026-06-02' }));
+  await setDoc(doc(d, 'attendanceAdjustments/other-employee'), adj({ employeeUid: 'oldEmp2U', date: '2026-06-01', employeeName: 'خالد' }));
+  await setDoc(doc(d, 'attendanceAdjustments/other-dept'), adj({ employeeUid: 'finU', date: '2026-06-01', employeeName: 'ناصر' }));
+});
+await check('employee reads own adjustment',          true,  () => getDocs(query(collection(emp, 'attendanceAdjustments'), where('employeeUid', '==', 'empU'))));
+await check('employee reads previous-uid adjustment', true,  () => getDocs(query(collection(emp, 'attendanceAdjustments'), where('employeeUid', '==', 'oldEmpU'))));
+await check('employee reads second previous uid adjustment', true, () => getDocs(query(collection(emp, 'attendanceAdjustments'), where('employeeUid', '==', 'olderEmpU'))));
+await check('employee cannot read another historical uid', false, () => getDocs(query(collection(emp, 'attendanceAdjustments'), where('employeeUid', '==', 'oldEmp2U'))));
+await check('manager reads same-dept adjustment',     true,  () => getDocs(query(collection(mgr, 'attendanceAdjustments'), where('employeeUid', '==', 'empU'))));
+await check('manager reads historical same-dept adjustment', true, () => getDocs(query(collection(mgr, 'attendanceAdjustments'), where('coll', '==', 'zkAttendance'), where('employeeUid', '==', 'oldEmpU'), where('date', '==', '2026-06-01'))));
+await check('manager reads historical mobile adjustment', true, () => getDocs(query(collection(mgr, 'attendanceAdjustments'), where('coll', '==', 'attendance'), where('employeeUid', '==', 'oldEmpU'), where('date', '==', '2026-06-01'))));
+await check('manager reads other-dept adjustment',    false, () => getDocs(query(collection(mgr, 'attendanceAdjustments'), where('coll', '==', 'zkAttendance'), where('employeeUid', '==', 'finU'), where('date', '==', '2026-06-01'))));
+await check('manager lists all adjustments',          false, () => getDocs(collection(mgr, 'attendanceAdjustments')));
+await check('admin lists all adjustments',            true,  () => getDocs(collection(admin, 'attendanceAdjustments')));
+
 console.log('\n\x1b[1m═══ 5د. سلسلة الموافقات ═══\x1b[0m');
 await env.withSecurityRulesDisabled(async (ctx) => {
   const d = ctx.firestore();
@@ -490,14 +585,48 @@ await check('employee reads auditLog',                false, () => getDocs(colle
 await check('admin forges byName',                    false, () => addDoc(collection(admin, 'auditLog'), { action: 'a', detail: 'b', byName: 'شخص آخر', byUid: 'adminU', at: serverTimestamp() }));
 await check('admin edits an audit entry',             false, () => setDoc(doc(admin, 'auditLog/x'), { action: 'a' }));
 
+await check('admin selects physical payroll source',  true,  () => updateDoc(doc(admin, 'settings/config'), { 'payroll.attendanceSource': 'physical' }));
+await check('admin selects mobile payroll source',    true,  () => updateDoc(doc(admin, 'settings/config'), { 'payroll.attendanceSource': 'mobile' }));
+await check('admin selects both payroll sources',     true,  () => updateDoc(doc(admin, 'settings/config'), { 'payroll.attendanceSource': 'both' }));
+await check('admin selects unknown payroll source',   false, () => updateDoc(doc(admin, 'settings/config'), { 'payroll.attendanceSource': 'unknown' }));
+await check('employee changes payroll source',        false, () => updateDoc(doc(emp, 'settings/config'), { 'payroll.attendanceSource': 'mobile' }));
+await check('admin creates disposable settings',      true,  () => setDoc(doc(admin, 'settings/delete-policy'), { legacy: true }));
+await check('employee cannot delete settings',        false, () => deleteDoc(doc(emp, 'settings/delete-policy')));
+await check('admin delete semantics stay unchanged',  true,  () => deleteDoc(doc(admin, 'settings/delete-policy')));
+
 console.log('\n\x1b[1m═══ 7. LEGITIMATE WRITES — these MUST all succeed ═══\x1b[0m');
 await check('employee reads own profile',             true,  () => getDoc(doc(emp, 'users/empU')));
 await check('employee reads settings',                true,  () => getDoc(doc(emp, 'settings/config')));
 await check('employee submits a permission',          true,  () => addDoc(collection(emp, 'requests'), validRequest()));
+await check('permission with a normal note',          true,  () => addDoc(collection(emp, 'requests'), validRequest({ note: 'موعد طبي صباحاً' })));
+await check('permission with semantic late kind',     true,  () => addDoc(collection(emp, 'requests'), validRequest({ permissionKind: 'late' })));
+await check('permission with semantic early kind',    true,  () => addDoc(collection(emp, 'requests'), validRequest({ category: 'خروج مبكر', permissionKind: 'early' })));
+await check('permission with explicit late interval', true,  () => addDoc(collection(emp, 'requests'), intervalRequest({ category: 'تأخير عن الدوام', categoryLabel: 'تأخير عن الدوام', permissionKind: 'late', startTime: '08:00', endTime: '09:00' })));
+await check('permission with explicit early interval', true, () => addDoc(collection(emp, 'requests'), intervalRequest({ category: 'خروج مبكر', categoryLabel: 'خروج مبكر', permissionKind: 'early', startTime: '15:00', endTime: '16:00' })));
+await check('permission with explicit mid interval',  true,  () => addDoc(collection(emp, 'requests'), intervalRequest()));
+await check('permission interval may cross midnight', true,  () => addDoc(collection(emp, 'requests'), intervalRequest({ startTime: '23:00', endTime: '01:00' })));
+await check('permission with invalid semantic kind',  false, () => addDoc(collection(emp, 'requests'), validRequest({ permissionKind: 'anything' })));
+await check('permission kind cannot contradict category', false,
+  () => addDoc(collection(emp, 'requests'), validRequest({ permissionKind: 'early' })));
+await check('permission with an empty note',          false, () => addDoc(collection(emp, 'requests'), validRequest({ note: '' })));
+await check('permission with whitespace-only note',   false, () => addDoc(collection(emp, 'requests'), validRequest({ note: '   ' })));
+await check('permission with no note',                false, () => {
+  const r = validRequest(); delete r.note;
+  return addDoc(collection(emp, 'requests'), r);
+});
+/* ⚠️ رفض ٥٠١ لا يثبت وحده تطابق maxlength مع سقف القاعدة؛ قبول الحد نفسه
+   هو الذي يكشف إن كانت size تعدّ محارف العربية متعددة البايتات أم بايتاتها. */
+await check('permission note of exactly 500 Arabic chars', true,
+  () => addDoc(collection(emp, 'requests'), validRequest({ note: 'أ'.repeat(500) })));
+await check('permission note exceeds 500 chars',      false, () => addDoc(collection(emp, 'requests'), validRequest({ note: 'أ'.repeat(501) })));
+await check('leave with no note',                     true,  () => {
+  const r = validLeave(); delete r.note;
+  return addDoc(collection(emp, 'requests'), r);
+});
+await check('leave note of exactly 500 Arabic chars', true,
+  () => addDoc(collection(emp, 'requests'), validLeave({ note: 'أ'.repeat(500) })));
+await check('leave note exceeds 500 chars',           false, () => addDoc(collection(emp, 'requests'), validLeave({ note: 'أ'.repeat(501) })));
 await check('permission for an early-out',            true,  () => addDoc(collection(emp, 'requests'), validRequest({ category: 'خروج مبكر' })));
-await check('permission with an explicit interval',   true,  () => addDoc(collection(emp, 'requests'), intervalRequest()));
-await check('permission during the shift',            true,  () => addDoc(collection(emp, 'requests'), intervalRequest({ category: 'استئذان أثناء الدوام', categoryLabel: 'استئذان أثناء الدوام' })));
-await check('overnight permission interval',          true,  () => addDoc(collection(emp, 'requests'), intervalRequest({ startTime: '23:00', endTime: '01:00' })));
 /* حافّة النافذة من الداخل — آخر يوم مقبول. لو ضاقت النافذة يوماً سقط هذا. */
 await check('permission filed 3 days late (edge)',    true,  () => addDoc(collection(emp, 'requests'), validRequest({ date: dRel(-3) })));
 await check('permission filed 1 day late',            true,  () => addDoc(collection(emp, 'requests'), validRequest({ date: dRel(-1) })));
@@ -710,6 +839,18 @@ await check('manager queries zkAttendance by date ONLY',      false,
 await check('manager queries zkAttendance WITH department',   true,
   () => getDocs(query(collection(mgr, 'zkAttendance'),
     where('department', '==', 'المبيعات'), where('date', '>=', '2026-01-01'))));
+
+const profileQuery = (ctx, coll, dept, uids) => query(collection(ctx, coll),
+  where('department', '==', dept), where('employeeUid', 'in', uids),
+  where('date', '>=', '2026-01-01'), where('date', '<=', '2026-12-31'));
+await check('manager queries web profile with current and previous uids', true,
+  () => getDocs(profileQuery(mgr, 'attendance', 'المبيعات', ['empU', 'oldEmpU', 'olderEmpU'])));
+await check('manager queries physical profile with current and previous uids', true,
+  () => getDocs(profileQuery(mgr, 'zkAttendance', 'المبيعات', ['empU', 'oldEmpU', 'olderEmpU'])));
+await check('manager profile query cannot cross department', false,
+  () => getDocs(profileQuery(mgr, 'zkAttendance', 'المالية', ['finU'])));
+await check('manager web profile query cannot cross department', false,
+  () => getDocs(profileQuery(mgr, 'attendance', 'المالية', ['finU'])));
 
 /* ⚠️ التقييد بقسم غيره لا يُنجّيه — sameDept() تقارن بقسمه هو لا بما كتبه */
 await check('manager queries ANOTHER department',             false,
@@ -1078,6 +1219,18 @@ const fixReq = (over = {}) => ({
 
 await check('employee files a fix for themselves',    true,
   () => addDoc(collection(emp, 'requests'), fixReq()));
+await check('employee fix may target current attendance uid', true,
+  () => addDoc(collection(emp, 'requests'), fixReq({ attendanceUid: 'empU' })));
+await check('employee fix may target first previous attendance uid', true,
+  () => addDoc(collection(emp, 'requests'), fixReq({ attendanceUid: 'oldEmpU' })));
+await check('employee fix may target second previous attendance uid', true,
+  () => addDoc(collection(emp, 'requests'), fixReq({ attendanceUid: 'olderEmpU' })));
+await check('employee fix cannot target another current uid', false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ attendanceUid: 'emp2U' })));
+await check('employee fix cannot target another historical uid', false,
+  () => addDoc(collection(emp, 'requests'), fixReq({ attendanceUid: 'oldEmp2U' })));
+await check('attendanceUid is rejected on permission requests', false,
+  () => addDoc(collection(emp, 'requests'), validRequest({ attendanceUid: 'oldEmpU' })));
 await check('⚠️ employee files a fix for SOMEONE ELSE', false,
   () => addDoc(collection(emp, 'requests'), fixReq({ employeeUid: 'emp2U', employeeName: 'خالد' })));
 
@@ -1350,6 +1503,198 @@ await check('⚠️ a client-chosen updatedAt',             false,
   () => setDoc(doc(emp, todoPath), { items: [], updatedAt: Timestamp.fromMillis(0) }));
 await check('no updatedAt at all',                     false,
   () => setDoc(doc(emp, todoPath), { items: [] }));
+
+
+/* ═══ جدول المناوبات الأسبوعي للأقسام ═══ */
+console.log('\n\x1b[1m═══ 16. DEPARTMENT WEEKLY ROSTER ═══\x1b[0m');
+
+const nextSundayIn = 7 - ksaNow().getUTCDay();
+const rosterWeek = dRel(nextSundayIn);
+const rosterEnd = dRel(nextSundayIn + 6);
+const rosterPath = `weeklyRosters/sales_${rosterWeek}`;
+const financeRosterPath = `weeklyRosters/finance_${rosterWeek}`;
+const rosterDoc = (over = {}) => ({
+  weekStart: rosterWeek, weekEnd: rosterEnd,
+  departmentId: 'sales', departmentIndex: 0, department: 'المبيعات', status: 'draft',
+  createdByUid: 'mgrU', createdByName: 'فهد', createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  submittedByUid: '', submittedAt: null,
+  reviewedByUid: '', reviewedByName: '', reviewedAt: null, returnNote: '', ...over
+});
+const financeRosterDoc = (over = {}) => rosterDoc({
+  departmentId: 'finance', departmentIndex: 1, department: 'المالية',
+  createdByUid: 'finMgrU', createdByName: 'نورة', ...over
+});
+const rosterEntry = (uid, name, over = {}) => ({
+  employeeUid: uid, employeeName: name, department: 'المبيعات',
+  days: { 0: 'plan_am', 1: 'plan_pm', 2: 'rest', 3: '', 4: '', 5: 'plan_pm' },
+  updatedAt: serverTimestamp(), ...over
+});
+const approvedDays = {
+  0: { kind: 'shift', shiftPlanId: 'plan_am', planName: 'صباحي', type: 'morning', start: '09:00', end: '18:00' },
+  1: { kind: 'shift', shiftPlanId: 'plan_pm', planName: 'مسائي', type: 'evening', start: '14:00', end: '23:00' },
+  2: { kind: 'rest' },
+  5: { kind: 'shift', shiftPlanId: 'plan_pm', planName: 'مسائي', type: 'evening', start: '14:00', end: '23:00' }
+};
+
+await check('designated manager creates next-week draft', true,
+  () => setDoc(doc(mgr, rosterPath), rosterDoc()));
+await check('manager may query an empty week for own department', true,
+  () => getDocs(query(collection(mgr, 'weeklyRosters'),
+    where('department', '==', 'المبيعات'), where('weekStart', '==', dRel(nextSundayIn + 14)))));
+await check('second department manager creates its own draft', true,
+  () => setDoc(doc(finMgr, financeRosterPath), financeRosterDoc()));
+await check('another manager in sales cannot create its roster', false,
+  () => setDoc(doc(mgr2, `weeklyRosters/sales_${dRel(nextSundayIn + 7)}`),
+    rosterDoc({ weekStart: dRel(nextSundayIn + 7), weekEnd: dRel(nextSundayIn + 13),
+      createdByUid: 'mgr2U', createdByName: 'ماجد' })));
+await check('sales manager cannot create finance roster', false,
+  () => setDoc(doc(mgr, `weeklyRosters/finance_${dRel(nextSundayIn + 7)}`),
+    financeRosterDoc({ weekStart: dRel(nextSundayIn + 7), weekEnd: dRel(nextSundayIn + 13),
+      createdByUid: 'mgrU', createdByName: 'فهد' })));
+await check('employee cannot create a roster', false,
+  () => setDoc(doc(emp, `weeklyRosters/sales_${dRel(nextSundayIn + 7)}`),
+    rosterDoc({ weekStart: dRel(nextSundayIn + 7), weekEnd: dRel(nextSundayIn + 13),
+      createdByUid: 'empU', createdByName: 'سالم' })));
+
+await check('designated manager writes employee entry', true,
+  () => setDoc(doc(mgr, `${rosterPath}/entries/empU`), rosterEntry('empU', 'سالم')));
+await check('second department manager writes its employee entry', true,
+  () => setDoc(doc(finMgr, `${financeRosterPath}/entries/finU`),
+    rosterEntry('finU', 'ناصر', { department: 'المالية', days: { 0: 'plan_am' } })));
+await check('manager cannot write an entry in another department', false,
+  () => updateDoc(doc(mgr, `${financeRosterPath}/entries/finU`), {
+    days: { 0: 'rest' }, updatedAt: serverTimestamp()
+  }));
+await check('multiple evening employees are allowed', true,
+  () => setDoc(doc(mgr, `${rosterPath}/entries/emp2U`), rosterEntry('emp2U', 'خالد', {
+    days: { 0: 'plan_pm', 1: 'plan_pm', 2: '', 3: '', 4: '', 5: '' }
+  })));
+await check('zero-evening shape is allowed', true,
+  () => updateDoc(doc(mgr, `${rosterPath}/entries/emp2U`), {
+    days: { 0: 'plan_am', 1: '', 2: '', 3: '', 4: '', 5: '' }, updatedAt: serverTimestamp()
+  }));
+
+const reorderedDepartments = [
+  { id: 'finance', name: 'المالية', managerUid: 'finMgrU' },
+  { id: 'sales', name: 'المبيعات', managerUid: 'mgrU' }
+];
+await check('manager cannot reorder department settings', false,
+  () => updateDoc(doc(mgr, 'settings/config'), { departments: reorderedDepartments }));
+await check('admin may reorder departments', true,
+  () => updateDoc(doc(admin, 'settings/config'), { departments: reorderedDepartments }));
+await check('stale index fails closed after department reorder', false,
+  () => updateDoc(doc(mgr, rosterPath), { updatedAt: serverTimestamp() }));
+await check('matching departmentId at its new index restores the real manager', true,
+  () => updateDoc(doc(mgr, rosterPath), {
+    departmentIndex: 1, department: 'المبيعات', updatedAt: serverTimestamp()
+  }));
+await check('old index cannot grant sales manager access to finance', false,
+  () => updateDoc(doc(mgr, financeRosterPath), {
+    departmentIndex: 1, department: 'المالية', updatedAt: serverTimestamp()
+  }));
+await check('finance manager refreshes its own matching index', true,
+  () => updateDoc(doc(finMgr, financeRosterPath), {
+    departmentIndex: 0, department: 'المالية', updatedAt: serverTimestamp()
+  }));
+await check('employee cannot read Draft roster', false, () => getDoc(doc(emp, rosterPath)));
+await check('employee cannot read Draft entry', false, () => getDoc(doc(emp, `${rosterPath}/entries/empU`)));
+await check('same-department manager may view Draft but still cannot write it', true,
+  () => getDoc(doc(mgr2, `${rosterPath}/entries/empU`)));
+await check('same-department non-owner cannot edit Draft entry', false,
+  () => updateDoc(doc(mgr2, `${rosterPath}/entries/empU`), {
+    days: { 0: 'rest' }, updatedAt: serverTimestamp()
+  }));
+await check('employee cannot write own roster entry', false,
+  () => updateDoc(doc(emp, `${rosterPath}/entries/empU`), { days: { 0: 'rest' }, updatedAt: serverTimestamp() }));
+await check('entry rejects an unbounded shift reference', false,
+  () => updateDoc(doc(mgr, `${rosterPath}/entries/empU`), { days: { 0: 'x'.repeat(81) }, updatedAt: serverTimestamp() }));
+
+await check('designated manager submits roster', true,
+  () => updateDoc(doc(mgr, rosterPath), {
+    status: 'submitted', submittedByUid: 'mgrU', submittedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(), returnNote: ''
+  }));
+await check('department roster allows zero assignments', true,
+  () => updateDoc(doc(finMgr, `${financeRosterPath}/entries/finU`), {
+    days: {}, updatedAt: serverTimestamp()
+  }));
+await check('second department manager submits its roster', true,
+  () => updateDoc(doc(finMgr, financeRosterPath), {
+    status: 'submitted', submittedByUid: 'finMgrU', submittedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(), returnNote: ''
+  }));
+await check('HR returns second department Submitted roster', true,
+  () => updateDoc(doc(admin, financeRosterPath), {
+    status: 'returned', returnNote: 'راجع الجدول', reviewedByUid: 'adminU', reviewedByName: 'المدير',
+    reviewedAt: serverTimestamp(), updatedAt: serverTimestamp()
+  }));
+await check('Submitted roster cannot edit assignments', false,
+  () => updateDoc(doc(mgr, `${rosterPath}/entries/empU`), { days: { 0: 'rest' }, updatedAt: serverTimestamp() }));
+await check('Submitted roster still does not expose employee entry', false,
+  () => getDoc(doc(emp, `${rosterPath}/entries/empU`)));
+await check('manager cannot self-approve roster', false,
+  () => updateDoc(doc(mgr, rosterPath), {
+    status: 'approved', reviewedByUid: 'mgrU', reviewedByName: 'فهد',
+    reviewedAt: serverTimestamp(), updatedAt: serverTimestamp(), returnNote: ''
+  }));
+
+await check('HR approves parent and historical snapshots atomically', true, () => {
+  const batch = writeBatch(admin);
+  batch.update(doc(admin, `${rosterPath}/entries/empU`), { approvedDays, updatedAt: serverTimestamp() });
+  batch.update(doc(admin, `${rosterPath}/entries/emp2U`), {
+    approvedDays: { 0: approvedDays[0] }, updatedAt: serverTimestamp()
+  });
+  batch.update(doc(admin, rosterPath), {
+    status: 'approved', reviewedByUid: 'adminU', reviewedByName: 'المدير',
+    reviewedAt: serverTimestamp(), updatedAt: serverTimestamp(), returnNote: ''
+  });
+  return batch.commit();
+});
+await check('employee reads Approved parent', true, () => getDoc(doc(emp, rosterPath)));
+await check('employee reads only Approved rosters constrained to own department', true,
+  () => getDocs(query(collection(emp, 'weeklyRosters'),
+    where('status', '==', 'approved'), where('department', '==', 'المبيعات'))));
+await check('Approved query without department constraint is blocked', false,
+  () => getDocs(query(collection(emp, 'weeklyRosters'), where('status', '==', 'approved'))));
+await check('employee cannot read another department Approved parent', false,
+  () => getDoc(doc(fin, rosterPath)));
+await check('another department manager cannot read sales roster', false,
+  () => getDoc(doc(finMgr, rosterPath)));
+await check('employee reads own Approved entry', true, () => getDoc(doc(emp, `${rosterPath}/entries/empU`)));
+await check('employee cannot read peer Approved entry', false, () => getDoc(doc(emp, `${rosterPath}/entries/emp2U`)));
+await check('sales manager reads team Approved entry', true, () => getDoc(doc(mgr2, `${rosterPath}/entries/empU`)));
+await check('Approved snapshot cannot be rewritten', false,
+  () => updateDoc(doc(admin, `${rosterPath}/entries/empU`), {
+    approvedDays: { 0: { ...approvedDays[0], start: '10:00' } }, updatedAt: serverTimestamp()
+  }));
+
+await check('HR returns Approved roster before weekStart', true,
+  () => updateDoc(doc(admin, rosterPath), {
+    status: 'returned', returnNote: 'عدّل مناوبة الثلاثاء', reviewedByUid: 'adminU', reviewedByName: 'المدير',
+    reviewedAt: serverTimestamp(), updatedAt: serverTimestamp()
+  }));
+await check('designated manager edits Returned roster', true,
+  () => updateDoc(doc(mgr, `${rosterPath}/entries/empU`), {
+    days: { 0: 'plan_pm', 1: '', 2: 'rest', 3: '', 4: '', 5: 'plan_am' }, updatedAt: serverTimestamp()
+  }));
+
+const currentWeekStart = dRel(-ksaNow().getUTCDay());
+const currentWeekEnd = dRel(6 - ksaNow().getUTCDay());
+const currentRosterPath = `weeklyRosters/sales_${currentWeekStart}`;
+await env.withSecurityRulesDisabled(async (ctx) => {
+  await setDoc(doc(ctx.firestore(), currentRosterPath), {
+    weekStart: currentWeekStart, weekEnd: currentWeekEnd,
+    departmentId: 'sales', departmentIndex: 1, department: 'المبيعات', status: 'approved',
+    createdByUid: 'mgrU', createdByName: 'فهد', createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+    submittedByUid: 'mgrU', submittedAt: Timestamp.now(), reviewedByUid: 'adminU', reviewedByName: 'المدير',
+    reviewedAt: Timestamp.now(), returnNote: ''
+  });
+});
+await check('Approved roster cannot return after weekStart', false,
+  () => updateDoc(doc(admin, currentRosterPath), {
+    status: 'returned', returnNote: 'تعديل متأخر', reviewedByUid: 'adminU', reviewedByName: 'المدير',
+    reviewedAt: serverTimestamp(), updatedAt: serverTimestamp()
+  }));
 
 
 /* ═══ انصرافٌ بلا دخول — قرار المالك ٢٠٢٦-٠٨-١٣ ═══

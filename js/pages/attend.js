@@ -1,4 +1,4 @@
-import { el, esc } from '../lib/dom.js';
+import { el, esc, openModal } from '../lib/dom.js';
 import { db, doc, getDoc } from '../lib/firebase.js';
 import { getMe, getRequests } from '../lib/state.js';
 import { attendPanel } from '../components/attend-panel.js';
@@ -9,6 +9,8 @@ import { permissionWorkTime } from '../lib/permission-work-time.js';
 import { resolveShift, shiftWindowFor } from '../lib/shifts.js';
 import { isStale } from '../lib/nav.js';
 import { tableWrap, empty, pageHead, statCard } from '../lib/ui.js';
+import { attendancePresentation } from '../lib/attendance-presentation.js';
+import { requestCard } from '../components/request-card.js';
 
 /* ⚠️ ساعات يوم واحد، مع قصّ الجلسة المفتوحة عند نهاية ورديتها.
    بلا `until` كانت الجلسة التي نسي صاحبها بصمة الانصراف تعدّ حتى اللحظة —
@@ -19,7 +21,7 @@ import { tableWrap, empty, pageHead, statCard } from '../lib/ui.js';
 export function dayWork(rec, deptName, emp, requests) {
   const sessions = sessionsOf(rec);
   const d  = new Date(rec.date + 'T00:00:00');
-  if (isNaN(d)) return { secs:workedSecs(sessions).secs };
+  if (isNaN(d)) return { secs: workedSecs(sessions).secs };
   const sh = resolveShift(rec.date, d.getDay(), deptName, emp);
   const w  = shiftWindowFor(d, sh);
   /* خط الأساس هنا يبقى مجموع جلسات الجوال كما كان؛ لا نبدّله إلى span.
@@ -27,11 +29,12 @@ export function dayWork(rec, deptName, emp, requests) {
   const rawSecs = workedSecs(sessions, w ? w.end.getTime() : null).secs;
   const { firstIn, lastOut } = dayBounds(sessions);
   const effect = permissionWorkTime({
-    requests, employeeUid:emp.id, dateStr:rec.date, sessions, firstIn, lastOut,
-    baseSecs:rawSecs, shiftStart:w ? w.start : null, shiftEnd:w ? w.end : null,
-    lateGraceMinutes:0
+    requests, employee: emp, dateStr: rec.date, sessions, firstIn, lastOut,
+    baseSecs: rawSecs, shiftStart: w ? w.start : null, shiftEnd: w ? w.end : null,
+    lateGraceMinutes: 0
   });
-  return { secs:lastOut ? effect.effectiveSecs : rawSecs, effect };
+  return { secs: lastOut ? effect.effectiveSecs : rawSecs, effect,
+    shiftStart: w ? w.start : null, shiftEnd: w ? w.end : null };
 }
 
 export async function render(view, token) {
@@ -64,7 +67,7 @@ export async function render(view, token) {
   if (!mine.length) { host.appendChild(empty('ما سجّلت حضوراً في هذه الدورة بعد', 'calendar')); return; }
 
   const requests = getRequests();
-  const days = mine.map((r) => ({ r, work:dayWork(r, me.department, me, requests) }));
+  const days = mine.map((r) => ({ r, work: dayWork(r, me.department, me, requests) }));
   const totalSecs = days.reduce((s, x) => s + x.work.secs, 0);
   const sg = el('div', 'statgrid');
   sg.append(
@@ -77,25 +80,62 @@ export async function render(view, token) {
   );
   host.appendChild(sg);
 
-  host.appendChild(tableWrap(`
+  const attendanceTable = tableWrap(`
     <table class="tight">
-      <thead><tr><th class="num">التاريخ</th><th>اليوم</th><th>المكان</th><th class="num">دخول</th><th class="num">خروج</th><th class="num">الجلسات</th><th class="num">الساعات</th></tr></thead>
-      <tbody>${days.map(({ r, work }) => {
+      <thead><tr><th class="num">التاريخ</th><th>اليوم</th><th>المكان</th><th class="num">الدخول الرسمي</th><th class="num">الخروج الرسمي</th><th class="num">الجلسات</th><th class="num">الساعات</th><th>ملاحظة</th><th>إجراء</th></tr></thead>
+      <tbody>${days.map(({ r, work }, i) => {
         const ss = sessionsOf(r);
         const last = ss[ss.length - 1];
         const secs = work.secs;
         const d = new Date(r.date + 'T00:00:00');
+        const p = attendancePresentation({
+          ...(work.effect || {}),
+          shiftStart: work.shiftStart,
+          shiftEnd: work.shiftEnd,
+          firstIn: ss[0]?.in,
+          lastOut: last?.out
+        });
         return `<tr>
           <td class="num">${esc(r.date)}</td>
           <td>${AR_DAYS[isNaN(d) ? 0 : d.getDay()]}</td>
           <td>${esc(r.branchName || '—')}</td>
-          <td class="num text-green">${ss.length ? hm(ss[0].in) : '—'}</td>
-          <td class="num text-red">${(last && last.out) ? hm(last.out) : '<span class="pill pill--dot missing">مفتوحة</span>'}</td>
+          <td class="num text-green">${p.officialIn ? hm(p.officialIn) : '—'}</td>
+          <td class="num text-red">${p.officialOut ? hm(p.officialOut) : '<span class="pill pill--dot missing">مفتوحة</span>'}</td>
           <td class="num">${ss.length}</td>
-          <td class="num" title="${work.effect?.creditedSecs ? `يشمل ${Math.round(work.effect.creditedSecs / 60)} د باستئذان معتمد` : ''}">${secs > 0 ? fmtDur(secs) : '—'}</td>
+          <td class="num">${secs > 0 ? fmtDur(secs) : '—'}</td>
+          <td class="cell-note"><div class="truncate" title="${esc(p.note)}">${esc(p.note)}</div></td>
+          <td>${p.hasApproved ? `<div class="actions-cell" style="flex-wrap:wrap">
+            <span class="pill pill--dot present">استئذان معتمد</span>
+            ${p.deductibleLateMinutes ? `<span class="pill pill--dot missing">${p.deductibleLateMinutes} د تأخير خاضعة للخصم</span>` : ''}
+            ${p.uncoveredEarlyMinutes ? `<span class="pill pill--dot missing">${p.uncoveredEarlyMinutes} د خروج غير مغطاة</span>` : ''}
+            ${p.uncoveredMidMinutes ? `<span class="pill pill--dot missing">${p.uncoveredMidMinutes} د أثناء الدوام غير مغطاة</span>` : ''}
+            <button class="btn ghost sm" type="button" data-permission="${i}" aria-label="تفاصيل الاستئذان">التفاصيل</button>
+          </div>` : '<span class="muted">—</span>'}</td>
         </tr>`;
       }).join('')}</tbody>
-    </table>`));
+    </table>`);
+  attendanceTable.querySelectorAll('button[data-permission]').forEach((b) => {
+    b.onclick = () => {
+      const { r, work } = days[+b.dataset.permission];
+      const ss = sessionsOf(r), last = ss[ss.length - 1];
+      const p = attendancePresentation({
+        ...(work.effect || {}),
+        shiftStart: work.shiftStart,
+        shiftEnd: work.shiftEnd,
+        firstIn: ss[0]?.in,
+        lastOut: last?.out
+      });
+      const m = openModal('<h3>تفاصيل الاستئذان</h3>');
+      const body = m.modal.querySelector('.modal__body');
+      const times = el('p', 'desc');
+      times.textContent = `البصمات الفعلية: ${p.actualIn ? hm(p.actualIn) : '—'} ← ${p.actualOut ? hm(p.actualOut) : '—'} · ` +
+        `الوقت الرسمي: ${p.officialIn ? hm(p.officialIn) : '—'} ← ${p.officialOut ? hm(p.officialOut) : '—'} · ` +
+        `الساعات المحتسبة: ${work.secs > 0 ? fmtDur(work.secs) : '—'}`;
+      body.appendChild(times);
+      p.approved.forEach((request) => body.appendChild(requestCard(request, false)));
+    };
+  });
+  host.appendChild(attendanceTable);
 }
 
 export { ymd };

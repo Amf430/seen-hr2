@@ -33,6 +33,8 @@ export const PAGES = {
   'set-task-templates': { title: 'قوالب المهام',  hint: 'قوالب جاهزة ومهام متكرّرة تُولَّد تلقائياً' },
   org:           { title: 'الهيكل التنظيمي',        hint: 'من يتبع من — الشجرة الإدارية كاملة' },
   attendance:    { title: 'الحضور من الجوال',      hint: 'تسجيل ذاتي بالموقع الجغرافي — فرز باليوم أو بالموظف' },
+  'attendance-reports': { title: 'تقارير الحضور والانصراف', hint: 'فترة ومصدر وفلاتر وتصدير Excel' },
+  'weekly-roster': { title: 'جدول المناوبات الأسبوعي', hint: 'إعداد جدول القسم وإرساله للموارد البشرية' },
   zklog:         { title: 'سجل جهاز البصمة',       hint: 'سجل مستقل قادم من جهاز ZKTeco — لا يعدّله أحد' },
   payroll:       { title: 'مسير الرواتب — دورة 26 ← 25', hint: 'المستحق لكل موظف حسب بصمة الجهاز' },
   monthly:       { title: 'تقارير الدورات',        hint: 'دورة من 26 إلى 25 — تصدير Excel لكل دورة' },
@@ -114,7 +116,8 @@ export const NAV_GROUPS = [
        باستمرار فيغادر الصفحة ويفقد فرزه. المصدران يبقيان مستقلّين في
        البيانات؛ الدمج في العرض وحده، والتبديل بتبويب داخل الصفحة.
        ⚠️ zklog باقٍ في PAGES وفي DETAIL_PAGES: رابط محفوظ عليه يجب أن يفتح. */
-    { id: 'attendance', icon: 'clock', label: 'سجلات الحضور', roles: ['admin'] }
+    { id: 'attendance', icon: 'clock', label: 'سجلات الحضور', roles: ['admin'] },
+    { id: 'weekly-roster', icon: 'calendar', label: 'جدول المناوبات الأسبوعي', roles: ['admin', 'manager'] }
   ]},
 
   { group: 'الطلبات', items: [
@@ -129,6 +132,7 @@ export const NAV_GROUPS = [
      الطلبات في «الطلبات»، وتقارير الدورات في «الرواتب»، وتحليلات المهام في
      «المهام» — فيبحث الأدمن عن تقرير في ثلاثة أماكن. */
   { group: 'التقارير', items: [
+    { id: 'attendance-reports', icon: 'clock', label: 'تقارير الحضور والانصراف', roles: ['admin'] },
     { id: 'reports', icon: 'chart', label: 'تحليلات الطلبات', roles: ['admin'] },
     { id: 'monthly', icon: 'calendar', label: 'تقارير الموافقات الشهرية', roles: ['admin'] },
     { id: 'tasks-analytics', icon: 'chart', label: 'تحليلات المهام', roles: ['admin'] },

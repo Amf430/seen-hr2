@@ -22,6 +22,16 @@ export function fmtDur(secs) {
   return `${p2(h)}:${p2(m)}:${p2(s)}`;
 }
 
+/* الساعات العشرية مدة لا وقتاً من اليوم: نقرّب إجمالي الدقائق مرة واحدة
+   ثم نفكّها إلى ساعات ودقائق، حتى لا تتحول 8.98 إلى 08:58 بسبب اقتطاعين. */
+export function decimalHoursHHMM(hours) {
+  if (hours === '' || hours == null) return '';
+  const value = Number(hours);
+  if (!Number.isFinite(value) || value < 0) return '';
+  const totalMinutes = Math.round(value * 60);
+  return `${p2(Math.floor(totalMinutes / 60))}:${p2(totalMinutes % 60)}`;
+}
+
 /* تاريخ ميلادي بالتقويم العربي */
 export function fmtDate(d) {
   if (!d) return '—';

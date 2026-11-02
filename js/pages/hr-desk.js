@@ -22,6 +22,7 @@ import {
   fetchTickets, fetchMessages, createTicket, replyToTicket, closeTicket,
   ticketCategories, ticketState, TICKET_MAX_SUBJECT, TICKET_MAX_TEXT
 } from '../lib/hr-tickets.js';
+import { hrThreadUiState } from '../lib/hr-thread-state.js';
 
 const when = (ts) => { const d = tsToDate(ts); return d ? fmtDate(d) + ' · ' + d.toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }) : '—'; };
 
@@ -113,22 +114,39 @@ export async function render(view, token) {
           t.employeeEmpId ? ' · ' + esc(t.employeeEmpId) : ''}</span>` : ''}
       </div>
       <div class="tk-thread" id="tkThread"><div class="empty"><span class="spinner"></span> جارٍ تحميل المحادثة…</div></div>
-      <div class="field" id="tkReplyWrap">
+      <div class="field" id="tkReplyWrap" hidden>
         <label for="tkReply">${isHr ? 'ردّك' : 'أضِف ردّاً'}</label>
         <textarea id="tkReply" maxlength="${TICKET_MAX_TEXT}" placeholder="اكتب هنا…"></textarea>
       </div>
       <div class="row">
         <button class="btn ghost" id="tkClose">إغلاق النافذة</button>
-        ${isHr && t.status !== 'closed' ? '<button class="btn ghost" id="tkDone">إنهاء الطلب</button>' : ''}
-        <button class="btn" id="tkSend">إرسال</button>
+        ${isHr && t.status !== 'closed' ? '<button class="btn ghost" id="tkDone" hidden>إنهاء الطلب</button>' : ''}
+        <button class="btn" id="tkSend" hidden>إرسال</button>
       </div>`);
 
     m.$('#tkClose').onclick = m.close;
     const thread = m.$('#tkThread');
+    const applyLoadState = (loadState) => {
+      const ui = hrThreadUiState(loadState, {
+        mayReply: true,
+        mayFinish: isHr && t.status !== 'closed'
+      });
+      m.$('#tkReplyWrap').hidden = !ui.showComposer;
+      m.$('#tkSend').hidden = !ui.showSend;
+      const done = m.$('#tkDone');
+      if (done) done.hidden = !ui.showFinish;
+    };
+    applyLoadState('loading');
 
     let msgs = [];
     try { msgs = await fetchMessages(t.id); }
-    catch (e) { console.error(e); thread.innerHTML = '<div class="empty text-red">تعذّر تحميل المحادثة</div>'; return; }
+    catch (e) {
+      console.error(e);
+      applyLoadState('error');
+      thread.innerHTML = '<div class="empty text-red">تعذّر تحميل المحادثة — لا يمكن الردّ قبل قراءة سجلّها</div>';
+      return;
+    }
+    applyLoadState('ready');
 
     thread.innerHTML = msgs.map((x) => `
       <div class="tk-msg ${x.byRole === 'hr' ? 'is-hr' : 'is-emp'}">

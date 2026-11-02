@@ -22,7 +22,7 @@ import { go, isStale } from '../lib/nav.js';
 import { docsOf, docStatus } from '../lib/documents.js';
 import { contractDaysLeft, ymdKsa, cycleOf, ymd, AR_DAYS, AR_MONTHS } from '../lib/dates.js';
 import { fetchMyAttendance, uidsOf, buildDailyStatus } from '../lib/attendance.js';
-import { mergeEarliestIn } from '../lib/hr-stats.js';
+import { adjustmentsForUsers, adjustedUnifiedAttendance } from '../lib/adjustments.js';
 import { cycleGridOf, monthSummary, minToHm } from '../lib/timesheet.js';
 import { resolveShift } from '../lib/shifts.js';
 import { hm } from '../lib/format.js';
@@ -269,7 +269,7 @@ async function paintAnnouncements(host, me, token) {
    ⚠️ الحالة تأتي من buildDailyStatus — نفس الدالة التي يعتمدها المسير. لا
    حسبة ثانية هنا: حسبتان للتأخير تتباعدان تعنيان رقمين مختلفين لنفس الموظف.
 
-   ⚠️ المصدران يُدمجان بـ mergeEarliestIn: من بصم على الجهاز ٠٧:٥٥ ثم سجّل
+   ⚠️ المصدران يُدمجان في سجل يوم واحد: من بصم على الجهاز ٠٧:٥٥ ثم سجّل
    من جواله ٠٨:٢٠ حضر السابعة والخمسين. أخذُ مصدرٍ واحد يظلم من يستعمل الآخر.
 
    ⚠️ بلا compensate — التعويض شاشة أدمن. الموظف يرى تأخيره كما هو، ولا
@@ -283,11 +283,12 @@ async function paintTimesheet(host, me, token) {
      أو تُقال للموظف صراحةً: «تعذّرت» لا «غائب». */
   let recs = [];
   try {
-    const [zk, web] = await Promise.all([
+    const [zk, web, adjustments] = await Promise.all([
       fetchMyAttendance(cyc, uidsOf(me), 'zkAttendance'),
-      fetchMyAttendance(cyc, uidsOf(me), 'attendance')
+      fetchMyAttendance(cyc, uidsOf(me), 'attendance'),
+      adjustmentsForUsers([me], ymd(cyc.start), ymd(cyc.end))
     ]);
-    recs = mergeEarliestIn(zk, web);
+    recs = adjustedUnifiedAttendance([me], zk, web, adjustments);
   } catch (e) {
     console.error('timesheet', e);
     if (isStale(token)) return;
@@ -318,9 +319,12 @@ async function paintTimesheet(host, me, token) {
 
   const sg = el('div', 'statgrid');
   sg.append(
-    statCard({ label: 'أيام حضرتها', value: `${sum.attended}/${sum.workDays}`, ico: 'check',
-      tone: sum.onTimePct >= 90 ? 'good' : sum.onTimePct >= 70 ? 'warn' : 'bad',
-      sub: sum.onTimePct === null ? 'لا أيام عمل بعد' : `${sum.onTimePct}٪ في الوقت` }),
+    statCard({ label: 'نسبة الحضور', value: sum.attendanceRate === null ? '—' : `${sum.attendanceRate}٪`, ico: 'check',
+      tone: sum.attendanceRate >= 90 ? 'good' : sum.attendanceRate >= 70 ? 'warn' : 'bad',
+      sub: `${sum.attended}/${sum.workDays} يوم محتسب` }),
+    statCard({ label: 'نسبة الالتزام بالوقت', value: sum.commitmentRate === null ? '—' : `${sum.commitmentRate}٪`, ico: 'clock',
+      tone: sum.commitmentRate >= 90 ? 'good' : sum.commitmentRate >= 70 ? 'warn' : 'bad',
+      sub: 'بلا مخالفات زمنية' }),
     statCard({ label: 'متوسّط دخولك', value: minToHm(sum.avgInMin), ico: 'clock',
       sub: sum.avgInMin === null ? 'لم تسجّل دخولاً بعد' : 'في هذه الدورة' }),
     statCard({ label: 'مرات التأخير', value: sum.late, ico: 'alert',

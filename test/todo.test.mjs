@@ -11,7 +11,8 @@
 import { normalizeItem, normalizeList, addItem, toggleItem, removeItem,
          prunable, pruneDone, dueReminders, todayView,
          todoColumns, bucketOf, dueForBucket, setDue, TODO_BUCKETS, WEEK_DAYS,
-         MAX_ITEMS, MAX_TEXT, MAX_OPEN, PRUNE_AFTER_DAYS } from '../js/lib/todo.js';
+         loadMyDaySources, MAX_ITEMS, MAX_TEXT, MAX_OPEN,
+         PRUNE_AFTER_DAYS } from '../js/lib/todo.js';
 
 let pass = 0, fail = 0;
 const eq = (name, expected, actual) => {
@@ -24,6 +25,47 @@ const eq = (name, expected, actual) => {
 const group = (t) => console.log(`\n\x1b[1m═══ ${t} ═══\x1b[0m`);
 
 const TODAY = '2026-08-13';
+
+group('٠. اكتمال مصادر «قائمتي»');
+
+let adminTaskReads = 0;
+const adminSources = await loadMyDaySources({
+  role: 'admin',
+  uid: 'admin-1',
+  readTodos: async () => [{ id: 'p1', text: 'خاص' }],
+  readTasks: async () => { adminTaskReads++; throw new Error('لا يجب استدعاؤه'); }
+});
+eq('الأدمن يتخطّى مصدر المهام بلا خطأ',
+   { reads: 0, items: 1, tasks: 0 },
+   { reads: adminTaskReads, items: adminSources.items.length, tasks: adminSources.tasks.length });
+
+for (const role of ['employee', 'manager']) {
+  let outcome = 'resolved';
+  try {
+    await loadMyDaySources({
+      role,
+      uid: role + '-1',
+      readTodos: async () => [{ id: 'pinned', ref: 'task-1' }],
+      readTasks: async () => { throw new Error('task-source-failed'); }
+    });
+  } catch (e) {
+    outcome = e.message;
+  }
+  eq(`${role}: فشل مصدر المهام لا ينتج []`, 'task-source-failed', outcome);
+}
+
+let classifiedPinned = false;
+try {
+  const loaded = await loadMyDaySources({
+    role: 'employee',
+    uid: 'employee-1',
+    readTodos: async () => [{ id: 'pinned', ref: 'task-1' }],
+    readTasks: async () => { throw new Error('task-source-failed'); }
+  });
+  todayView(loaded.items, new Map(loaded.tasks.map((task) => [task.id, task])), TODAY);
+  classifiedPinned = true;
+} catch (e) { /* المسار الصحيح: تعرض الصفحة خطأ المصدر وتتوقف قبل التصنيف */ }
+eq('فشل المصدر لا يصنّف المهمة المثبّتة كأنها خرجت من النشط', false, classifiedPinned);
 
 group('١. التطبيع — كل غياب له سلوك افتراضي');
 

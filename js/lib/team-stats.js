@@ -11,10 +11,10 @@
    وجودها منفصلة عن hr-stats.js التي تجرّ attendance.js وتجرّ معها firebase.
    ═══════════════════════════════════════════════════════════════════════════ */
 
+import { attendanceMetrics } from './attendance-metrics.js';
+
 /* الأصناف التي تُرجعها buildDailyStatus في حقل cls */
 const CLASSES = ['present', 'late', 'absent', 'leave', 'missing', 'missingIn'];
-
-const pct = (num, den) => (den > 0 ? Math.round((num / den) * 100) : 0);
 
 /* ═══ teamSummaryOf(rows) ═══
 
@@ -23,19 +23,12 @@ const pct = (num, den) => (den > 0 ? Math.round((num / den) * 100) : 0);
    → {
        employees: [{ uid, name, department, jobTitle,
                      days, present, late, absent, leave, missing,
-                     lateMin, secs, onTime, overall }]     مرتّبة بالالتزام
+                     lateMin, secs, attendanceRate, commitmentRate }]
        totals:    نفس الحقول للقسم كله + employeeCount
      }
 
-   ⚠️ تعريف النسبتين — مكتوب هنا لأنه قرار لا بديهية:
-     onTime  = الحاضر في وقته ÷ كل الأيام المحسوبة
-     overall = (حاضر + متأخر + إجازة) ÷ كل الأيام المحسوبة
-   أي أن `overall` تقيس «هل جاء أصلاً»، و`onTime` تقيس «هل جاء في وقته».
-   الإجازة المعتمَدة تُحسب التزاماً في `overall` ولا تُحسب في `onTime` — لأن
-   الإجازة حقّ لا تقصير، لكنها ليست انضباطاً في الحضور يُكافأ عليه.
-
-   ⚠️ ونسختها هنا مطابقة لِما في complianceRate() داخل hr-stats.js عمداً:
-   شاشة الأدمن وشاشة المدير لازم تقولان الرقم نفسه عن الموظف نفسه. */
+   النسبتان تأتيان حصراً من attendanceMetrics؛ وهذه الوحدة تجمع العدادات
+   وترتب: الالتزام بالوقت، ثم الحضور، ثم الاسم. */
 export function teamSummaryOf(rows) {
   const byUid = new Map();
 
@@ -47,7 +40,7 @@ export function teamSummaryOf(rows) {
         uid: id, name: r.u.name || '', department: r.u.department || '',
         jobTitle: r.u.jobTitle || '',
         days: 0, present: 0, late: 0, absent: 0, leave: 0, missing: 0, missingIn: 0,
-        lateMin: 0, secs: 0
+        lateMin: 0, secs: 0, rows: []
       });
     }
     const e = byUid.get(id);
@@ -58,29 +51,30 @@ export function teamSummaryOf(rows) {
     if (CLASSES.includes(r.cls)) e[r.cls]++;
     e.lateMin += r.lateMin || 0;
     e.secs    += r.secs || 0;
+    e.rows.push(r);
   });
 
-  const employees = [...byUid.values()].map((e) => ({
-    ...e,
-    onTime:  pct(e.present, e.days),
-    overall: pct(e.present + e.late + e.leave, e.days)
-  }));
+  const employees = [...byUid.values()].map((e) => {
+    const metrics = attendanceMetrics(e.rows);
+    const { rows: _rows, ...base } = e;
+    return { ...base, days: metrics.eligibleDays, ...metrics };
+  });
 
   /* الأقل التزاماً أولاً؟ لا — الأعلى أولاً، والمدير يقلب الترتيب إن أراد.
      قائمة تفتح على الأسوأ تُقرأ كقائمة عقاب، وهذه شاشة متابعة لا محاسبة. */
-  employees.sort((a, b) => b.overall - a.overall || a.lateMin - b.lateMin
+  employees.sort((a, b) => (b.commitmentRate ?? -1) - (a.commitmentRate ?? -1)
+                        || (b.attendanceRate ?? -1) - (a.attendanceRate ?? -1)
                         || (a.name || '').localeCompare(b.name || ''));
 
   const sum = (k) => employees.reduce((a, e) => a + e[k], 0);
-  const days = sum('days');
+  const metrics = attendanceMetrics(rows);
+  const days = metrics.eligibleDays;
   const totals = {
     employeeCount: employees.length,
     days,
     present: sum('present'), late: sum('late'), absent: sum('absent'),
     leave: sum('leave'), missing: sum('missing'), missingIn: sum('missingIn'),
-    lateMin: sum('lateMin'), secs: sum('secs'),
-    onTime:  pct(sum('present'), days),
-    overall: pct(sum('present') + sum('late') + sum('leave'), days),
+    lateMin: sum('lateMin'), secs: sum('secs'), ...metrics,
     /* متوسط دقائق التأخير **على الأيام المتأخرة وحدها** لا على كل الأيام.
        القسمة على كل الأيام تُميّع الرقم: قسم فيه متأخر واحد بساعة يظهر
        «متوسط دقيقتين» فلا يلفت أحداً، والمشكلة عند شخص واحد لا موزّعة. */
@@ -94,10 +88,11 @@ export function teamSummaryOf(rows) {
    → { delta, dir }  حيث dir ∈ 'up' | 'down' | 'flat'
    ⚠️ يُرجع null حين لا تكون هناك دورة سابقة بأيام محسوبة — سهمٌ أخضر مبنيّ
    على «صفر سابقاً» يقرأه المدير تحسّناً وهو لا شيء. */
-export function trendOf(current, previous, key = 'overall') {
+export function trendOf(current, previous, key = 'commitmentRate') {
   if (!previous || !previous.days) return null;
   if (!current || !current.days) return null;
-  const delta = (current[key] || 0) - (previous[key] || 0);
+  if (current[key] == null || previous[key] == null) return null;
+  const delta = current[key] - previous[key];
   return { delta, dir: delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat' };
 }
 
@@ -114,7 +109,7 @@ export function teamExportRows(summary) {
     'بصمة خروج ناقصة': e.missing,
     'مجموع دقائق التأخير': e.lateMin,
     'ساعات العمل': Math.round((e.secs / 3600) * 10) / 10,
-    'الالتزام %': e.overall,
-    'في الوقت %': e.onTime
+    'نسبة الحضور %': e.attendanceRate,
+    'نسبة الالتزام بالوقت %': e.commitmentRate
   }));
 }

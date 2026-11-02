@@ -9,6 +9,8 @@
    وغير متداخلة. غير ذلك يبقى spanSecs القديم، بلا نقص ولا تعويض تخميني.
    ═══════════════════════════════════════════════════════════════════════════ */
 
+import { PERMISSION_KIND, permissionKindOf, requestBelongsToEmployee } from './permission-link.js';
+
 export const MID_SHIFT_PERMISSION = 'استئذان أثناء الدوام';
 
 const HM_RE = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
@@ -28,6 +30,11 @@ const atHm = (day, hm, offset = 0) => {
   const [h, m] = hm.split(':').map(Number);
   const d = midnightOf(day); d.setDate(d.getDate() + offset); d.setHours(h, m, 0, 0);
   return d;
+};
+const hmMinutes = (hm) => {
+  if (!HM_RE.test(String(hm || ''))) return null;
+  const [h, m] = hm.split(':').map(Number);
+  return h * 60 + m;
 };
 
 export function mergeIntervals(intervals) {
@@ -62,57 +69,61 @@ function intersectionSecs(a, b) {
   return total;
 }
 
-export function approvedTimePermissions(requests, employeeUid, dateStr) {
+export function approvedTimePermissions(requests, employee, dateStr) {
   return (Array.isArray(requests) ? requests : []).filter((r) =>
     r && r.type === 'permission' && r.status === 'approved' &&
-    r.employeeUid === employeeUid && r.date === dateStr);
+    requestBelongsToEmployee(r, employee) && r.date === dateStr && permissionKindOf(r));
 }
 
-/* نولّد احتمالات اليوم واليوم التالي ثم نختار أقصر فترة تتقاطع مع الوردية.
-   هذا يحل 23:00→01:00 و02:00→03:00 في وردية 22:00→06:00 بلا اعتماد على
-   المنطقة الزمنية للجهاز أو افتراض أن كل end أصغر يعني اليوم التالي دائماً. */
+/* نطبّع المدة من الساعة نفسها: end المساوية أو الأسبق تقع في اليوم التالي.
+   ثم نطلب موضعاً واحداً فقط يتقاطع مع الوردية. وجود موضعين محتملين يعني أن
+   النص وحده لا يثبت اليوم المقصود، فنفشل مغلقاً ولا نختار الأقرب تخميناً. */
 function explicitInterval(startHm, endHm, shiftStart, shiftEnd) {
-  if (!HM_RE.test(String(startHm || '')) || !HM_RE.test(String(endHm || '')) || startHm === endHm) return null;
+  const startMin = hmMinutes(startHm), endMin = hmMinutes(endHm);
+  if (startMin == null || endMin == null || startMin === endMin) return null;
+  const durationMin = (endMin - startMin + 1440) % 1440;
   const candidates = [];
-  for (let sDay = -1; sDay <= 2; sDay++) {
-    const start = atHm(shiftStart, startHm, sDay);
-    for (let eDay = -1; eDay <= 2; eDay++) {
-      const end = atHm(shiftStart, endHm, eDay);
-      const rawSecs = (end - start) / 1000;
-      if (rawSecs <= 0 || rawSecs > 86400) continue;
-      const clipped = clipInterval({ start, end }, shiftStart, shiftEnd);
-      if (clipped) candidates.push({ ...clipped, rawSecs, overlapSecs: (clipped.end - clipped.start) / 1000 });
-    }
+  for (let day = -1; day <= 2; day++) {
+    const start = atHm(shiftStart, startHm, day);
+    const end = new Date(start.getTime() + durationMin * 60000);
+    const clipped = clipInterval({ start, end }, shiftStart, shiftEnd);
+    if (clipped) candidates.push(clipped);
   }
-  candidates.sort((a, b) => a.rawSecs - b.rawSecs || b.overlapSecs - a.overlapSecs || a.start - b.start);
-  return candidates[0] ? { start: candidates[0].start, end: candidates[0].end } : null;
+  return candidates.length === 1 ? candidates[0] : null;
 }
 
+/* Legacy يحمل نقطة واحدة لا فترة. لا نربطها بأقرب يوم خارج الوردية: لا بد
+   أن تقع داخل حدود الوردية في موضع واحد، وإلا لا يوجد دليل حتمي للتعويض. */
 function legacyPoint(time, shiftStart, shiftEnd) {
   if (!HM_RE.test(String(time || ''))) return null;
   const candidates = [];
   for (let day = -1; day <= 2; day++) {
-    const d = atHm(shiftStart, time, day);
-    const distance = d < shiftStart ? shiftStart - d : d > shiftEnd ? d - shiftEnd : 0;
-    candidates.push({ d, distance });
+    const point = atHm(shiftStart, time, day);
+    if (point >= shiftStart && point <= shiftEnd) candidates.push(point);
   }
-  candidates.sort((a, b) => a.distance - b.distance || a.d - b.d);
-  return candidates[0]?.d || null;
+  return candidates.length === 1 ? candidates[0] : null;
 }
 
 export function permissionInterval(permission, shiftStart, shiftEnd) {
   if (!permission || !validDate(shiftStart) || !validDate(shiftEnd) || shiftEnd <= shiftStart) return null;
-  const hasNewShape = ('startTime' in permission) || ('endTime' in permission);
-  if (hasNewShape) return explicitInterval(permission.startTime, permission.endTime, shiftStart, shiftEnd);
+  const kind = permissionKindOf(permission);
+  if (!kind) return null;
 
+  const hasStart = Object.hasOwn(permission, 'startTime');
+  const hasEnd = Object.hasOwn(permission, 'endTime');
+  const hasLegacy = Object.hasOwn(permission, 'time');
+  if (hasStart || hasEnd) {
+    if (!hasStart || !hasEnd || hasLegacy) return null;
+    return explicitInterval(permission.startTime, permission.endTime, shiftStart, shiftEnd);
+  }
+
+  if (!hasLegacy || kind === PERMISSION_KIND.MID) return null;
   const point = legacyPoint(permission.time, shiftStart, shiftEnd);
   if (!point) return null;
-  if (String(permission.category || '').includes('تأخير')) {
+  if (kind === PERMISSION_KIND.LATE)
     return clipInterval({ start: shiftStart, end: point }, shiftStart, shiftEnd);
-  }
-  if (String(permission.category || '').includes('خروج')) {
+  if (kind === PERMISSION_KIND.EARLY)
     return clipInterval({ start: point, end: shiftEnd }, shiftStart, shiftEnd);
-  }
   return null;
 }
 
@@ -146,22 +157,25 @@ const violation = (start, end, shiftStart, shiftEnd) => {
 };
 
 export function permissionWorkTime({
-  requests, employeeUid, dateStr, shiftStart, shiftEnd, sessions,
+  requests, employee, employeeUid, dateStr, shiftStart, shiftEnd, sessions,
   firstIn, lastOut, baseSecs = 0, lateGraceMinutes = 0
 }) {
   const actualIn = asDate(firstIn), actualOut = asDate(lastOut);
   const base = Number.isFinite(Number(baseSecs)) ? Math.max(0, Number(baseSecs)) : 0;
-  const approved = approvedTimePermissions(requests, employeeUid, dateStr);
-  const resolved = approved.map((permission) => ({ permission, interval: permissionInterval(permission, shiftStart, shiftEnd) }))
-    .filter((x) => x.interval);
-  const wantsMid = approved.some((p) => p.category === MID_SHIFT_PERMISSION);
-  const hasResolvedMid = resolved.some((x) => x.permission.category === MID_SHIFT_PERMISSION);
+  const approved = approvedTimePermissions(requests, employee ?? employeeUid, dateStr);
+  const resolved = approved.map((permission) => ({
+    permission,
+    kind: permissionKindOf(permission),
+    interval: permissionInterval(permission, shiftStart, shiftEnd)
+  })).filter((x) => x.interval);
+  const wantsMid = approved.some((p) => permissionKindOf(p) === PERMISSION_KIND.MID);
+  const hasResolvedMid = resolved.some((x) => x.kind === PERMISSION_KIND.MID);
   const sessionState = completedSessions(sessions);
   const validWindow = validDate(shiftStart) && validDate(shiftEnd) && shiftEnd > shiftStart;
   const completedInside = validWindow ? mergeIntervals(sessionState.intervals
     .map((x) => clipInterval(x, shiftStart, shiftEnd)).filter(Boolean)) : [];
   const useSessions = hasResolvedMid && sessionState.safe && validWindow && completedInside.length > 0;
-  const applicable = useSessions ? resolved : resolved.filter((x) => x.permission.category !== MID_SHIFT_PERMISSION);
+  const applicable = useSessions ? resolved : resolved.filter((x) => x.kind !== PERMISSION_KIND.MID);
   const coveredIntervals = mergeIntervals(applicable.map((x) => x.interval));
 
   let actualSecs = base, effectiveSecs = base, creditedSecs = 0;
@@ -173,7 +187,7 @@ export function permissionWorkTime({
     const officialInside = mergeIntervals([...workedInside, ...coveredIntervals]);
     creditedSecs = Math.max(0, secsOf(officialInside) - secsOf(workedInside));
     effectiveSecs = outsideSecs + secsOf(officialInside);
-  } else if (actualIn && actualOut && actualOut > actualIn) {
+  } else if (actualIn && actualOut && actualOut > actualIn && validWindow) {
     const actualInside = [clipInterval({ start: actualIn, end: actualOut }, shiftStart, shiftEnd)].filter(Boolean);
     creditedSecs = Math.max(0, secsOf(mergeIntervals([...actualInside, ...coveredIntervals])) - secsOf(actualInside));
     effectiveSecs = base + creditedSecs;

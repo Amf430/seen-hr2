@@ -9,12 +9,16 @@
 import { db, doc, collection, query, where, onSnapshot } from '../lib/firebase.js';
 import { getMe, setMe, setRequests, getRequests } from '../lib/state.js';
 import { sortByCreated } from '../lib/dates.js';
+import { employeeUidsOf, requestBelongsToEmployee } from '../lib/permission-link.js';
 import { rerenderIf } from '../lib/nav.js';
 import { refreshUsers } from '../lib/users.js';
+import { subscribeApprovedWeeklyRosters } from '../lib/weekly-roster-io.js';
+import { clearApprovedRosterEntries } from '../lib/weekly-roster.js';
 import { updateBadges, paintIdentity } from './shell.js';
 
 let unsubReqs = null;
 let unsubMe = null;
+let unsubRosters = null;
 
 /* الصفحات التي يُعاد عرضها عند تغيّر ملف المستخدم نفسه */
 const ME_PAGES       = ['home', 'new', 'mine', 'attend'];
@@ -23,8 +27,13 @@ const MANAGER_PAGES  = ['home', 'inbox', 'mine', 'attend'];
 const ADMIN_PAGES    = ['home', 'inbox', 'reports', 'audit', 'monthly'];
 
 export function subscribeData() {
-  unsubscribeAll();
+  unsubscribeAll({ preserveRosters: true });
   const me = getMe();
+
+  unsubRosters = subscribeApprovedWeeklyRosters(() => rerenderIf([
+    'home', 'attend', 'attendance', 'zklog', 'payroll', 'monthly', 'reports',
+    'performance', 'team-perf', 'weekly-roster'
+  ]));
 
   /* ملف المستخدم نفسه — يحدّث الرصيد فوراً عند خصمه أو إعادته
      دون الحاجة لتسجيل خروج ودخول */
@@ -60,7 +69,7 @@ export function subscribeData() {
     unsubReqs = onSnapshot(q1, (snap) => {
       /* الطلبات الملغاة تبقى خاصة بصاحبها — المدير يرى ملغاته هو فقط */
       setRequests(sortByCreated(snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-        .filter((r) => r.status !== 'cancelled' || r.employeeUid === me.id)));
+        .filter((r) => r.status !== 'cancelled' || requestBelongsToEmployee(r, me))));
       updateBadges();
       rerenderIf(MANAGER_PAGES);
     }, (err) => console.error('reqs', err));
@@ -91,7 +100,7 @@ export function subscribeData() {
       .catch((e) => console.error(e));
 
   } else {
-    const q1 = query(collection(db, 'requests'), where('employeeUid', '==', me.id));
+    const q1 = query(collection(db, 'requests'), where('employeeUid', 'in', employeeUidsOf(me)));
     unsubReqs = onSnapshot(q1, (snap) => {
       setRequests(sortByCreated(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
       updateBadges();
@@ -100,10 +109,12 @@ export function subscribeData() {
   }
 }
 
-export function unsubscribeAll() {
+export function unsubscribeAll(opts = {}) {
   if (unsubReqs) { unsubReqs(); unsubReqs = null; }
   if (unsubMe)   { unsubMe();   unsubMe = null; }
+  if (unsubRosters) { unsubRosters(); unsubRosters = null; }
   setRequests([]);
+  if (!opts.preserveRosters) clearApprovedRosterEntries();
 }
 
 export { getRequests };

@@ -15,9 +15,10 @@ const group = (name) => console.log(`\n\x1b[1m═══ ${name} ═══\x1b[0m
 const at = (date, hm) => new Date(`${date}T${hm}:00`);
 const D = '2026-08-03';
 const SHIFT = { shiftStart: at(D, '08:00'), shiftEnd: at(D, '16:00') };
+const KIND = { 'تأخير عن الدوام':'late', 'خروج مبكر':'early', [MID_SHIFT_PERMISSION]:'mid' };
 const p = (category, startTime, endTime, over = {}) => ({
   id: `${category}-${startTime}`, type: 'permission', status: 'approved', employeeUid: 'u1', date: D,
-  category, startTime, endTime, ...over
+  category, categoryLabel: category, permissionKind: KIND[category], startTime, endTime, ...over
 });
 const session = (start, end, date = D, endDate = date) => ({ in: at(date, start), out: end ? at(endDate, end) : null });
 const calc = (requests, sessions, firstIn, lastOut, baseSecs, over = {}) => permissionWorkTime({
@@ -31,6 +32,10 @@ eq('المعتمد لليوم والموظف فقط', 1, approvedTimePermissions
 eq('Pending صفر تأثير', 0, approvedTimePermissions([{ ...early, status:'pending' }], 'u1', D).length);
 eq('Rejected صفر تأثير', 0, approvedTimePermissions([{ ...early, status:'rejected' }], 'u1', D).length);
 eq('يوم مختلف صفر تأثير', 0, approvedTimePermissions([{ ...early, date:'2026-08-04' }], 'u1', D).length);
+eq('permissionKind متناقض مع الفئة يفشل مغلقاً', 0,
+  approvedTimePermissions([{ ...early, permissionKind:'late' }], 'u1', D).length);
+eq('UID تاريخي معتمد يطابق الموظف الحالي', 1,
+  approvedTimePermissions([{ ...early, employeeUid:'u-old' }], { id:'u1', previousUids:['u-old'] }, D).length);
 
 group('Late كامل وجزئي');
 {
@@ -82,7 +87,7 @@ group('الاتحاد والـoverlap');
   eq('والجزء غير المغطى من الفجوة يبقى نقصاً', .5, hours(overlapsWork.midUncoveredSecs));
 }
 
-group('النقص خارج فترة Mid يبقى مستقلاً');
+group('النقص خارج فترة الاستئذان يبقى مستقلاً');
 {
   const boundary = [session('07:30','08:00'), session('09:00','12:00'), session('13:00','16:00')];
   const r = calc([p(MID_SHIFT_PERMISSION,'12:00','13:00')], boundary,
@@ -95,12 +100,15 @@ group('النقص خارج فترة Mid يبقى مستقلاً');
 group('Legacy بلا Migration');
 {
   const legacyLate = { ...p('تأخير عن الدوام','08:00','09:00'), time:'09:00' };
-  delete legacyLate.startTime; delete legacyLate.endTime;
-  const legacyEarly = { ...legacyLate, category:'خروج مبكر', time:'15:00' };
+  delete legacyLate.startTime; delete legacyLate.endTime; delete legacyLate.permissionKind;
+  const legacyEarly = { ...legacyLate, category:'خروج مبكر', categoryLabel:'خروج مبكر', time:'15:00' };
+  const legacyMid = { ...legacyLate, category:MID_SHIFT_PERMISSION, categoryLabel:MID_SHIFT_PERMISSION, time:'12:00' };
   eq('Late القديم = بداية الوردية إلى time', '08:00–09:00', permissionIntervalsLabel([
     permissionInterval(legacyLate, SHIFT.shiftStart, SHIFT.shiftEnd)]));
   eq('Early القديم = time إلى نهاية الوردية', '15:00–16:00', permissionIntervalsLabel([
     permissionInterval(legacyEarly, SHIFT.shiftStart, SHIFT.shiftEnd)]));
+  eq('Mid القديم بلا permissionKind لا يمنح تعويضاً', null,
+    permissionInterval(legacyMid, SHIFT.shiftStart, SHIFT.shiftEnd));
 }
 
 group('وردية تتجاوز منتصف الليل');
@@ -112,6 +120,12 @@ group('وردية تتجاوز منتصف الليل');
     effective:hours(r.effectiveSecs),
     out:`${r.effectiveOut.getFullYear()}-${String(r.effectiveOut.getMonth()+1).padStart(2,'0')}-${String(r.effectiveOut.getDate()).padStart(2,'0')}T${r.effectiveOut.toTimeString().slice(0,5)}`
   });
+  const crossing = permissionInterval(p(MID_SHIFT_PERMISSION,'23:00','01:00'), night.shiftStart, night.shiftEnd);
+  eq('23:00 → 01:00 تُطبّع عبر منتصف الليل', '23:00–01:00', permissionIntervalsLabel([crossing]));
+  eq('فترة يمكن إسنادها إلى موضعين في الوردية تفشل مغلقاً', null,
+    permissionInterval(p(MID_SHIFT_PERMISSION,'05:00','23:00'), night.shiftStart, night.shiftEnd));
+  eq('فترة خارج الوردية تماماً لا تمنح تعويضاً', null,
+    permissionInterval(p(MID_SHIFT_PERMISSION,'12:00','13:00'), night.shiftStart, night.shiftEnd));
 }
 
 group('حماية البصمات والوقت الزائد');
