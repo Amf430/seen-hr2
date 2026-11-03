@@ -33,7 +33,7 @@ import { attendanceExport, attendanceReportExport, payrollExport, teamPerfExport
 import { teamSummaryOf, teamExportRows } from '../../js/lib/team-stats.js';
 import { payrollTotals } from '../../js/lib/payroll-view.js';
 import { dayWork } from '../../js/pages/attend.js';
-import { compress } from '../../js/lib/photo.js';
+import { encodeJpeg, capturePhoto } from '../../js/lib/photo.js';
 import { permWindowOpen, permOldestDate } from '../../js/lib/requests.js';
 import { mergeAttendanceSources, selectPayrollAttendance } from '../../js/lib/attendance-sources.js';
 import { attendanceMetrics } from '../../js/lib/attendance-metrics.js';
@@ -1245,7 +1245,7 @@ const loadImg = (src) => new Promise((res, rej) => {
   i.onerror = () => rej(new Error('img-load-failed'));
   i.src = src;
 });
-async function imgFile(w, h) {
+function imgCanvas(w, h) {
   const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
   const c = cv.getContext('2d');
   const g = c.createLinearGradient(0,0,w,h);
@@ -1253,11 +1253,10 @@ async function imgFile(w, h) {
   c.fillStyle = g; c.fillRect(0,0,w,h);
   c.fillStyle = '#fff'; c.font = Math.round(h/8)+'px sans-serif';
   c.fillText('LOC', w/6, h/2);
-  const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.95));
-  return new File([blob], 'shot.jpg', { type:'image/jpeg' });
+  return cv;
 }
 {
-  const dataUrl = await compress(await imgFile(4000, 3000));
+  const dataUrl = encodeJpeg(imgCanvas(4000, 3000), 4000, 3000);
   eq('الصورة تُضغط إلى JPEG', true, dataUrl.startsWith('data:image/jpeg'));
   eq('وتبقى دون حدّ القاعدة (٢٤٠ ألف حرف)', true, dataUrl.length < 240000);
   const img = await loadImg(dataUrl);
@@ -1265,14 +1264,60 @@ async function imgFile(w, h) {
   eq('ونسبتها محفوظة (٤:٣ ⇒ ٤٨٠)', 480, img.height);
 }
 {
-  const img = await loadImg(await compress(await imgFile(320, 240)));
+  const img = await loadImg(encodeJpeg(imgCanvas(320, 240), 320, 240));
   eq('الصورة الأصغر من ٦٤٠ لا تُكبَّر', 320, img.width);
 }
 {
+  /* videoWidth يبقى صفراً حتى يصل أول إطار من البثّ */
   let threw = null;
-  try { await compress(new File([new Uint8Array([1,2,3])], 'x.jpg', { type:'image/jpeg' })); }
+  try { encodeJpeg(imgCanvas(10, 10), 0, 0); }
   catch (e) { threw = e.message; }
-  eq('ملف غير صالح يرمي photo-unreadable', 'photo-unreadable', threw);
+  eq('إطار بلا أبعاد (الكاميرا لم تجهز) يرمي photo-unreadable', 'photo-unreadable', threw);
+}
+
+/* ══ الالتقاط الحيّ — قرار المالك ٢٠٢٦-١١-٠٢: لا صورة من الاستوديو ══
+   ⚠️ waitFor بمهلة لا انتظارٌ مفتوح: بثٌّ لا يصل يجب أن يُفشل الاختبار لا
+   أن يعلّق المجموعة بلا نتيجة. */
+const waitFor = async (cond, ms = 4000) => {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) { if (cond()) return true; await new Promise(r => setTimeout(r, 50)); }
+  return false;
+};
+const act = (m, a) => m.querySelector(`[data-act="${a}"]`);
+{
+  /* متصفح داخل تطبيق بلا getUserMedia */
+  Object.defineProperty(navigator, 'mediaDevices', { value: undefined, configurable: true });
+  const pr = capturePhoto();
+  const m = document.querySelector('.modal');
+  eq('متصفح بلا كاميرا حيّة يُطلب منه Safari أو Chrome', true,
+    /Safari/.test(m.textContent) && /Chrome/.test(m.textContent));
+  eq('ولا يُعرض عليه زرّ فتح الكاميرا', true, act(m, 'open').hidden);
+  eq('ولا حقل ملف بديل في النافذة', null, m.querySelector('input'));
+  act(m, 'cancel').click();
+  eq('والإلغاء يُرجع null فلا تُكتب بصمة', null, await pr);
+  delete navigator.mediaDevices;
+}
+{
+  /* كاميرا مزيّفة: بثّ من canvas يتحرّك — يمرّ بالمسار الحقيقي كاملاً */
+  const src = imgCanvas(800, 600);
+  const tick = setInterval(() => src.getContext('2d').fillRect(Math.random()*700, 10, 20, 20), 50);
+  const stream = src.captureStream(15);
+  const track = stream.getVideoTracks()[0];
+  Object.defineProperty(navigator, 'mediaDevices', {
+    value: { getUserMedia: async () => stream }, configurable: true
+  });
+  const pr = capturePhoto();
+  const m = document.querySelector('.modal');
+  eq('نافذة الكاميرا الحيّة بلا حقل ملف إطلاقاً', null, m.querySelector('input'));
+  act(m, 'open').click();
+  const ready = await waitFor(() => !act(m, 'snap').hidden && m.querySelector('video').videoWidth > 0);
+  if (ready) { act(m, 'snap').click(); act(m, 'use').click(); }
+  else act(m, 'cancel').click();
+  const shot = await pr;
+  clearInterval(tick);
+  delete navigator.mediaDevices;
+  eq('اللقطة من البثّ الحيّ تخرج JPEG', true, typeof shot === 'string' && shot.startsWith('data:image/jpeg'));
+  eq('والكاميرا تُطفأ بعد الإرسال', 'ended', track.readyState);
 }
 
 /* ══════════════════ النتيجة ══════════════════ */

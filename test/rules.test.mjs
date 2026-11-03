@@ -41,6 +41,7 @@ await env.withSecurityRulesDisabled(async (ctx) => {
   await setDoc(doc(db, 'users/finMgrU'),{ name: 'نورة', role: 'manager', status: 'active', department: 'المالية', empId: '107' });
   await setDoc(doc(db, 'users/finU'),   { name: 'ناصر', role: 'employee', status: 'active', department: 'المالية', empId: '105' });
   await setDoc(doc(db, 'users/suspU'),  { name: 'معلّق', role: 'employee', status: 'suspended', department: 'المبيعات', empId: '104' });
+  await setDoc(doc(db, 'users/remoteU'),{ name: 'رامي', role: 'employee', status: 'active', department: 'المبيعات', empId: '108', workMode: 'remote' });
   await setDoc(doc(db, 'settings/config'), { branches: [], leaveTypes: [], company: { lat: 21.5, lng: 39.1, radius: 500 },
     departments: [
       { id: 'sales', name: 'المبيعات', managerUid: 'mgrU' },
@@ -101,6 +102,7 @@ const finMgr   = env.authenticatedContext('finMgrU').firestore();
 const fin      = env.authenticatedContext('finU').firestore();
 const admin    = env.authenticatedContext('adminU').firestore();
 const susp     = env.authenticatedContext('suspU').firestore();
+const remote   = env.authenticatedContext('remoteU').firestore();  // workMode: 'remote'
 const anon     = env.unauthenticatedContext().firestore();
 
 /* ⚠️ تواريخ نسبية لا ثابتة. القواعد الجديدة تقارن التاريخ بـ request.time
@@ -665,6 +667,13 @@ await check('admin writes auditLog',                  true,  () => addDoc(collec
 await check('admin reads auditLog',                   true,  () => getDocs(collection(admin, 'auditLog')));
 await check('admin reads zkAttendance',               true,  () => getDocs(collection(admin, 'zkAttendance')));
 await check('admin deletes a request',                true,  () => deleteDoc(doc(admin, 'requests/permOfEmp')));
+
+/* ⚠️ «admin edits salary and geofence» أعلاه يضع empU على workMode:'remote'،
+   والقاعدة صارت تشترط صورة على كل بصمة لمن هو «من أي مكان». بقيّة أقسام
+   الحضور تختبر الموظف العادي، فنعيده onsite هنا — وإلا رُفضت كلها لغياب
+   الصورة لا لما تختبره. اختبارات الصورة نفسها في القسم ١١ على remoteU. */
+await env.withSecurityRulesDisabled(async (c) =>
+  updateDoc(doc(c.firestore(), 'users/empU'), { workMode: 'onsite' }));
 
 console.log('\n\x1b[1m═══ 8. MULTI-SESSION CHECK-OUT / CHECK-IN ═══\x1b[0m');
 /* يحاكي doAttendance حرفياً: يقرأ الوثيقة من السيرفر أولاً ثم يبني عليها.
@@ -1737,6 +1746,89 @@ await check('someone else records it for them', false,
   () => setDoc(doc(emp2, 'attendance/empU_' + ymdKsa()), outOnly()));
 await check('for a past date', false,
   () => setDoc(doc(emp, 'attendance/empU_2026-01-10'), outOnly({ date: '2026-01-10' })));
+
+/* ═══ صورة «من أي مكان» — قرار المالك ٢٠٢٦-١١-٠٢ ═══
+
+   من workMode له 'remote' لا يسجّل حضوراً ولا انصرافاً إلا وصورته في نفس
+   الدفعة (writeBatch) وبطابع الخادم نفسه. الشرط على ملف الموظف لا على ما
+   تدّعيه وثيقة الحضور، وغياب workMode يبقى سلوك اليوم.
+
+   ⚠️ الصورة إنشاء فقط، فكل محاولة تترك صورة خلفها تُنظَّف قبل التالية —
+   وإلا صار «الإنشاء المشروع» تعديلاً مرفوضاً لسبب لا علاقة له بالقاعدة. */
+console.log('\n\x1b[1m═══ 11. صورة «من أي مكان» ═══\x1b[0m');
+
+const rDate = ymdKsa();
+const rAttRef = () => doc(remote, `attendance/remoteU_${rDate}`);
+const rPhotoRef = (idx, kind) => doc(remote, `attendancePhotos/remoteU_${rDate}_${idx}_${kind}`);
+const rPhoto = (idx, kind) => photo({
+  employeeUid: 'remoteU', employeeName: 'رامي', sessionIdx: idx, kind
+});
+const rAtt = (over = {}) => attDoc({
+  employeeUid: 'remoteU', employeeName: 'رامي', employeeEmpId: '108',
+  workMode: 'remote', branchId: 'remote', branchName: 'عن بُعد', ...over
+});
+const withPhoto = (idx, kind, attData) => {
+  const b = writeBatch(remote);
+  b.set(rPhotoRef(idx, kind), rPhoto(idx, kind));
+  b.set(rAttRef(), attData, { merge: true });
+  return b.commit();
+};
+const rClean = (...paths) => env.withSecurityRulesDisabled(async (c) => {
+  for (const p of paths) await deleteDoc(doc(c.firestore(), p));
+});
+const rPhotoPath = (idx, kind) => `attendancePhotos/remoteU_${rDate}_${idx}_${kind}`;
+const rOpenIn = async () => (await getDoc(rAttRef())).data().sessions;
+
+await check('remote check-in WITHOUT a photo', false,
+  () => setDoc(rAttRef(), rAtt(), { merge: true }));
+await check('⚠️ claiming onsite on the record does not exempt', false,
+  () => setDoc(rAttRef(), rAtt({ workMode: 'onsite', branchId: 'main', branchName: 'المقر' }), { merge: true }));
+await check('⚠️ photo uploaded in an EARLIER write', false, async () => {
+  await setDoc(rPhotoRef(0, 'in'), rPhoto(0, 'in'));
+  return setDoc(rAttRef(), rAtt(), { merge: true });
+});
+await rClean(rPhotoPath(0, 'in'));
+await check('photo of the wrong kind in the batch', false,
+  () => withPhoto(0, 'out', rAtt()));
+await rClean(rPhotoPath(0, 'out'));
+await check('photo for another session index', false,
+  () => withPhoto(1, 'in', rAtt()));
+await rClean(rPhotoPath(1, 'in'));
+await check('remote check-in WITH its photo in the batch', true,
+  () => withPhoto(0, 'in', rAtt()));
+
+await check('remote check-out WITHOUT a photo', false, async () => {
+  const s = await rOpenIn();
+  return setDoc(rAttRef(), { sessions: [{ ...s[0], out: Timestamp.now() }] }, { merge: true });
+});
+await check('remote check-out WITH its photo in the batch', true, async () => {
+  const s = await rOpenIn();
+  return withPhoto(0, 'out', { sessions: [{ ...s[0], out: Timestamp.now() }] });
+});
+
+await check('second remote check-in WITHOUT a photo', false, async () => {
+  const s = await rOpenIn();
+  return setDoc(rAttRef(), { sessions: [...s, session()] }, { merge: true });
+});
+await check('second remote check-in WITH its photo', true, async () => {
+  const s = await rOpenIn();
+  return withPhoto(1, 'in', { sessions: [...s, session()] });
+});
+
+/* الانصراف بلا دخول — نفس الشرط على صورة 'out' */
+await rClean(`attendance/remoteU_${rDate}`, rPhotoPath(0, 'out'));
+const rOutOnly = () => rAtt({ missedCheckIn: true,
+  sessions: [{ in: null, out: Timestamp.now(), source: 'web' }] });
+await check('remote departure-only WITHOUT a photo', false,
+  () => setDoc(rAttRef(), rOutOnly()));
+await check('remote departure-only WITH its photo', true,
+  () => withPhoto(0, 'out', rOutOnly()));
+
+/* غياب workMode ⇒ onsite ⇒ سلوك اليوم: لا صورة مطلوبة */
+await check('employee with no workMode clocks in without a photo', true,
+  () => setDoc(doc(fin, `attendance/finU_${rDate}`), attDoc({
+    employeeUid: 'finU', employeeName: 'ناصر', employeeEmpId: '105', department: 'المالية'
+  })));
 
 console.log(`\n\x1b[1m═══ RESULT: ${pass} passed, ${fail} failed ═══\x1b[0m`);
 if (failures.length) { console.log('\nFAILURES:'); failures.forEach((f) => console.log('  • ' + f)); }

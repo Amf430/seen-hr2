@@ -122,6 +122,34 @@ service cloud.firestore {
     }
     function isOpen(s) { return !('out' in s) || s.out == null; }
 
+    /* ───────────── صورة «من أي مكان» — قرار المالك ٢٠٢٦-١١-٠٢ ─────────────
+       من وضع له الأدمن workMode = 'remote' لا يسجّل حضوراً ولا انصرافاً إلا
+       وصورته مكتوبة في **نفس العملية** (writeBatch) وبطابع الخادم نفسه.
+
+       ⚠️ الشرط مربوط بإعداد الأدمن على ملف الموظف، لا بما يدّعيه المتصفح عن
+       مكانه. موقع وهمي «داخل الفرع» لا يُعفي من الصورة، لأن القاعدة لا تسأل
+       عن المكان أصلاً — تسأل عن نوع الموظف، والموظف لا يكتب workMode.
+
+       ⚠️ at == request.time هو ما يربط الصورة بهذه الكتابة بعينها: صورة رُفعت
+       قبل دقيقة طابعها مختلف، فلا تصلح دليلاً لجلسة تُكتب الآن. ولأن الصورة
+       إنشاء فقط (match /attendancePhotos)، لا تُستبدل صورة قديمة بأخرى.
+
+       ⚠️ ما لا يثبته الخادم: أن الكاميرا هي التي التقطت الصورة لا المعرض.
+       الكونسول يرسل أي JPEG، ولا يعرف ذلك إلا المتصفح. منع المعرض في
+       photo.js (كاميرا حيّة بلا حقل ملف) — هنا: لا جلسة بلا صورة، ولا صورة
+       من وقت آخر.
+
+       غياب workMode ⇒ onsite ⇒ سلوك اليوم حرفياً. */
+    function isRemoteWorker() { return me().get('workMode', 'onsite') == 'remote'; }
+    function photoInThisWrite(date, idx, kind) {
+      let pid = request.auth.uid + '_' + date + '_' + string(idx) + '_' + kind;
+      let path = /databases/$(database)/documents/attendancePhotos/$(pid);
+      return existsAfter(path) && getAfter(path).data.at == request.time;
+    }
+    function remotePhotoOk(date, idx, kind) {
+      return !isRemoteWorker() || photoInThisWrite(date, idx, kind);
+    }
+
     /* ═════════════════════════ users ═════════════════════════ */
     match /users/{uid} {
       allow read: if isAdmin() || (sIn() && request.auth.uid == uid) || sameDept();
@@ -788,7 +816,8 @@ service cloud.firestore {
         && newN() == 1
         && (
           /* ── normal: an open session that starts now ── */
-          (fresh(d().sessions[0].in) && isOpen(d().sessions[0]))
+          (fresh(d().sessions[0].in) && isOpen(d().sessions[0])
+            && remotePhotoOk(d().date, 0, 'in'))
           ||
           /* ── missed the check-in window (owner's decision, 2026-08-13) ──
              The window closes four hours after the shift starts and there is
@@ -807,7 +836,8 @@ service cloud.firestore {
              null, so this cannot be reopened into a fake attendance later. */
           (d().get('missedCheckIn', false) == true
             && d().sessions[0].in == null
-            && fresh(d().sessions[0].out))
+            && fresh(d().sessions[0].out)
+            && remotePhotoOk(d().date, 0, 'out'))
         );
 
       allow update: if isActive()
@@ -824,7 +854,8 @@ service cloud.firestore {
             && frozenBelow(oldN())
             && (oldN() == 0 || !isOpen(oldLast()))
             && fresh(newLast().in)
-            && isOpen(newLast()))
+            && isOpen(newLast())
+            && remotePhotoOk(p().date, newN() - 1, 'in'))
           ||
           /* check OUT: close the last session only. Previously any session
              except sessions[0] could be silently rewritten. */
@@ -835,7 +866,8 @@ service cloud.firestore {
             && newLast().in == oldLast().in
             && newLast().out != null
             && fresh(newLast().out)
-            && newLast().out > newLast().in)
+            && newLast().out > newLast().in
+            && remotePhotoOk(p().date, oldN() - 1, 'out'))
         );
 
       allow delete: if isAdmin();

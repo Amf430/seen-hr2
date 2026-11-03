@@ -13,7 +13,7 @@ import {
 import {
   getFirestore, connectFirestoreEmulator, doc, getDoc, setDoc, updateDoc, deleteDoc, collection,
   addDoc, getDocs, query, where, orderBy, limit, onSnapshot, serverTimestamp,
-  runTransaction, Timestamp
+  runTransaction, writeBatch, Timestamp
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
 import { firebaseConfig } from '../config/firebase.config.js';
@@ -63,7 +63,7 @@ export {
   sendPasswordResetEmail, createUserWithEmailAndPassword, updatePassword,
   doc, getDoc, setDoc, updateDoc, deleteDoc, collection,
   addDoc, getDocs, query, where, orderBy, limit, onSnapshot, serverTimestamp,
-  runTransaction, Timestamp
+  runTransaction, writeBatch, Timestamp
 };
 
 /* ═══ إنشاء حساب لموظف جديد دون تسجيل خروج الأدمن ═══
